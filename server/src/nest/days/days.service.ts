@@ -47,7 +47,7 @@ export class DaysService {
     return dayService.reorderDays(tripId, orderedIds);
   }
 
-  update(id: string, current: Parameters<typeof dayService.updateDay>[1], fields: { notes?: string; title?: string | null }) {
+  update(id: string, current: Parameters<typeof dayService.updateDay>[1], fields: { notes?: string; title?: string | null; wake_up_time?: string | null }) {
     return dayService.updateDay(id, current, fields);
   }
 

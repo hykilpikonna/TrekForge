@@ -24,6 +24,7 @@ import { usePlannerHistory } from '../../hooks/usePlannerHistory'
 import { useAirtrailConnection } from '../../hooks/useAirtrailConnection'
 import { useIsTouch } from '../../hooks/useIsTouch'
 import { usePluginStore } from '../../store/pluginStore'
+import { parseDurationMinutes } from '../../utils/durationInput'
 import type { Accommodation, TripMember, Day, Place, Reservation } from '../../types'
 import { DEFAULT_MAP_LAT, DEFAULT_MAP_LNG, DEFAULT_MAP_ZOOM } from '../../constants/mapDefaults'
 import { resolvePoolAssignmentId } from './tripPlannerModel'
@@ -485,12 +486,18 @@ export function useTripPlanner() {
     const pendingFiles = data._pendingFiles
     delete data._pendingFiles
     if (editingPlace) {
-      // Always strip time fields from place update — time is per-assignment only
-      const { place_time, end_time, ...placeData } = data
+      // Activity duration is per-assignment; start/end timestamps are calculated.
+      const { duration_minutes, ...placeData } = data
+      const parsedDuration = editingAssignmentId ? parseDurationMinutes(duration_minutes) : null
+      if (editingAssignmentId && parsedDuration == null) {
+        throw new Error(t('places.durationInvalid'))
+      }
       await tripActions.updatePlace(tripId, editingPlace.id, placeData)
-      // If editing from assignment context, save time per-assignment
+      // If editing from assignment context, save duration per-assignment.
       if (editingAssignmentId) {
-        await assignmentsApi.updateTime(tripId, editingAssignmentId, { place_time: place_time || null, end_time: end_time || null })
+        await assignmentsApi.updateTime(tripId, editingAssignmentId, {
+          duration_minutes: parsedDuration,
+        })
         await tripActions.refreshDays(tripId)
       }
       // Upload pending files with place_id
@@ -504,7 +511,11 @@ export function useTripPlanner() {
       }
       toast.success(t('trip.toast.placeUpdated'))
     } else {
-      const place = await tripActions.addPlace(tripId, data)
+      const duration = parseDurationMinutes(data.duration_minutes)
+      const place = await tripActions.addPlace(tripId, {
+        ...data,
+        duration_minutes: duration ?? 60,
+      })
       if (pendingFiles?.length > 0 && place?.id) {
         for (const file of pendingFiles) {
           const fd = new FormData()
@@ -521,7 +532,13 @@ export function useTripPlanner() {
         })
       }
     }
-  }, [editingPlace, editingAssignmentId, tripId, toast, pushUndo])
+  }, [editingPlace, editingAssignmentId, tripId, toast, pushUndo, t])
+
+  const handleUpdateAssignmentDuration = useCallback(async (assignmentId: number, dayId: number, durationMinutes: number) => {
+    await assignmentsApi.updateTime(tripId, assignmentId, { duration_minutes: durationMinutes })
+    await tripActions.refreshDays(tripId)
+    updateRouteForDay(dayId)
+  }, [tripId, updateRouteForDay])
 
   // Open the place editor from any entry point (Places pool, inspector, map).
   // Times live per day-assignment, so when no day is in context resolve the
@@ -953,7 +970,7 @@ export function useTripPlanner() {
     route, routeSegments, routeInfo, setRoute, setRouteInfo, updateRouteForDay,
     handleSelectDay, handlePlaceClick, handleMarkerClick, handleMapClick, handleMapContextMenu, openAddPlaceFromPoi,
     handleSavePlace, openPlaceEditor, handleDeletePlace, confirmDeletePlace, confirmDeletePlaces, confirmChangeCategory,
-    handleAssignToDay, handleRemoveAssignment, handleReorder, handleReorderDays, handleAddDay, handleUpdateDayTitle,
+    handleAssignToDay, handleRemoveAssignment, handleUpdateAssignmentDuration, handleReorder, handleReorderDays, handleAddDay, handleUpdateDayTitle,
     handleSaveReservation, handleSaveTransport, handleDeleteReservation,
     selectedPlace, dayOrderMap, dayPlaces,
     mapTileUrl, fontStyle, splashDone,

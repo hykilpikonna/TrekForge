@@ -22,6 +22,8 @@ const dayplan: TranslationStrings = {
   'dayplan.days': 'Hari',
   'dayplan.dayN': 'Hari {n}',
   'dayplan.calculating': 'Menghitung...',
+  'dayplan.wake': 'Wake',
+  'dayplan.maxSleep': 'Max sleep',
   'dayplan.route': 'Rute',
   'dayplan.optimize': 'Optimalkan',
   'dayplan.optimized': 'Rute dioptimalkan',

@@ -27,21 +27,25 @@ export function registerDayTools(server: McpServer, userId: number, scopes: stri
   server.registerTool(
     'update_day',
     {
-      description: 'Set the title of a day in a trip (e.g. "Arrival in Paris", "Free day").',
+      description: 'Set the title and/or wake up time of a day in a trip (e.g. "Arrival in Paris", "08:00").',
       inputSchema: {
         tripId: z.number().int().positive(),
         dayId: z.number().int().positive(),
-        title: z.string().max(200).nullable().describe('Day title, or null to clear it'),
+        title: z.string().max(200).nullable().optional().describe('Day title, or null to clear it'),
+        wake_up_time: z.string().max(50).nullable().optional().describe('Wake up time (e.g. "08:00"), or null to use the default'),
       },
       annotations: TOOL_ANNOTATIONS_WRITE,
     },
-    async ({ tripId, dayId, title }) => {
+    async ({ tripId, dayId, title, wake_up_time }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('day_edit', tripId, userId)) return permissionDenied();
       const current = getDay(dayId, tripId);
       if (!current) return { content: [{ type: 'text' as const, text: 'Day not found.' }], isError: true };
-      const updated = updateDay(dayId, current, title !== undefined ? { title } : {});
+      const fields: { title?: string | null; wake_up_time?: string | null } = {};
+      if (title !== undefined) fields.title = title;
+      if (wake_up_time !== undefined) fields.wake_up_time = wake_up_time;
+      const updated = updateDay(dayId, current, fields);
       safeBroadcast(tripId, 'day:updated', { day: updated });
       return ok({ day: updated });
     }

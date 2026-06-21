@@ -370,7 +370,7 @@ describe('Assignment participants', () => {
     expect(found.participants).toHaveLength(2);
   });
 
-  it('ASSIGN-009 — PUT /time updates assignment time fields', async () => {
+  it('ASSIGN-009 — PUT /time updates duration and clears manual time fields', async () => {
     const { user } = createUser(testDb);
     const { trip, day, place } = setupAssignmentFixtures(user.id);
 
@@ -383,10 +383,10 @@ describe('Assignment participants', () => {
     const update = await request(app)
       .put(`/api/trips/${trip.id}/assignments/${assignmentId}/time`)
       .set('Cookie', authCookie(user.id))
-      .send({ place_time: '14:00', end_time: '16:00' });
+      .send({ duration_minutes: 95, place_time: '14:00', end_time: '16:00' });
     expect(update.status).toBe(200);
-    // Time is embedded under assignment.place.place_time (COALESCEd from assignment_time)
-    expect(update.body.assignment.place.place_time).toBe('14:00');
-    expect(update.body.assignment.place.end_time).toBe('16:00');
+    expect(update.body.assignment.duration_minutes).toBe(95);
+    expect(update.body.assignment.assignment_time).toBeNull();
+    expect(update.body.assignment.assignment_end_time).toBeNull();
   });
 });

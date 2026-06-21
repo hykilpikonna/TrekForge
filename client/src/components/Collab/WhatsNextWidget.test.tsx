@@ -119,7 +119,7 @@ describe('WhatsNextWidget', () => {
 
   it('FE-COMP-WHATSNEXT-005: shows "Today" label for today\'s events with future time', () => {
     seedStore(useTripStore, {
-      days: [{ id: 1, trip_id: 1, date: today, title: null, day_number: 0, assignments: [], notes_items: [], notes: null }],
+      days: [{ id: 1, trip_id: 1, date: today, title: null, day_number: 0, wake_up_time: '23:59', assignments: [], notes_items: [], notes: null }],
       assignments: {
         '1': [makeAssignment(22, { name: 'Night Dinner', place_time: '23:59' })],
       },
@@ -128,7 +128,7 @@ describe('WhatsNextWidget', () => {
     expect(screen.getByText(/today/i)).toBeInTheDocument()
   })
 
-  it('FE-COMP-WHATSNEXT-006: renders event time in 24h format', () => {
+  it('FE-COMP-WHATSNEXT-006: renders calculated event time in 24h format', () => {
     seedStore(useSettingsStore, { settings: { time_format: '24h' } })
     seedStore(useTripStore, {
       days: [{ id: 1, trip_id: 1, date: tomorrow, title: null, day_number: 0, assignments: [], notes_items: [], notes: null }],
@@ -137,10 +137,11 @@ describe('WhatsNextWidget', () => {
       },
     })
     render(<WhatsNextWidget />)
-    expect(screen.getByText('14:30')).toBeInTheDocument()
+    expect(screen.getByText('08:00')).toBeInTheDocument()
+    expect(screen.queryByText('14:30')).not.toBeInTheDocument()
   })
 
-  it('FE-COMP-WHATSNEXT-007: renders event time in 12h format', () => {
+  it('FE-COMP-WHATSNEXT-007: renders calculated event time in 12h format', () => {
     seedStore(useSettingsStore, { settings: { time_format: '12h' } })
     seedStore(useTripStore, {
       days: [{ id: 1, trip_id: 1, date: tomorrow, title: null, day_number: 0, assignments: [], notes_items: [], notes: null }],
@@ -149,10 +150,11 @@ describe('WhatsNextWidget', () => {
       },
     })
     render(<WhatsNextWidget />)
-    expect(screen.getByText('2:30 PM')).toBeInTheDocument()
+    expect(screen.getByText('8:00 AM')).toBeInTheDocument()
+    expect(screen.queryByText('2:30 PM')).not.toBeInTheDocument()
   })
 
-  it('FE-COMP-WHATSNEXT-008: shows "TBD" when event has no time', () => {
+  it('FE-COMP-WHATSNEXT-008: uses default wake-up time when event has no legacy time', () => {
     seedStore(useTripStore, {
       days: [{ id: 1, trip_id: 1, date: tomorrow, title: null, day_number: 0, assignments: [], notes_items: [], notes: null }],
       assignments: {
@@ -160,7 +162,7 @@ describe('WhatsNextWidget', () => {
       },
     })
     render(<WhatsNextWidget />)
-    expect(screen.getByText('TBD')).toBeInTheDocument()
+    expect(screen.getByText('08:00')).toBeInTheDocument()
   })
 
   it('FE-COMP-WHATSNEXT-009: renders address when provided', () => {
@@ -198,12 +200,8 @@ describe('WhatsNextWidget', () => {
     seedStore(useTripStore, { days, assignments })
     render(<WhatsNextWidget />)
 
-    // 10 items seeded, only 8 should appear — count "TBD" or time occurrences
-    const timeElements = screen.getAllByText('10:00')
-    // At most 4 days * 1 morning slot = up to 4 "10:00" entries, but capped at 8 total items
-    // We verify total rendered items is at most 8 by counting both time slots
-    const allTimes = screen.getAllByText(/10:00|11:00/)
-    expect(allTimes.length).toBeLessThanOrEqual(8)
+    // 10 items seeded, only 8 activity rows should appear.
+    expect(screen.getAllByText(/^Place \d+$/)).toHaveLength(8)
   })
 
   it('FE-COMP-WHATSNEXT-011: shows participant username chip', () => {
@@ -228,7 +226,7 @@ describe('WhatsNextWidget', () => {
     expect(screen.getByText('bob')).toBeInTheDocument()
   })
 
-  it('FE-COMP-WHATSNEXT-013: renders end time when provided', () => {
+  it('FE-COMP-WHATSNEXT-013: renders calculated end time', () => {
     seedStore(useTripStore, {
       days: [{ id: 1, trip_id: 1, date: tomorrow, title: null, day_number: 0, assignments: [], notes_items: [], notes: null }],
       assignments: {
@@ -236,8 +234,10 @@ describe('WhatsNextWidget', () => {
       },
     })
     render(<WhatsNextWidget />)
-    expect(screen.getByText('19:00')).toBeInTheDocument()
-    expect(screen.getByText('21:30')).toBeInTheDocument()
+    expect(screen.getByText('08:00')).toBeInTheDocument()
+    expect(screen.getByText('09:00')).toBeInTheDocument()
+    expect(screen.queryByText('19:00')).not.toBeInTheDocument()
+    expect(screen.queryByText('21:30')).not.toBeInTheDocument()
   })
 
   it('FE-COMP-WHATSNEXT-014: multiple events on same day share one day header', () => {
@@ -264,7 +264,7 @@ describe('WhatsNextWidget', () => {
     if (now.getHours() > 0) {
       const pastTime = '00:01' // Very early — will be past for most of the day
       seedStore(useTripStore, {
-        days: [{ id: 1, trip_id: 1, date: today, title: null, day_number: 0, assignments: [], notes_items: [], notes: null }],
+        days: [{ id: 1, trip_id: 1, date: today, title: null, day_number: 0, wake_up_time: pastTime, assignments: [], notes_items: [], notes: null }],
         assignments: {
           '1': [makeAssignment(70, { name: 'Early Bird', place_time: pastTime })],
         },

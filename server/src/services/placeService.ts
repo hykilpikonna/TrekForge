@@ -173,7 +173,6 @@ export function createPlace(
   body: {
     name: string; description?: string; lat?: number; lng?: number; address?: string;
     category_id?: number; price?: number; currency?: string;
-    place_time?: string; end_time?: string;
     duration_minutes?: number; notes?: string; image_url?: string;
     google_place_id?: string; google_ftid?: string; osm_id?: string; website?: string; phone?: string;
     transport_mode?: string; tags?: number[];
@@ -181,7 +180,6 @@ export function createPlace(
 ) {
   const {
     name, description, lat, lng, address, category_id, price, currency,
-    place_time, end_time,
     duration_minutes, notes, image_url, google_place_id, google_ftid, osm_id, website, phone,
     transport_mode, tags = [],
   } = body;
@@ -194,7 +192,7 @@ export function createPlace(
   `).run(
     tripId, name, description || null, lat || null, lng || null, address || null,
     category_id || null, price || null, currency || null,
-    place_time || null, end_time || null, duration_minutes || 60, notes || null, image_url || null,
+    null, null, duration_minutes || 60, notes || null, image_url || null,
     google_place_id || null, google_ftid || null, osm_id || null, website || null, phone || null, transport_mode || 'walking',
   );
 
@@ -230,7 +228,6 @@ export function updatePlace(
   body: {
     name?: string; description?: string; lat?: number; lng?: number; address?: string;
     category_id?: number; price?: number; currency?: string;
-    place_time?: string; end_time?: string;
     duration_minutes?: number; notes?: string; image_url?: string;
     google_place_id?: string; google_ftid?: string; osm_id?: string; website?: string; phone?: string;
     transport_mode?: string; tags?: number[];
@@ -249,7 +246,6 @@ export function updatePlace(
 
   const {
     name, description, lat, lng, address, category_id, price, currency,
-    place_time, end_time,
     duration_minutes, notes, image_url, google_place_id, google_ftid, osm_id, website, phone,
     transport_mode, tags,
   } = body;
@@ -286,8 +282,8 @@ export function updatePlace(
     category_id !== undefined ? category_id : existingPlace.category_id,
     price !== undefined ? price : existingPlace.price,
     currency || null,
-    place_time !== undefined ? place_time : existingPlace.place_time,
-    end_time !== undefined ? end_time : existingPlace.end_time,
+    null,
+    null,
     duration_minutes || null,
     notes !== undefined ? notes : existingPlace.notes,
     image_url !== undefined ? image_url : existingPlace.image_url,

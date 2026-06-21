@@ -161,10 +161,9 @@ export function getTransportForDay(opts: {
 }
 
 /**
- * Order items chronologically: anything with a time (a place's place_time, a
- * transport/leg display time, a timed note) sorts by that time. An item WITHOUT a
- * time inherits the time of the timed item before it, so untimed items stay where
- * they were manually placed. Stable on the incoming order for ties.
+ * Order timed transports/notes chronologically. Activity start/end times are
+ * calculated from day wake time, duration, and route travel, so legacy place
+ * times do not affect activity order.
  */
 function applyChronoOrder(
   items: MergedItem[],
@@ -172,7 +171,7 @@ function applyChronoOrder(
   getDisplayTime: (r: any, dayId: number) => string | null
 ): MergedItem[] {
   const timeOf = (it: MergedItem): number | null => {
-    if (it.type === 'place') return parseTimeToMinutes(it.data?.place?.place_time)
+    if (it.type === 'place') return null
     if (it.type === 'note') return parseTimeToMinutes(it.data?.time)
     return parseTimeToMinutes(getDisplayTime(it.data, dayId))
   }
@@ -227,13 +226,10 @@ export function getMergedItems(opts: {
       continue
     }
 
-    // Time-based fallback: insert after the last item whose time <= this transport's time
+    // Time-based fallback: insert after the last timed transport whose time <= this transport's time.
     let insertAfterKey = -Infinity
     for (const item of result) {
-      if (item.type === 'place') {
-        const pm = parseTimeToMinutes(item.data?.place?.place_time)
-        if (pm !== null && pm <= minutes) insertAfterKey = item.sortKey
-      } else if (item.type === 'transport') {
+      if (item.type === 'transport') {
         const tm = parseTimeToMinutes(item.data?.reservation_time)
         if (tm !== null && tm <= minutes) insertAfterKey = item.sortKey
       }

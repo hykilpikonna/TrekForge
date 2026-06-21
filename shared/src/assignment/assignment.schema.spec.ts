@@ -2,6 +2,7 @@ import {
   assignmentCreateRequestSchema,
   assignmentMoveRequestSchema,
   assignmentParticipantsRequestSchema,
+  assignmentTimeRequestSchema,
 } from './assignment.schema';
 
 import { describe, it, expect } from 'vitest';
@@ -26,5 +27,13 @@ describe('assignmentParticipantsRequestSchema', () => {
   it('requires a numeric user_ids array', () => {
     expect(assignmentParticipantsRequestSchema.safeParse({ user_ids: [1, 2] }).success).toBe(true);
     expect(assignmentParticipantsRequestSchema.safeParse({ user_ids: 'no' }).success).toBe(false);
+  });
+});
+
+describe('assignmentTimeRequestSchema', () => {
+  it('accepts duration only and rejects manual start/end times', () => {
+    expect(assignmentTimeRequestSchema.safeParse({ place_time: '09:00', end_time: null }).success).toBe(false);
+    expect(assignmentTimeRequestSchema.safeParse({ duration_minutes: 90 }).success).toBe(true);
+    expect(assignmentTimeRequestSchema.safeParse({ duration_minutes: 0 }).success).toBe(false);
   });
 });

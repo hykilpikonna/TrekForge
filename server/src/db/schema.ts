@@ -101,6 +101,7 @@ function createTables(db: Database.Database): void {
       date TEXT,
       notes TEXT,
       title TEXT,
+      wake_up_time TEXT DEFAULT '08:00',
       UNIQUE(trip_id, day_number)
     );
 
@@ -161,6 +162,7 @@ function createTables(db: Database.Database): void {
       place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
       order_index INTEGER DEFAULT 0,
       notes TEXT,
+      duration_minutes INTEGER DEFAULT 60,
       reservation_status TEXT DEFAULT 'none',
       reservation_notes TEXT,
       reservation_datetime TEXT,

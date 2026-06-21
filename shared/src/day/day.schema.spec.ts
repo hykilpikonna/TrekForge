@@ -1,4 +1,4 @@
-import { dayCreateRequestSchema, dayNoteCreateRequestSchema, dayNoteUpdateRequestSchema } from './day.schema';
+import { dayCreateRequestSchema, dayNoteCreateRequestSchema, dayNoteUpdateRequestSchema, dayUpdateRequestSchema } from './day.schema';
 
 import { describe, it, expect } from 'vitest';
 
@@ -20,6 +20,13 @@ describe('dayNoteCreateRequestSchema', () => {
         time: 'y'.repeat(251),
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('dayUpdateRequestSchema', () => {
+  it('accepts wake up time updates', () => {
+    expect(dayUpdateRequestSchema.safeParse({ wake_up_time: '08:30' }).success).toBe(true);
+    expect(dayUpdateRequestSchema.safeParse({ wake_up_time: null }).success).toBe(true);
   });
 });
 

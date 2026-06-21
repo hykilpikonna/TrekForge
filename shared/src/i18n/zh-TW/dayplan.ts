@@ -13,6 +13,8 @@ const dayplan: TranslationStrings = {
   'dayplan.days': '天',
   'dayplan.dayN': '第 {n} 天',
   'dayplan.calculating': '計算中...',
+  'dayplan.wake': 'Wake',
+  'dayplan.maxSleep': 'Max sleep',
   'dayplan.route': '路線',
   'dayplan.optimize': '最佳化',
   'dayplan.optimized': '路線已最佳化',

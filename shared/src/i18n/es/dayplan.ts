@@ -13,6 +13,8 @@ const dayplan: TranslationStrings = {
   'dayplan.days': 'Días',
   'dayplan.dayN': 'Día {n}',
   'dayplan.calculating': 'Calculando...',
+  'dayplan.wake': 'Wake',
+  'dayplan.maxSleep': 'Max sleep',
   'dayplan.route': 'Ruta',
   'dayplan.optimize': 'Optimizar',
   'dayplan.optimized': 'Ruta optimizada',

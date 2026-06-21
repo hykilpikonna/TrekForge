@@ -123,11 +123,12 @@ export function getSharedTripData(token: string): Record<string, any> | null {
   if (dayIds.length > 0) {
     const ph = dayIds.map(() => '?').join(',');
     const allAssignments = db.prepare(`
-      SELECT da.*, p.id as place_id, p.name as place_name, p.description as place_description,
+      SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
+        p.name as place_name, p.description as place_description,
         p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
-        COALESCE(da.assignment_time, p.place_time) as place_time,
-        COALESCE(da.assignment_end_time, p.end_time) as end_time,
-        p.duration_minutes, p.notes as place_notes, p.image_url, p.transport_mode,
+        NULL as place_time,
+        NULL as end_time,
+        COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes, p.image_url, p.transport_mode,
         c.name as category_name, c.color as category_color, c.icon as category_icon
       FROM day_assignments da
       JOIN places p ON da.place_id = p.id
@@ -144,10 +145,12 @@ export function getSharedTripData(token: string): Record<string, any> | null {
       if (!byDay[a.day_id]) byDay[a.day_id] = [];
       byDay[a.day_id].push({
         id: a.id, day_id: a.day_id, order_index: a.order_index, notes: a.notes,
+        duration_minutes: a.duration_minutes,
         place: {
           id: a.place_id, name: a.place_name, description: a.place_description,
           lat: a.lat, lng: a.lng, address: a.address, category_id: a.category_id,
           price: a.price, place_time: a.place_time, end_time: a.end_time,
+          duration_minutes: a.duration_minutes,
           image_url: rewritePlacePhotoUrl(a.image_url, token), transport_mode: a.transport_mode,
           category: a.category_id ? { id: a.category_id, name: a.category_name, color: a.category_color, icon: a.category_icon } : null,
           tags: tagsByPlace[a.place_id] || [],

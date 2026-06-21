@@ -45,7 +45,13 @@ export const createPlacesSlice = (set: SetState, get: GetState): PlacesSlice => 
         for (const [dayId, items] of Object.entries(state.assignments)) {
           if (items.some((a: Assignment) => a.place?.id === placeId)) {
             updatedAssignments[dayId] = items.map((a: Assignment) =>
-              a.place?.id === placeId ? { ...a, place: { ...data.place, place_time: a.place.place_time, end_time: a.place.end_time } } : a
+              a.place?.id === placeId ? {
+                ...a,
+                place: {
+                  ...data.place,
+                  duration_minutes: a.duration_minutes ?? a.place.duration_minutes,
+                },
+              } : a
             )
             changed = true
           }

@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent, act } from '../../../tests/helpers/render';
 import userEvent from '@testing-library/user-event';
-import { buildUser, buildTrip, buildPlace, buildCategory, buildReservation } from '../../../tests/helpers/factories';
+import { buildUser, buildTrip, buildPlace, buildCategory, buildReservation, buildAssignment } from '../../../tests/helpers/factories';
 import { resetAllStores, seedStore } from '../../../tests/helpers/store';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
@@ -75,6 +75,7 @@ const defaultProps = {
   tripMembers: [] as any[],
   onSetParticipants: vi.fn(),
   onUpdatePlace: vi.fn(),
+  onUpdateAssignmentDuration: vi.fn(),
 };
 
 // ── Setup / teardown ──────────────────────────────────────────────────────────
@@ -131,19 +132,17 @@ describe('PlaceInspector', () => {
     expect(screen.getByText(/2\.294500/)).toBeTruthy();
   });
 
-  it('FE-PLANNER-INSPECTOR-007: shows time range when place_time and end_time are set', () => {
+  it('FE-PLANNER-INSPECTOR-007: ignores legacy place_time and end_time', () => {
     const p = buildPlace({ id: 101, place_time: '09:00', end_time: '17:00' });
     render(<PlaceInspector {...defaultProps} place={p} />);
-    expect(screen.getByText(/09:00/)).toBeTruthy();
-    expect(screen.getByText(/17:00/)).toBeTruthy();
+    expect(screen.queryByText(/09:00/)).toBeNull();
+    expect(screen.queryByText(/17:00/)).toBeNull();
   });
 
-  it('FE-PLANNER-INSPECTOR-008: shows only start time when no end_time', () => {
+  it('FE-PLANNER-INSPECTOR-008: does not render a manual start-only time', () => {
     const p = buildPlace({ id: 102, place_time: '09:00', end_time: null });
     render(<PlaceInspector {...defaultProps} place={p} />);
-    expect(screen.getByText(/09:00/)).toBeTruthy();
-    // The '–' separator should not be present
-    expect(screen.queryByText(/–/)).toBeNull();
+    expect(screen.queryByText(/09:00/)).toBeNull();
   });
 
   it('FE-PLANNER-INSPECTOR-009: description is rendered as markdown', () => {
@@ -264,6 +263,69 @@ describe('PlaceInspector', () => {
     await user.click(removeBtn);
     // Component calls onRemoveAssignment(selectedDayId, assignmentInDay.id)
     expect(onRemoveAssignment).toHaveBeenCalledWith(1, 99);
+  });
+
+  it('FE-PLANNER-INSPECTOR-018b: shows assignment duration when a selected place is assigned to the day', () => {
+    const assignmentInDay = buildAssignment({ id: 99, day_id: 1, place, duration_minutes: 75 });
+    render(
+      <PlaceInspector
+        {...defaultProps}
+        selectedDayId={1}
+        selectedAssignmentId={99}
+        assignments={{ '1': [assignmentInDay] }}
+      />
+    );
+
+    expect(screen.getByLabelText('Duration')).toHaveValue('1h 15m');
+  });
+
+  it('FE-PLANNER-INSPECTOR-018c: saves flexible duration text as assignment minutes', async () => {
+    const user = userEvent.setup();
+    const onUpdateAssignmentDuration = vi.fn().mockResolvedValue(undefined);
+    const assignmentInDay = buildAssignment({ id: 99, day_id: 1, place, duration_minutes: 75 });
+    render(
+      <PlaceInspector
+        {...defaultProps}
+        selectedDayId={1}
+        selectedAssignmentId={99}
+        assignments={{ '1': [assignmentInDay] }}
+        onUpdateAssignmentDuration={onUpdateAssignmentDuration}
+      />
+    );
+
+    const durationInput = screen.getByLabelText('Duration');
+    await user.clear(durationInput);
+    await user.type(durationInput, '2h');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(onUpdateAssignmentDuration).toHaveBeenCalledWith(99, 1, 120);
+    });
+  });
+
+  it('FE-PLANNER-INSPECTOR-018d: rejects invalid duration text', async () => {
+    const user = userEvent.setup();
+    const onUpdateAssignmentDuration = vi.fn().mockResolvedValue(undefined);
+    const assignmentInDay = buildAssignment({ id: 99, day_id: 1, place, duration_minutes: 75 });
+    render(
+      <PlaceInspector
+        {...defaultProps}
+        selectedDayId={1}
+        selectedAssignmentId={99}
+        assignments={{ '1': [assignmentInDay] }}
+        onUpdateAssignmentDuration={onUpdateAssignmentDuration}
+      />
+    );
+
+    const durationInput = screen.getByLabelText('Duration');
+    await user.clear(durationInput);
+    await user.type(durationInput, 'two hours');
+    fireEvent.blur(durationInput);
+
+    await waitFor(() => {
+      expect(durationInput).toHaveValue('1h 15m');
+    });
+    expect(onUpdateAssignmentDuration).not.toHaveBeenCalled();
   });
 
   // ── Inline name editing ────────────────────────────────────────────────────
@@ -598,12 +660,11 @@ describe('PlaceInspector', () => {
 
   // ── formatTime: 12h format ─────────────────────────────────────────────────
 
-  it('FE-PLANNER-INSPECTOR-041: time shown in 12h format when setting is 12h', () => {
+  it('FE-PLANNER-INSPECTOR-041: legacy manual place time is not shown in 12h format', () => {
     seedStore(useSettingsStore, { settings: { time_format: '12h' } });
     const p = buildPlace({ id: 305, place_time: '14:30', end_time: null });
     render(<PlaceInspector {...defaultProps} place={p} />);
-    // 14:30 in 12h = "2:30 PM"
-    expect(screen.getByText(/2:30 PM/)).toBeTruthy();
+    expect(screen.queryByText(/2:30 PM/)).toBeNull();
   });
 
   // ── convertHoursLine: 24h→12h conversion ──────────────────────────────────

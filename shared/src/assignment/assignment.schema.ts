@@ -28,8 +28,10 @@ export type AssignmentParticipant = z.infer<typeof assignmentParticipantSchema>;
  * Assignment entity as returned by the day/assignment endpoints
  * (server/src/services/queryHelpers.ts -> formatAssignmentWithPlace, and
  * assignmentService.getAssignmentWithPlace). The embedded `place` is the trimmed
- * assignment-place projection, NOT the full place pool entity. `assignment_time`
- * /`assignment_end_time` carry the per-assignment override times.
+ * assignment-place projection, NOT the full place pool entity. Legacy
+ * assignment_time / assignment_end_time fields may appear on older rows, but
+ * activity timestamps are calculated from wake-up time, route travel, and
+ * duration.
  */
 export const assignmentSchema = z.object({
   id: z.number(),
@@ -37,6 +39,7 @@ export const assignmentSchema = z.object({
   place_id: z.number(),
   order_index: z.number(),
   notes: z.string().nullable().optional(),
+  duration_minutes: z.number().nullable().optional(),
   assignment_time: z.string().nullable().optional(),
   assignment_end_time: z.string().nullable().optional(),
   participants: z.array(assignmentParticipantSchema).optional(),
@@ -63,9 +66,8 @@ export const assignmentMoveRequestSchema = z.object({
 export type AssignmentMoveRequest = z.infer<typeof assignmentMoveRequestSchema>;
 
 export const assignmentTimeRequestSchema = z.object({
-  place_time: z.string().nullable().optional(),
-  end_time: z.string().nullable().optional(),
-});
+  duration_minutes: z.number().int().positive().nullable().optional(),
+}).strict();
 export type AssignmentTimeRequest = z.infer<typeof assignmentTimeRequestSchema>;
 
 export const assignmentParticipantsRequestSchema = z.object({

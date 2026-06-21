@@ -99,7 +99,7 @@ export class DaysController {
     @CurrentUser() user: User,
     @Param('tripId') tripId: string,
     @Param('id') id: string,
-    @Body() body: { notes?: string; title?: string | null },
+    @Body() body: { notes?: string; title?: string | null; wake_up_time?: string | null },
     @Headers('x-socket-id') socketId?: string,
   ) {
     const trip = this.requireTrip(tripId, user);
@@ -108,7 +108,11 @@ export class DaysController {
     if (!current) {
       throw new HttpException({ error: 'Day not found' }, 404);
     }
-    const day = this.days.update(id, current as never, { notes: body.notes, title: body.title });
+    const fields: { notes?: string; title?: string | null; wake_up_time?: string | null } = {};
+    if ('notes' in body) fields.notes = body.notes;
+    if ('title' in body) fields.title = body.title;
+    if ('wake_up_time' in body) fields.wake_up_time = body.wake_up_time;
+    const day = this.days.update(id, current as never, fields);
     this.days.broadcast(tripId, 'day:updated', { day }, socketId);
     return { day };
   }

@@ -158,7 +158,7 @@ export class AssignmentOpsController {
     @CurrentUser() user: User,
     @Param('tripId') tripId: string,
     @Param('id') id: string,
-    @Body() body: { place_time?: string | null; end_time?: string | null },
+    @Body() body: { duration_minutes?: number | null },
     @Headers('x-socket-id') socketId?: string,
   ) {
     const trip = requireTrip(this.assignments, tripId, user);
@@ -166,7 +166,7 @@ export class AssignmentOpsController {
     if (!this.assignments.getAssignmentForTrip(id, tripId)) {
       throw new HttpException({ error: 'Assignment not found' }, 404);
     }
-    const assignment = this.assignments.updateTime(id, body.place_time, body.end_time);
+    const assignment = this.assignments.updateTime(id, body.duration_minutes);
     this.assignments.broadcast(tripId, 'assignment:updated', { assignment }, socketId);
     this.assignments.reconcile(tripId, socketId);
     return { assignment };

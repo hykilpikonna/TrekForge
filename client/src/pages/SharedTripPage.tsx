@@ -25,6 +25,7 @@ import { useSettingsStore } from '../store/settingsStore';
 import { avatarSrc } from '../utils/avatarSrc';
 import { getMergedItems, getTransportForDay } from '../utils/dayMerge';
 import { isDayInAccommodationRange } from '../utils/dayOrder';
+import { buildActivitySchedule, formatDurationMinutes } from '../utils/daySchedule';
 import { getFlightLegs, getTrainLegs } from '../utils/flightLegs';
 import { splitReservationDateTime } from '../utils/formatters';
 import { computeMapViewport, TILE_SIZE_RASTER } from '../utils/mapViewport';
@@ -453,6 +454,10 @@ export default function SharedTripPage() {
                   dayTransports: dayTransport,
                   dayId: day.id,
                 });
+                const activitySchedule = buildActivitySchedule(
+                  day,
+                  merged.filter((item: any) => item.type === 'place').map((item: any) => item.data),
+                );
 
                 return (
                   <div
@@ -664,6 +669,7 @@ export default function SharedTripPage() {
                           const place = item.data.place;
                           if (!place) return null;
                           const cat = categories?.find((c: any) => c.id === place.category_id);
+                          const slot = activitySchedule[item.data.id];
                           return (
                             <div
                               key={`p-${item.data.id}`}
@@ -717,7 +723,7 @@ export default function SharedTripPage() {
                                   </div>
                                 )}
                               </div>
-                              {place.place_time && (
+                              {slot && (
                                 <span
                                   className="text-[#6b7280]"
                                   style={{
@@ -729,8 +735,7 @@ export default function SharedTripPage() {
                                   }}
                                 >
                                   <Clock size={9} />
-                                  {place.place_time}
-                                  {place.end_time ? ` – ${place.end_time}` : ''}
+                                  {slot.start} ~ {slot.end} · {formatDurationMinutes(slot.durationMinutes)}
                                 </span>
                               )}
                             </div>

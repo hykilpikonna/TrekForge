@@ -29,6 +29,7 @@ import {
   type MergedItem,
 } from '../../utils/dayMerge'
 import { formatDate, formatTime, dayTotalCost, formatMoneySum, splitReservationDateTime } from '../../utils/formatters'
+import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes } from '../../utils/daySchedule'
 import { useDayNotes } from '../../hooks/useDayNotes'
 import { useExchangeRates } from '../../hooks/useExchangeRates'
 import { RES_ICONS, getNoteIcon } from './DayPlanSidebar.constants'
@@ -36,12 +37,16 @@ import { RouteConnector, HotelRouteConnector } from './DayPlanSidebarRouteConnec
 import { MobileAddPlaceButton } from './DayPlanSidebarMobileAddPlaceButton'
 import { DayPlanSidebarToolbar } from './DayPlanSidebarToolbar'
 import { DayPlanSidebarNoteModal } from './DayPlanSidebarNoteModal'
-import { DayPlanSidebarTimeConfirmModal } from './DayPlanSidebarTimeConfirmModal'
 import { DayPlanSidebarTransportDetailModal } from './DayPlanSidebarTransportDetailModal'
 import { TransitTitle, TransitLegChips, TransitItineraryInline } from './transitDisplay'
 import { DayPlanSidebarFooter } from './DayPlanSidebarFooter'
 import type { Trip, Day, Place, Category, Assignment, Accommodation, Reservation, AssignmentsMap, RouteResult, RouteSegment, DayNote } from '../../types'
 import { getGoogleMapsUrlForPlace } from './placeGoogleMaps'
+
+function routeSecondsToMinutes(seconds?: number | null): number {
+  const n = Number(seconds)
+  return Number.isFinite(n) && n > 0 ? Math.round(n / 60) : 0
+}
 
 interface DayPlanSidebarProps {
   tripId: number
@@ -216,13 +221,6 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
       onExternalTransportDetailHandled?.()
     }
   }, [externalTransportDetail, onExternalTransportDetailHandled])
-  const [timeConfirm, setTimeConfirm] = useState<{
-    dayId: number; fromId: number; time: string;
-    // For drag & drop reorder
-    fromType?: string; toType?: string; toId?: number; insertAfter?: boolean; toLegIndex?: number | null;
-    // For arrow reorder
-    reorderIds?: number[];
-  } | null>(null)
   const inputRef = useRef(null)
   const dragDataRef = useRef(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -364,16 +362,10 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     (assignments[String(dayId)] || []).slice().sort((a, b) => a.order_index - b.order_index)
 
   // Compute initial day_plan_position for a transport based on time
-  const computeTransportPosition = (r, da) => {
-    const minutes = parseTimeToMinutes(r.reservation_time) ?? 0
-    // Find the last place with time <= transport time
-    let afterIdx = -1
-    for (const a of da) {
-      const pm = parseTimeToMinutes(a.place?.place_time)
-      if (pm !== null && pm <= minutes) afterIdx = a.order_index
-    }
-    // Position: midpoint between afterIdx and afterIdx+1 (leaves room for other items)
-    return afterIdx >= 0 ? afterIdx + 0.5 : da.length + 0.5
+  const computeTransportPosition = (_r, da) => {
+    // Activity start/end times are calculated, so transports with no explicit
+    // per-day position start after the activity list until the user reorders them.
+    return da.length + 0.5
   }
 
   // Auto-initialize transport positions on first render if not set
@@ -567,33 +559,18 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   }
 
   // Check if a proposed reorder of place IDs would break chronological order
-  // of ALL timed items (places with time + transport bookings)
+  // of timed transport bookings. Activity times are calculated from order.
   const wouldBreakChronology = (dayId: number, newPlaceIds: number[]) => {
-    const da = getDayAssignments(dayId)
     const transport = getTransportForDay(dayId)
 
-    // Simulate the merged list with places in new order + transports at their positions
-    // Places get sequential integer positions
+    // Simulate timed transports at their fallback positions.
     const simItems: { pos: number; minutes: number }[] = []
-    newPlaceIds.forEach((id, idx) => {
-      const a = da.find(x => x.id === id)
-      const m = parseTimeToMinutes(a?.place?.place_time)
-      if (m !== null) simItems.push({ pos: idx, minutes: m })
-    })
 
     // Transports: compute where they'd go with the new place order
     for (const r of transport) {
       const rMin = parseTimeToMinutes(r.reservation_time)
       if (rMin === null) continue
-      // Find the last place (in new order) with time <= transport time
-      let afterIdx = -1
-      newPlaceIds.forEach((id, idx) => {
-        const a = da.find(x => x.id === id)
-        const pm = parseTimeToMinutes(a?.place?.place_time)
-        if (pm !== null && pm <= rMin) afterIdx = idx
-      })
-      const pos = afterIdx >= 0 ? afterIdx + 0.5 : newPlaceIds.length + 0.5
-      simItems.push({ pos, minutes: rMin })
+      simItems.push({ pos: newPlaceIds.length + 0.5, minutes: rMin })
     }
 
     // Sort by position and check chronological order
@@ -718,41 +695,6 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     // disambiguate the drop target by leg index so you can drop BETWEEN legs.
     const matchTo = (i: any) => i.type === toType && i.data.id === toId && (toLegIndex == null || i.data?.__leg?.index === toLegIndex)
 
-    // Check if a timed place is being moved → would it break chronological order?
-    if (fromType === 'place') {
-      const fromItem = m.find(i => i.type === 'place' && i.data.id === fromId)
-      const fromMinutes = parseTimeToMinutes(fromItem?.data?.place?.place_time)
-      if (fromItem && fromMinutes !== null) {
-        const fromIdx = m.findIndex(i => i.type === fromType && i.data.id === fromId)
-        const toIdx = m.findIndex(matchTo)
-        if (fromIdx !== -1 && toIdx !== -1) {
-          const simulated = [...m]
-          const [moved] = simulated.splice(fromIdx, 1)
-          let insertIdx = simulated.findIndex(matchTo)
-          if (insertIdx === -1) insertIdx = simulated.length
-          if (insertAfter) insertIdx += 1
-          simulated.splice(insertIdx, 0, moved)
-
-          const timedInOrder = simulated
-            .map(i => {
-              if (i.type === 'transport') return parseTimeToMinutes(i.data?.reservation_time)
-              if (i.type === 'place') return parseTimeToMinutes(i.data?.place?.place_time)
-              return null
-            })
-            .filter(t => t !== null)
-          const isChronological = timedInOrder.every((t, i) => i === 0 || t >= timedInOrder[i - 1])
-
-          if (!isChronological) {
-            const placeTime = fromItem.data.place.place_time
-            const timeStr = placeTime.includes(':') ? placeTime.substring(0, 5) : placeTime
-            setTimeConfirm({ dayId, fromType, fromId, toType, toId, insertAfter, toLegIndex, time: timeStr })
-            setDraggingId(null); setDropTargetKey(null); dragDataRef.current = null
-            return
-          }
-        }
-      }
-    }
-
     // Build new order: remove the dragged item, insert at target position
     const fromIdx = m.findIndex(i => i.type === fromType && i.data.id === fromId)
     const toIdx = m.findIndex(matchTo)
@@ -774,68 +716,6 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     dragDataRef.current = null
   }
 
-  const confirmTimeRemoval = async () => {
-    if (!timeConfirm) return
-    const saved = { ...timeConfirm }
-    const { dayId, fromId, reorderIds, fromType, toType, toId, insertAfter, toLegIndex } = saved
-    setTimeConfirm(null)
-
-    // Remove time from assignment
-    try {
-      await assignmentsApi.updateTime(tripId, fromId, { place_time: null, end_time: null })
-      const key = String(dayId)
-      const currentAssignments = { ...assignments }
-      if (currentAssignments[key]) {
-        currentAssignments[key] = currentAssignments[key].map(a =>
-          a.id === fromId ? { ...a, place: { ...a.place, place_time: null, end_time: null } } : a
-        )
-        tripActions.setAssignments(currentAssignments)
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
-      return
-    }
-
-    // Build new merged order from either arrow reorderIds or drag & drop params
-    const m = getMergedItems(dayId)
-
-    if (reorderIds) {
-      // Arrow reorder: rebuild merged list with places in the new order,
-      // keeping transports and notes at their relative positions
-      const newMerged: typeof m = []
-      let rIdx = 0
-      for (const item of m) {
-        if (item.type === 'place') {
-          // Replace with the place from reorderIds at this position
-          const nextId = reorderIds[rIdx++]
-          const replacement = m.find(i => i.type === 'place' && i.data.id === nextId)
-          if (replacement) newMerged.push(replacement)
-        } else {
-          newMerged.push(item)
-        }
-      }
-      await applyMergedOrder(dayId, newMerged)
-      return
-    }
-
-    // Drag & drop reorder
-    if (fromType && toType) {
-      const matchTo = (i: any) => i.type === toType && i.data.id === toId && (toLegIndex == null || i.data?.__leg?.index === toLegIndex)
-      const fromIdx = m.findIndex(i => i.type === fromType && i.data.id === fromId)
-      const toIdx = m.findIndex(matchTo)
-      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return
-
-      const newOrder = [...m]
-      const [moved] = newOrder.splice(fromIdx, 1)
-      let adjustedTo = newOrder.findIndex(matchTo)
-      if (adjustedTo === -1) adjustedTo = newOrder.length
-      if (insertAfter) adjustedTo += 1
-      newOrder.splice(adjustedTo, 0, moved)
-
-      await applyMergedOrder(dayId, newOrder)
-    }
-  }
-
   const moveNote = async (dayId, noteId, direction) => {
     await _moveNote(dayId, noteId, direction, getMergedItems)
   }
@@ -849,6 +729,14 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   const saveTitle = async (dayId) => {
     setEditingDayId(null)
     await onUpdateDayTitle?.(dayId, editTitle.trim())
+  }
+
+  const saveWakeUpTime = async (dayId: number, wakeUpTime: string) => {
+    try {
+      await tripActions.updateDayWakeUpTime(tripId, dayId, wakeUpTime)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    }
   }
 
   const handleCalculateRoute = async () => {
@@ -885,13 +773,12 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
 
     const prevIds = da.map(a => a.id)
 
-    // Separate fixed (stay at their index) and movable assignments. A place is
-    // fixed if it's locked OR has a set time — timed places are anchored by their
-    // time, so the optimizer must not reshuffle them.
+    // Separate fixed (stay at their index) and movable assignments. Activity
+    // timestamps are calculated, so only explicit locks pin places.
     const locked = new Map() // index -> assignment
     const unlocked = []
     da.forEach((a, i) => {
-      if (lockedIds.has(a.id) || a.place?.place_time) locked.set(i, a)
+      if (lockedIds.has(a.id)) locked.set(i, a)
       else unlocked.push(a)
     })
 
@@ -1109,8 +996,6 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     setTransportDetail,
     transportPosVersion,
     setTransportPosVersion,
-    timeConfirm,
-    setTimeConfirm,
     inputRef,
     dragDataRef,
     scrollContainerRef,
@@ -1135,9 +1020,9 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     wouldBreakChronology,
     applyMergedOrder,
     handleMergedDrop,
-    confirmTimeRemoval,
     startEditTitle,
     saveTitle,
+    saveWakeUpTime,
     handleCalculateRoute,
     toggleLock,
     handleOptimize,
@@ -1280,8 +1165,6 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     setTransportDetail,
     transportPosVersion,
     setTransportPosVersion,
-    timeConfirm,
-    setTimeConfirm,
     inputRef,
     dragDataRef,
     scrollContainerRef,
@@ -1306,9 +1189,9 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     wouldBreakChronology,
     applyMergedOrder,
     handleMergedDrop,
-    confirmTimeRemoval,
     startEditTitle,
     saveTitle,
+    saveWakeUpTime,
     handleCalculateRoute,
     toggleLock,
     handleOptimize,
@@ -1380,6 +1263,18 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
           const merged = mergedItemsMap[day.id] || []
           const dayNoteUi = noteUi[day.id]
           const placeItems = merged.filter(i => i.type === 'place')
+          const activityAssignments = placeItems.map(i => i.data as Assignment)
+          const travelAfterAssignmentMinutes = Object.fromEntries(
+            activityAssignments.map(a => [a.id, routeSecondsToMinutes(isSelected ? routeLegs[a.id]?.duration : 0)])
+          )
+          const scheduleTravel = isSelected ? {
+            initialTravelMinutes: routeSecondsToMinutes(hotelLegs.top?.seg.duration),
+            travelAfterAssignmentMinutes,
+            finalTravelMinutes: routeSecondsToMinutes(hotelLegs.bottom?.seg.duration),
+          } : undefined
+          const activitySchedule = buildActivitySchedule(day, activityAssignments, scheduleTravel)
+          const maxSleep = getMaxSleepMinutes(day, activityAssignments, days[index + 1], scheduleTravel)
+          const wakeUpTime = day.wake_up_time || DEFAULT_WAKE_UP_TIME
 
           return (
             <div key={day.id} style={{ borderBottom: '1px solid var(--border-faint)' }}>
@@ -1467,6 +1362,38 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                           </span>
                         </>
                       )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 500 }}>
+                        <Clock size={10} strokeWidth={2} />
+                        {t('dayplan.wake')}
+                      </span>
+                      {canEditDays ? (
+                        <input
+                          type="time"
+                          value={wakeUpTime}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => saveWakeUpTime(day.id, e.target.value)}
+                          style={{
+                            width: 74,
+                            border: '1px solid var(--border-faint)',
+                            borderRadius: 6,
+                            background: 'var(--bg-input)',
+                            color: 'var(--text-muted)',
+                            fontSize: 10.5,
+                            padding: '1px 4px',
+                            fontFamily: 'inherit',
+                          }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                          {formatTime(wakeUpTime, locale, timeFormat)}
+                        </span>
+                      )}
+                      <span style={{ width: 1, height: 10, background: 'var(--border-primary)' }} />
+                      <span style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 500 }}>
+                        {t('dayplan.maxSleep')} {formatDurationMinutes(maxSleep)}
+                      </span>
                     </div>
                     {(() => {
                       const hasAccs = accommodations.some(a => isDayInAccommodationRange(day, a.start_day_id, a.end_day_id, days))
@@ -1650,6 +1577,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         const isPlaceSelected = selectedAssignmentId ? assignment.id === selectedAssignmentId : place.id === selectedPlaceId
                         const isDraggingThis = draggingId === assignment.id
                         const placeIdx = placeItems.findIndex(i => i.data.id === assignment.id)
+                        const slot = activitySchedule[assignment.id]
 
                         const arrowMove = (direction: 'up' | 'down') => {
                           const m = getMergedItems(day.id)
@@ -1662,24 +1590,6 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                           const newOrder = [...m]
                           ;[newOrder[myIdx], newOrder[targetIdx]] = [newOrder[targetIdx], newOrder[myIdx]]
 
-                          // Check chronological order of all timed items in the new order
-                          const placeTime = place.place_time
-                          if (parseTimeToMinutes(placeTime) !== null) {
-                            const timedInNewOrder = newOrder
-                              .map(i => {
-                                if (i.type === 'transport') return parseTimeToMinutes(i.data?.reservation_time)
-                                if (i.type === 'place') return parseTimeToMinutes(i.data?.place?.place_time)
-                                return null
-                              })
-                              .filter(t => t !== null)
-                            const isChronological = timedInNewOrder.every((t, i) => i === 0 || t >= timedInNewOrder[i - 1])
-                            if (!isChronological) {
-                              const timeStr = placeTime.includes(':') ? placeTime.substring(0, 5) : placeTime
-                              // Store the new merged order for confirm action
-                              setTimeConfirm({ dayId: day.id, fromId: assignment.id, time: timeStr, reorderIds: newOrder.filter(i => i.type === 'place').map(i => i.data.id) })
-                              return
-                            }
-                          }
                           applyMergedOrder(day.id, newOrder)
                         }
                         const moveUp = (e) => { e.stopPropagation(); arrowMove('up') }
@@ -1836,10 +1746,10 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                 <span style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                   {place.name}
                                 </span>
-                                {place.place_time && (
+                                {slot && (
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', fontWeight: 400, marginLeft: 6 }}>
                                     <Clock size={9} strokeWidth={2} />
-                                    {formatTime(place.place_time, locale, timeFormat)}{place.end_time ? ` – ${formatTime(place.end_time, locale, timeFormat)}` : ''}
+                                    {formatTime(slot.start, locale, timeFormat)} ~ {formatTime(slot.end, locale, timeFormat)} · {formatDurationMinutes(slot.durationMinutes)}
                                   </span>
                                 )}
                               </div>
@@ -2493,14 +2403,6 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
         noteInputRef={noteInputRef}
         cancelNote={cancelNote}
         saveNote={saveNote}
-        t={t}
-      />
-
-      {/* Confirm: remove time when reordering a timed place */}
-      <DayPlanSidebarTimeConfirmModal
-        timeConfirm={timeConfirm}
-        setTimeConfirm={setTimeConfirm}
-        confirmTimeRemoval={confirmTimeRemoval}
         t={t}
       />
 

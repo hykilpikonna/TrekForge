@@ -26,10 +26,7 @@ import { splitReservationDateTime, formatTime } from '../../utils/formatters'
 interface AssignmentLookupEntry {
   dayNumber: number
   dayTitle: string | null
-  dayDate: string
   placeName: string
-  startTime: string | null
-  endTime: string | null
 }
 
 const TYPE_OPTIONS = [
@@ -60,7 +57,7 @@ function buildAssignmentLookup(days, assignments) {
     const da = (assignments?.[String(day.id)] || []).slice().sort((a, b) => a.order_index - b.order_index)
     for (const a of da) {
       if (!a.place) continue
-      map[a.id] = { dayNumber: day.day_number, dayTitle: day.title, dayDate: day.date, placeName: a.place.name, startTime: a.place.place_time, endTime: a.place.end_time }
+      map[a.id] = { dayNumber: day.day_number, dayTitle: day.title, placeName: a.place.name }
     }
   }
   return map
@@ -370,7 +367,6 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
               <Link2 size={13} className="text-content-faint" style={{ flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {linked.dayTitle || t('dayplan.dayN', { n: linked.dayNumber })} — {linked.placeName}
-                {linked.startTime ? ` · ${linked.startTime}${linked.endTime ? ' – ' + linked.endTime : ''}` : ''}
               </span>
             </div>
           </div>
