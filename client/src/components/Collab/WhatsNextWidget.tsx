@@ -4,6 +4,7 @@ import { useTripStore } from '../../store/tripStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useTranslation } from '../../i18n'
 import { MapPin, Clock, Calendar, Users, Sparkles } from 'lucide-react'
+import { buildActivitySchedule } from '../../utils/daySchedule'
 
 function formatTime(timeStr, is12h) {
   if (!timeStr) return ''
@@ -52,18 +53,20 @@ export default function WhatsNextWidget({ tripMembers = [] }: WhatsNextWidgetPro
 
     for (const day of (days || [])) {
       if (!day.date) continue
-      const dayAssignments = assignments[String(day.id)] || []
+      const dayAssignments = (assignments[String(day.id)] || []).slice().sort((a, b) => a.order_index - b.order_index)
+      const schedule = buildActivitySchedule(day, dayAssignments)
       for (const a of dayAssignments) {
         if (!a.place) continue
+        const slot = schedule[a.id]
         // Include: today (future times) + all future days
         const isFutureDay = day.date > nowDate
-        const isTodayFuture = day.date === nowDate && (!a.place.place_time || a.place.place_time >= nowTime)
+        const isTodayFuture = day.date === nowDate && (!slot?.start || slot.start >= nowTime)
         if (isFutureDay || isTodayFuture) {
           items.push({
             id: a.id,
             name: a.place.name,
-            time: a.place.place_time,
-            endTime: a.place.end_time,
+            time: slot?.start ?? null,
+            endTime: slot?.end ?? null,
             date: day.date,
             dayTitle: day.title,
             category: a.place.category,

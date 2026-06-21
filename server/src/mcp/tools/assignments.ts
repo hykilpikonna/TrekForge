@@ -71,28 +71,23 @@ export function registerAssignmentTools(server: McpServer, userId: number, scope
   );
 
   if (W) server.registerTool(
-    'update_assignment_time',
+    'update_assignment_duration',
     {
-      description: 'Set the start and/or end time for a place assignment on a day (e.g. "09:00", "11:30"). Pass null to clear a time.',
+      description: 'Set the duration for a place assignment on a day. Activity start/end timestamps are calculated from day wake-up time, route travel, and durations.',
       inputSchema: {
         tripId: z.number().int().positive(),
         assignmentId: z.number().int().positive(),
-        place_time: z.string().max(50).nullable().optional().describe('Start time (e.g. "09:00"), or null to clear'),
-        end_time: z.string().max(50).nullable().optional().describe('End time (e.g. "11:00"), or null to clear'),
+        duration_minutes: z.number().int().positive().describe('Activity duration in minutes'),
       },
       annotations: TOOL_ANNOTATIONS_WRITE,
     },
-    async ({ tripId, assignmentId, place_time, end_time }) => {
+    async ({ tripId, assignmentId, duration_minutes }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('day_edit', tripId, userId)) return permissionDenied();
       const existing = getAssignmentForTrip(assignmentId, tripId);
       if (!existing) return { content: [{ type: 'text' as const, text: 'Assignment not found.' }], isError: true };
-      const assignment = updateTime(
-        assignmentId,
-        place_time !== undefined ? place_time : (existing as any).assignment_time,
-        end_time !== undefined ? end_time : (existing as any).assignment_end_time
-      );
+      const assignment = updateTime(assignmentId, duration_minutes);
       safeBroadcast(tripId, 'assignment:updated', { assignment });
       return ok({ assignment });
     }

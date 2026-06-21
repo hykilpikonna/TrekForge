@@ -38,10 +38,9 @@ function buildAssignmentOptions(days, assignments, t, locale) {
     for (let i = 0; i < da.length; i++) {
       const place = da[i].place
       if (!place) continue
-      const timeStr = place.place_time ? ` · ${place.place_time}${place.end_time ? ' – ' + place.end_time : ''}` : ''
       options.push({
         value: da[i].id,
-        label: `  ${i + 1}. ${place.name}${timeStr}`,
+        label: `  ${i + 1}. ${place.name}`,
         searchLabel: place.name,
         groupLabel,
         dayDate: day.date || null,

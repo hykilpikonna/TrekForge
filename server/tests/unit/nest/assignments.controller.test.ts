@@ -78,12 +78,12 @@ describe('AssignmentOpsController (parity with the per-assignment op routes)', (
     expect(new AssignmentOpsController(s).participants(user, '5', '9')).toEqual({ participants: [{ user_id: 2 }] });
   });
 
-  it('PUT /:id/time 404 missing, else updates', () => {
+  it('PUT /:id/time 404 missing, else updates duration', () => {
     expect(thrown(() => new AssignmentOpsController(svc({ getAssignmentForTrip: vi.fn().mockReturnValue(undefined) } as Partial<AssignmentsService>)).time(user, '5', '9', {}))).toEqual({ status: 404, body: { error: 'Assignment not found' } });
     const updateTime = vi.fn().mockReturnValue({ id: 9 }); const broadcast = vi.fn();
     const s = svc({ getAssignmentForTrip: vi.fn().mockReturnValue({ id: 9 }), updateTime, broadcast } as Partial<AssignmentsService>);
-    expect(new AssignmentOpsController(s).time(user, '5', '9', { place_time: '10:00' }, 'sock')).toEqual({ assignment: { id: 9 } });
-    expect(updateTime).toHaveBeenCalledWith('9', '10:00', undefined);
+    expect(new AssignmentOpsController(s).time(user, '5', '9', { duration_minutes: 80 }, 'sock')).toEqual({ assignment: { id: 9 } });
+    expect(updateTime).toHaveBeenCalledWith('9', 80);
   });
 
   it('PUT /:id/participants 400 not array, else sets + broadcasts', () => {

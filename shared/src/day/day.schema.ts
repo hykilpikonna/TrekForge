@@ -41,6 +41,7 @@ export const daySchema = z.object({
   date: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  wake_up_time: z.string().nullable().optional(),
   assignments: z.array(assignmentSchema).optional(),
   notes_items: z.array(dayNoteSchema).optional(),
 });
@@ -63,6 +64,7 @@ export type DayReorderRequest = z.infer<typeof dayReorderRequestSchema>;
 export const dayUpdateRequestSchema = z.object({
   notes: z.string().optional(),
   title: z.string().nullable().optional(),
+  wake_up_time: z.string().nullable().optional(),
 });
 export type DayUpdateRequest = z.infer<typeof dayUpdateRequestSchema>;
 

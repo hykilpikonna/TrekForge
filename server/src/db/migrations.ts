@@ -3419,6 +3419,33 @@ function runMigrations(db: Database.Database): void {
       db.exec('CREATE INDEX IF NOT EXISTS idx_collection_place_labels_place ON collection_place_labels(collection_place_id);');
       db.exec('CREATE INDEX IF NOT EXISTS idx_collection_place_labels_label ON collection_place_labels(label_id);');
     },
+    // Assignment-based daily scheduling. Appended after upstream migrations so
+    // rebased installs advance from current upstream cleanly.
+    () => {
+      try {
+        db.exec("ALTER TABLE days ADD COLUMN wake_up_time TEXT DEFAULT '08:00'");
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      try {
+        db.exec('ALTER TABLE day_assignments ADD COLUMN duration_minutes INTEGER DEFAULT 60');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      try {
+        db.exec(`
+          UPDATE day_assignments
+          SET duration_minutes = COALESCE(
+            (SELECT duration_minutes FROM places WHERE places.id = day_assignments.place_id),
+            duration_minutes,
+            60
+          )
+          WHERE duration_minutes IS NULL OR duration_minutes = 60
+        `);
+      } catch (err: any) {
+        console.warn('[migrations] Non-fatal migration step failed:', err);
+      }
+    },
   ];
 
   if (currentVersion < migrations.length) {
@@ -3439,6 +3466,41 @@ function runMigrations(db: Database.Database): void {
     }
     console.log(`[DB] Migrations complete — schema version ${migrations.length}`);
   }
+
+  ensureDayTimeColumns(db);
+}
+
+function columnExists(db: Database.Database, table: 'days' | 'day_assignments', column: string): boolean {
+  return Boolean(db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column));
+}
+
+function ensureDayTimeColumns(db: Database.Database): void {
+  db.transaction(() => {
+    let addedDurationColumn = false;
+
+    if (!columnExists(db, 'days', 'wake_up_time')) {
+      db.exec("ALTER TABLE days ADD COLUMN wake_up_time TEXT DEFAULT '08:00'");
+      console.log('[DB] Repaired missing days.wake_up_time column');
+    }
+
+    if (!columnExists(db, 'day_assignments', 'duration_minutes')) {
+      db.exec('ALTER TABLE day_assignments ADD COLUMN duration_minutes INTEGER DEFAULT 60');
+      addedDurationColumn = true;
+      console.log('[DB] Repaired missing day_assignments.duration_minutes column');
+    }
+
+    if (addedDurationColumn) {
+      db.exec(`
+        UPDATE day_assignments
+        SET duration_minutes = COALESCE(
+          (SELECT duration_minutes FROM places WHERE places.id = day_assignments.place_id),
+          duration_minutes,
+          60
+        )
+        WHERE duration_minutes IS NULL OR duration_minutes = 60
+      `);
+    }
+  })();
 }
 
 export { runMigrations };

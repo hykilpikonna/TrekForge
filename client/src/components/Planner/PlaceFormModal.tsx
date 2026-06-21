@@ -8,9 +8,8 @@ import { useTripStore } from '../../store/tripStore'
 import { useAddonStore } from '../../store/addonStore'
 import CollectionPicker from '../Collections/CollectionPicker'
 import { useToast } from '../shared/Toast'
-import { Search, Paperclip, X, AlertTriangle, Loader2, Plus } from 'lucide-react'
+import { Search, Paperclip, X, Loader2, Plus } from 'lucide-react'
 import { useTranslation } from '../../i18n'
-import CustomTimePicker from '../shared/CustomTimePicker'
 import { DEFAULT_FORM, isGoogleMapsUrl, type PlaceFormData } from './PlaceFormModal.helpers'
 import { getApiErrorMessage } from '../../utils/apiError'
 import type { Place, Category, Assignment } from '../../types'
@@ -104,9 +103,10 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
     if (place) {
       // Times are stored per day-assignment, not on the pool place. When an
       // assignment is in context (itinerary edit, or a single-assignment pool
-      // edit) read the times off its embedded place; fall back to the place prop.
+      // edit), only duration is edited. Start/end timestamps are calculated from
+      // day wake time, activity durations, and route travel.
       const assignment = assignmentId ? dayAssignments.find(a => a.id === assignmentId) : null
-      const timeSource = assignment?.place ?? place
+      const durationMinutes = assignment?.duration_minutes ?? assignment?.place?.duration_minutes ?? place.duration_minutes
       setForm({
         name: place.name || '',
         description: place.description || '',
@@ -114,8 +114,7 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
         lat: place.lat != null ? String(place.lat) : '',
         lng: place.lng != null ? String(place.lng) : '',
         category_id: place.category_id != null ? String(place.category_id) : '',
-        place_time: timeSource.place_time || '',
-        end_time: timeSource.end_time || '',
+        duration_minutes: durationMinutes != null ? String(durationMinutes) : '60',
         notes: place.notes || '',
         transport_mode: place.transport_mode || 'walking',
         website: place.website || '',
@@ -379,8 +378,6 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
     }
   }
 
-  const hasTimeError = place && form.place_time && form.end_time && form.place_time.length >= 5 && form.end_time.length >= 5 && form.end_time <= form.place_time
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.name.trim()) {
@@ -474,7 +471,6 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
     handleFileAdd,
     handleRemoveFile,
     handlePaste,
-    hasTimeError,
     handleSubmit,
     duplicateWarning,
   }
@@ -541,7 +537,6 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
     handleFileAdd,
     handleRemoveFile,
     handlePaste,
-    hasTimeError,
     handleSubmit,
     duplicateWarning,
   } = S
@@ -566,7 +561,7 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSaving || hasTimeError}
+            disabled={isSaving}
             className="px-6 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 disabled:opacity-60 font-medium"
           >
             {isSaving ? t('common.saving') : place ? t('common.update') : duplicateWarning ? t('places.addAnyway') : t('common.add')}
@@ -796,17 +791,11 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
           )}
         </div>
 
-        {/* Time is per day-assignment: only shown when a single assignment is in
-            context (itinerary edit, or a single-assignment pool edit). Hidden when
-            creating, and for unassigned / multi-day pool edits where a single time
-            is ambiguous and wouldn't persist. */}
+        {/* Duration is per day-assignment. Start/end timestamps are calculated. */}
         {place && assignmentId && (
-          <TimeSection
+          <DurationSection
             form={form}
             handleChange={handleChange}
-            assignmentId={assignmentId}
-            dayAssignments={dayAssignments}
-            hasTimeError={hasTimeError}
             t={t}
           />
         )}
@@ -862,70 +851,28 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
   )
 }
 
-interface TimeSectionProps {
+interface DurationSectionProps {
   form: PlaceFormData
   handleChange: (field: string, value: string) => void
-  assignmentId: number | null
-  dayAssignments: Assignment[]
-  hasTimeError: boolean
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
-function TimeSection({ form, handleChange, assignmentId, dayAssignments, hasTimeError, t }: TimeSectionProps) {
-
-  const collisions = useMemo(() => {
-    if (!assignmentId || !form.place_time || form.place_time.length < 5) return []
-    // Find the day_id for the current assignment
-    const current = dayAssignments.find(a => a.id === assignmentId)
-    if (!current) return []
-    const myStart = form.place_time
-    const myEnd = form.end_time && form.end_time.length >= 5 ? form.end_time : null
-    return dayAssignments.filter(a => {
-      if (a.id === assignmentId) return false
-      if (a.day_id !== current.day_id) return false
-      const aStart = a.place?.place_time
-      const aEnd = a.place?.end_time
-      if (!aStart) return false
-      // Check overlap: two intervals overlap if start < otherEnd AND otherStart < end
-      const s1 = myStart, e1 = myEnd || myStart
-      const s2 = aStart, e2 = aEnd || aStart
-      return s1 < (e2 || '23:59') && s2 < (e1 || '23:59') && s1 !== e2 && s2 !== e1
-    })
-  }, [assignmentId, dayAssignments, form.place_time, form.end_time])
-
+function DurationSection({ form, handleChange, t }: DurationSectionProps) {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('places.startTime')}</label>
-          <CustomTimePicker
-            value={form.place_time}
-            onChange={v => handleChange('place_time', v)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('places.endTime')}</label>
-          <CustomTimePicker
-            value={form.end_time}
-            onChange={v => handleChange('end_time', v)}
-          />
-        </div>
+      <div>
+        <label htmlFor="place-duration-input" className="block text-sm font-medium text-gray-700 mb-1">{t('places.durationMinutes')}</label>
+        <input
+          id="place-duration-input"
+          type="text"
+          inputMode="text"
+          value={form.duration_minutes}
+          onChange={e => handleChange('duration_minutes', e.target.value)}
+          placeholder={t('places.durationPlaceholder')}
+          className="form-input"
+          style={{ width: '100%' }}
+        />
       </div>
-      {hasTimeError && (
-        <div className="flex items-center gap-1.5 mt-2 px-2.5 py-1.5 rounded-lg text-xs" style={{ background: 'var(--bg-warning, #fef3c7)', color: 'var(--text-warning, #92400e)' }}>
-          <AlertTriangle size={13} className="shrink-0" />
-          {t('places.endTimeBeforeStart')}
-        </div>
-      )}
-      {collisions.length > 0 && (
-        <div className="flex items-start gap-1.5 mt-2 px-2.5 py-1.5 rounded-lg text-xs" style={{ background: 'var(--bg-warning, #fef3c7)', color: 'var(--text-warning, #92400e)' }}>
-          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-          <span>
-            {t('places.timeCollision')}{' '}
-            {collisions.map(a => a.place?.name).filter(Boolean).join(', ')}
-          </span>
-        </div>
-      )}
     </div>
   )
 }

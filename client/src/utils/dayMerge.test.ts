@@ -170,7 +170,7 @@ describe('getMergedItems', () => {
     expect(result[2].data.id).toBe(2)
   })
 
-  it('inserts transport by time when no per-day position is set', () => {
+  it('falls back to assignment order when activities only have legacy place times', () => {
     const dayAssignments = [
       { id: 1, order_index: 0, place: { place_time: '08:00' } },
       { id: 2, order_index: 1, place: { place_time: '13:00' } },
@@ -180,22 +180,19 @@ describe('getMergedItems', () => {
     ]
     const result = getMergedItems({ dayAssignments, dayNotes: [], dayTransports, dayId: 5 })
     const types = result.map(i => i.type)
-    // transport (10:30) should be between place at 08:00 (idx 0) and place at 13:00 (idx 1)
-    expect(types).toEqual(['place', 'transport', 'place'])
+    expect(types).toEqual(['place', 'place', 'transport'])
   })
 
-  it('orders a timed transport chronologically regardless of a stale per-day position', () => {
+  it('keeps stale activity place times from controlling transport order', () => {
     const dayAssignments = [
       { id: 1, order_index: 0, place: { place_time: '08:00' } },
       { id: 2, order_index: 1, place: { place_time: '13:00' } },
     ]
-    // The train is at 10:30, so it sorts between the 08:00 and 13:00 places by time —
-    // timed items are arranged chronologically even if an old manual position exists.
     const dayTransports = [
       { id: 20, type: 'train', day_id: 5, end_day_id: 5, reservation_time: '10:30', day_positions: { 5: 1.5 } },
     ]
     const result = getMergedItems({ dayAssignments, dayNotes: [], dayTransports, dayId: 5 })
     const types = result.map(i => i.type)
-    expect(types).toEqual(['place', 'transport', 'place'])
+    expect(types).toEqual(['place', 'place', 'transport'])
   })
 })

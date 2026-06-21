@@ -7,6 +7,7 @@ import type { Trip, Day, Place, Category, AssignmentsMap, DayNote } from '../../
 import { isDayInAccommodationRange, getDayOrder } from '../../utils/dayOrder'
 import { splitReservationDateTime } from '../../utils/formatters'
 import { getFlightLegs, getTrainLegs } from '../../utils/flightLegs'
+import { buildActivitySchedule, formatDurationMinutes } from '../../utils/daySchedule'
 
 function renderLucideIcon(icon:LucideIcon, props = {}) {
   if (!_renderToStaticMarkup) return ''
@@ -216,6 +217,10 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
       merged.push({ type: 'reservation', k: pos, data: r })
     })
     merged.sort((a, b) => a.k - b.k)
+    const activitySchedule = buildActivitySchedule(
+      day,
+      merged.filter(item => item.type === 'place').map(item => item.data),
+    )
 
     let pi = 0
     const itemsHtml = merged.length === 0
@@ -317,7 +322,7 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
                </div>`
 
           const chips = [
-            place.place_time ? `<span class="chip">${svgClock}${escHtml(place.place_time)}</span>` : '',
+            activitySchedule[item.data.id] ? `<span class="chip">${svgClock}${escHtml(`${activitySchedule[item.data.id].start} ~ ${activitySchedule[item.data.id].end} · ${formatDurationMinutes(activitySchedule[item.data.id].durationMinutes)}`)}</span>` : '',
             place.price && parseFloat(place.price) > 0 ? `<span class="chip chip-green">${svgEuro}${Number(place.price).toLocaleString(loc)} EUR</span>` : '',
           ].filter(Boolean).join('')
 

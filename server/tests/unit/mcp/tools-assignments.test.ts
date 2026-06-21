@@ -1,6 +1,6 @@
 /**
  * Unit tests for MCP assignment tools: assign_place_to_day, unassign_place,
- * reorder_day_assignments, update_assignment_time.
+ * reorder_day_assignments, update_assignment_duration.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 
@@ -281,11 +281,11 @@ describe('Tool: reorder_day_assignments', () => {
 });
 
 // ---------------------------------------------------------------------------
-// update_assignment_time
+// update_assignment_duration
 // ---------------------------------------------------------------------------
 
-describe('Tool: update_assignment_time', () => {
-  it('sets start and end times for an assignment', async () => {
+describe('Tool: update_assignment_duration', () => {
+  it('sets duration for an assignment without manual times', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id);
     const day = createDay(testDb, trip.id);
@@ -294,16 +294,17 @@ describe('Tool: update_assignment_time', () => {
 
     await withHarness(user.id, async (h) => {
       const result = await h.client.callTool({
-        name: 'update_assignment_time',
-        arguments: { tripId: trip.id, assignmentId: assignment.id, place_time: '09:00', end_time: '11:30' },
+        name: 'update_assignment_duration',
+        arguments: { tripId: trip.id, assignmentId: assignment.id, duration_minutes: 95 },
       });
       const data = parseToolResult(result) as any;
-      expect(data.assignment.assignment_time).toBe('09:00');
-      expect(data.assignment.assignment_end_time).toBe('11:30');
+      expect(data.assignment.duration_minutes).toBe(95);
+      expect(data.assignment.assignment_time).toBeNull();
+      expect(data.assignment.assignment_end_time).toBeNull();
     });
   });
 
-  it('clears times with null', async () => {
+  it('clears legacy assignment times when updating duration', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id);
     const day = createDay(testDb, trip.id);
@@ -313,10 +314,11 @@ describe('Tool: update_assignment_time', () => {
 
     await withHarness(user.id, async (h) => {
       const result = await h.client.callTool({
-        name: 'update_assignment_time',
-        arguments: { tripId: trip.id, assignmentId: assignment.id, place_time: null, end_time: null },
+        name: 'update_assignment_duration',
+        arguments: { tripId: trip.id, assignmentId: assignment.id, duration_minutes: 45 },
       });
       const data = parseToolResult(result) as any;
+      expect(data.assignment.duration_minutes).toBe(45);
       expect(data.assignment.assignment_time).toBeNull();
       expect(data.assignment.assignment_end_time).toBeNull();
     });
@@ -329,7 +331,7 @@ describe('Tool: update_assignment_time', () => {
     const place = createPlace(testDb, trip.id);
     const assignment = createDayAssignment(testDb, day.id, place.id);
     await withHarness(user.id, async (h) => {
-      await h.client.callTool({ name: 'update_assignment_time', arguments: { tripId: trip.id, assignmentId: assignment.id, place_time: '10:00' } });
+      await h.client.callTool({ name: 'update_assignment_duration', arguments: { tripId: trip.id, assignmentId: assignment.id, duration_minutes: 60 } });
       expect(broadcastMock).toHaveBeenCalledWith(trip.id, 'assignment:updated', expect.any(Object));
     });
   });
@@ -338,7 +340,7 @@ describe('Tool: update_assignment_time', () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id);
     await withHarness(user.id, async (h) => {
-      const result = await h.client.callTool({ name: 'update_assignment_time', arguments: { tripId: trip.id, assignmentId: 99999, place_time: '09:00' } });
+      const result = await h.client.callTool({ name: 'update_assignment_duration', arguments: { tripId: trip.id, assignmentId: 99999, duration_minutes: 60 } });
       expect(result.isError).toBe(true);
     });
   });
@@ -351,7 +353,7 @@ describe('Tool: update_assignment_time', () => {
     const place = createPlace(testDb, trip.id);
     const assignment = createDayAssignment(testDb, day.id, place.id);
     await withHarness(user.id, async (h) => {
-      const result = await h.client.callTool({ name: 'update_assignment_time', arguments: { tripId: trip.id, assignmentId: assignment.id, place_time: '09:00' } });
+      const result = await h.client.callTool({ name: 'update_assignment_duration', arguments: { tripId: trip.id, assignmentId: assignment.id, duration_minutes: 60 } });
       expect(result.isError).toBe(true);
     });
   });

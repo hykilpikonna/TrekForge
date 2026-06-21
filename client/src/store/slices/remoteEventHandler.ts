@@ -176,7 +176,13 @@ export function handleRemoteEvent(set: SetState, get: GetState, event: WebSocket
           assignments: Object.fromEntries(
             Object.entries(state.assignments).map(([dayId, items]) => [
               dayId,
-              items.map(a => a.place?.id === (payload.place as Place).id ? { ...a, place: payload.place as Place } : a)
+              items.map(a => a.place?.id === (payload.place as Place).id ? {
+                ...a,
+                place: {
+                  ...(payload.place as Place),
+                  duration_minutes: a.duration_minutes ?? a.place.duration_minutes,
+                },
+              } : a)
             ])
           ),
         }

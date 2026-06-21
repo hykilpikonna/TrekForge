@@ -46,6 +46,14 @@ vi.mock('../PDF/TripPDF', () => ({ downloadTripPDF: vi.fn().mockResolvedValue(un
 
 vi.mock('../Map/RouteCalculator', () => ({
   calculateRoute: vi.fn().mockResolvedValue({ distanceText: '5 km', durationText: '1h', coordinates: [] }),
+  calculateRouteWithLegs: vi.fn().mockResolvedValue({
+    coordinates: [],
+    distance: 0,
+    duration: 0,
+    legs: [
+      { distance: 1000, duration: 900, distanceText: '1 km', walkingText: '12m', drivingText: '15m', from: [0, 0], to: [0, 0], mid: [0, 0] },
+    ],
+  }),
   generateGoogleMapsUrl: vi.fn().mockReturnValue('https://maps.google.com/...'),
   optimizeRoute: vi.fn().mockImplementation((places) => places),
   // One leg per waypoint gap; the connector between two stops reads distanceText.
@@ -270,12 +278,44 @@ describe('DayPlanSidebar', () => {
     expect(screen.getByText('Louvre Museum')).toBeInTheDocument()
   })
 
-  it('FE-PLANNER-DAYPLAN-012: assigned place time is shown when set', () => {
+  it('FE-PLANNER-DAYPLAN-012: assigned place uses calculated time and ignores legacy place_time', () => {
     const place = buildPlace({ name: 'Louvre Museum', place_time: '10:00' })
     const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
     const assignment = buildAssignment({ id: 99, day_id: 10, order_index: 0, place })
     render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [assignment] } })} />)
-    expect(screen.getByText(/10:00/)).toBeInTheDocument()
+    expect(screen.getByText(/08:00 ~ 09:00/)).toBeInTheDocument()
+    expect(screen.queryByText(/10:00/)).not.toBeInTheDocument()
+  })
+
+  it('FE-PLANNER-DAYPLAN-012b: displays calculated ranges, wake time, and max sleep', () => {
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '09:30' })
+    const museum = buildPlace({ name: 'Museum' })
+    const lunch = buildPlace({ name: 'Lunch' })
+    const assignments = {
+      '10': [
+        buildAssignment({ id: 98, day_id: 10, order_index: 0, place: museum, duration_minutes: 70 }),
+        buildAssignment({ id: 99, day_id: 10, order_index: 1, place: lunch, duration_minutes: 50 }),
+      ],
+    }
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [museum, lunch], assignments })} />)
+    expect(screen.getByDisplayValue('09:30')).toBeInTheDocument()
+    expect(screen.getByText(/09:30 ~ 10:40/)).toBeInTheDocument()
+    expect(screen.getByText(/10:40 ~ 11:30/)).toBeInTheDocument()
+    expect(screen.getByText(/Max sleep 22h/)).toBeInTheDocument()
+  })
+
+  it('FE-PLANNER-DAYPLAN-012c: includes route leg duration between calculated activity ranges', async () => {
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
+    const museum = buildPlace({ name: 'Museum', lat: 48.86, lng: 2.34 })
+    const lunch = buildPlace({ name: 'Lunch', lat: 48.87, lng: 2.35 })
+    const assignments = {
+      '10': [
+        buildAssignment({ id: 98, day_id: 10, order_index: 0, place: museum, duration_minutes: 60 }),
+        buildAssignment({ id: 99, day_id: 10, order_index: 1, place: lunch, duration_minutes: 30 }),
+      ],
+    }
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [museum, lunch], assignments, selectedDayId: 10, routeShown: true })} />)
+    await waitFor(() => expect(screen.getByText(/09:15 ~ 09:45/)).toBeInTheDocument())
   })
 
   it('FE-PLANNER-DAYPLAN-013: clicking a place calls onPlaceClick', async () => {
@@ -1346,36 +1386,31 @@ describe('DayPlanSidebar', () => {
     expect(screen.getAllByText(/pending/i).length).toBeGreaterThan(0)
   })
 
-  // ── timed place drag → timeConfirm modal ─────────────────────────────────
+  // ── calculated activity times reorder directly ───────────────────────────
 
-  it('FE-PLANNER-DAYPLAN-080: dragging timed place out of chronological order shows time-confirm modal', async () => {
+  it('FE-PLANNER-DAYPLAN-080: dragging legacy timed place reorders directly without a time-confirm modal', async () => {
     const placeA = buildPlace({ id: 1, name: 'Morning Place', place_time: '08:00' })
     const placeB = buildPlace({ id: 2, name: 'Afternoon Place', place_time: '14:00' })
     const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
-    // A (08:00) at index 0, B (14:00) at index 1
     const a1 = buildAssignment({ id: 11, day_id: 10, order_index: 0, place: placeA })
     const a2 = buildAssignment({ id: 22, day_id: 10, order_index: 1, place: placeB })
+    const onReorder = vi.fn().mockResolvedValue(undefined)
     render(<DayPlanSidebar {...makeDefaultProps({
       days: [day], places: [placeA, placeB],
-      assignments: { '10': [a1, a2] },
+      assignments: { '10': [a1, a2] }, onReorder,
     })} />)
 
-    // DragStart on a2 (14:00, at index 1), drop onto a1 (08:00, at index 0)
-    // This would create [a2(14:00), a1(08:00)] — NOT chronological
     const draggable2 = screen.getByText('Afternoon Place').closest('[draggable="true"]')
     const draggable1 = screen.getByText('Morning Place').closest('[draggable="true"]')
     const dt = { setData: vi.fn(), effectAllowed: '', getData: vi.fn().mockReturnValue('') }
     fireEvent.dragStart(draggable2 as Element, { dataTransfer: dt })
-    // Now drop on draggable1 (the assignment row drop handler)
     fireEvent.drop(draggable1 as Element, { dataTransfer: { getData: vi.fn().mockReturnValue('') } })
 
-    await waitFor(() => {
-      expect(screen.getByText('Remove time?')).toBeInTheDocument()
-    })
+    await waitFor(() => expect(onReorder).toHaveBeenCalledWith(10, [22, 11]))
+    expect(screen.queryByText('Remove time?')).not.toBeInTheDocument()
   })
 
-  it('FE-PLANNER-DAYPLAN-081: clicking Confirm in time modal calls confirmTimeRemoval (updates assignment time)', async () => {
-    const user = userEvent.setup()
+  it('FE-PLANNER-DAYPLAN-081: reordering legacy timed places does not call assignment time update', async () => {
     const { assignmentsApi } = await import('../../api/client')
     const placeA = buildPlace({ id: 1, name: 'Morning Place', place_time: '08:00' })
     const placeB = buildPlace({ id: 2, name: 'Afternoon Place', place_time: '14:00' })
@@ -1388,21 +1423,14 @@ describe('DayPlanSidebar', () => {
       assignments: { '10': [a1, a2] }, onReorder,
     })} />)
 
-    // Trigger the timeConfirm modal: drag a2 onto a1
     const draggable2 = screen.getByText('Afternoon Place').closest('[draggable="true"]')
     const draggable1 = screen.getByText('Morning Place').closest('[draggable="true"]')
     const dt = { setData: vi.fn(), effectAllowed: '', getData: vi.fn().mockReturnValue('') }
     fireEvent.dragStart(draggable2 as Element, { dataTransfer: dt })
     fireEvent.drop(draggable1 as Element, { dataTransfer: { getData: vi.fn().mockReturnValue('') } })
 
-    // Wait for modal
-    await waitFor(() => expect(screen.getByText('Remove time?')).toBeInTheDocument())
-
-    // Click Confirm
-    const confirmBtn = screen.getByRole('button', { name: /confirm/i })
-    await user.click(confirmBtn)
-
-    await waitFor(() => expect((assignmentsApi as any).updateTime).toHaveBeenCalled())
+    await waitFor(() => expect(onReorder).toHaveBeenCalled())
+    expect((assignmentsApi as any).updateTime).not.toHaveBeenCalled()
   })
 
   // ── applyMergedOrder with notes in list (noteUpdates branch) ──────────────
@@ -1651,9 +1679,9 @@ describe('DayPlanSidebar', () => {
     await waitFor(() => expect(onReorder).toHaveBeenCalled())
   })
 
-  // ── confirmTimeRemoval via arrow (reorderIds path) ─────────────────────────
+  // ── arrow reorder with calculated times ───────────────────────────────────
 
-  it('FE-PLANNER-DAYPLAN-093: arrow-reorder timed place shows modal then confirm removes time', async () => {
+  it('FE-PLANNER-DAYPLAN-093: arrow-reorder legacy timed place reorders directly', async () => {
     const user = userEvent.setup()
     const { assignmentsApi } = await import('../../api/client') as any
     const onReorder = vi.fn().mockResolvedValue(undefined)
@@ -1673,12 +1701,9 @@ describe('DayPlanSidebar', () => {
     const reorderBtns = row?.querySelectorAll('.reorder-buttons button')
     if (reorderBtns && reorderBtns.length >= 2) {
       await user.click(reorderBtns[1] as HTMLButtonElement) // down button
-      // Modal should appear
-      await waitFor(() => expect(screen.getByText('Remove time?')).toBeInTheDocument())
-      // Click Confirm
-      const confirmBtn = screen.getByRole('button', { name: /confirm/i })
-      await user.click(confirmBtn)
-      await waitFor(() => expect(assignmentsApi.updateTime).toHaveBeenCalled())
+      await waitFor(() => expect(onReorder).toHaveBeenCalledWith(10, [22, 11]))
+      expect(screen.queryByText('Remove time?')).not.toBeInTheDocument()
+      expect(assignmentsApi.updateTime).not.toHaveBeenCalled()
     }
   })
 

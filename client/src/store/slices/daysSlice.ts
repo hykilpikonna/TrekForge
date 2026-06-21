@@ -10,6 +10,7 @@ type GetState = StoreApi<TripStoreState>['getState']
 export interface DaysSlice {
   reorderDays: (tripId: number | string, orderedIds: number[]) => Promise<void>
   insertDay: (tripId: number | string, position?: number) => Promise<Day | undefined>
+  updateDayWakeUpTime: (tripId: number | string, dayId: number | string, wakeUpTime: string) => Promise<void>
 }
 
 export const createDaysSlice = (set: SetState, get: GetState): DaysSlice => ({
@@ -53,6 +54,20 @@ export const createDaysSlice = (set: SetState, get: GetState): DaysSlice => ({
     } catch (err: unknown) {
       set({ days: prevDays })
       throw new Error(getApiErrorMessage(err, 'Error adding day'))
+    }
+  },
+
+  updateDayWakeUpTime: async (tripId, dayId, wakeUpTime) => {
+    const prevDays = get().days
+    const id = parseInt(String(dayId))
+    set(state => ({
+      days: state.days.map(d => d.id === id ? { ...d, wake_up_time: wakeUpTime } : d),
+    }))
+    try {
+      await daysApi.update(tripId, dayId, { wake_up_time: wakeUpTime })
+    } catch (err: unknown) {
+      set({ days: prevDays })
+      throw new Error(getApiErrorMessage(err, 'Error updating wake up time'))
     }
   },
 })

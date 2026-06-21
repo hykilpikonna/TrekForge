@@ -114,8 +114,6 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
         category_id: z.number().int().positive().optional().describe('Category ID — use list_categories'),
         price: z.number().optional(),
         currency: z.string().length(3).optional(),
-        place_time: z.string().max(50).optional().describe('Scheduled time (e.g. "09:00")'),
-        end_time: z.string().max(50).optional().describe('End time (e.g. "11:00")'),
         duration_minutes: z.number().int().positive().optional(),
         notes: z.string().max(2000).optional(),
         website: z.string().max(500).optional(),
@@ -127,11 +125,11 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
       },
       annotations: TOOL_ANNOTATIONS_WRITE,
     },
-    async ({ tripId, placeId, name, description, lat, lng, address, category_id, price, currency, place_time, end_time, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id, google_ftid }) => {
+    async ({ tripId, placeId, name, description, lat, lng, address, category_id, price, currency, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id, google_ftid }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('place_edit', tripId, userId)) return permissionDenied();
-      const place = updatePlace(String(tripId), String(placeId), { name, description, lat, lng, address, category_id, price, currency, place_time, end_time, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id, google_ftid });
+      const place = updatePlace(String(tripId), String(placeId), { name, description, lat, lng, address, category_id, price, currency, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id, google_ftid });
       if (!place) return { content: [{ type: 'text' as const, text: 'Place not found.' }], isError: true };
       safeBroadcast(tripId, 'place:updated', { place });
       return ok({ place });

@@ -590,6 +590,20 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     }
     return d.replace(/[-:]/g, '');
   };
+  const parseClockMinutes = (time?: string | null) => {
+    if (!time) return 8 * 60;
+    const [h, m] = time.split(':').map(Number);
+    return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 8 * 60;
+  };
+  const normalizeDuration = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 60;
+  };
+  const fmtDayMinutes = (date: string, minutes: number) => {
+    const dt = new Date(date + 'T00:00:00Z');
+    dt.setUTCMinutes(dt.getUTCMinutes() + Math.round(minutes));
+    return dt.toISOString().slice(0, 16).replace(/[-:]/g, '') + '00';
+  };
 
   let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//TREK//Travel Planner//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n';
   ics += `X-WR-CALNAME:${esc(trip.title || 'TREK Trip')}\r\n`;
@@ -611,8 +625,7 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
 
     const assignments = db.prepare(`
       SELECT da.*, p.name as place_name, p.address as place_address,
-        COALESCE(da.assignment_time, p.place_time) as effective_time,
-        COALESCE(da.assignment_end_time, p.end_time) as effective_end_time
+        p.duration_minutes as place_duration_minutes
       FROM day_assignments da
       JOIN places p ON da.place_id = p.id
       WHERE da.day_id = ?
@@ -623,16 +636,13 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       'SELECT * FROM day_notes WHERE day_id = ? ORDER BY sort_order ASC, created_at ASC'
     ).all(day.id) as any[];
 
-    const timed = assignments.filter(a => a.effective_time);
-    const untimed = assignments.filter(a => !a.effective_time);
-
-    // Timed assignments → individual events
-    for (const a of timed) {
+    // Activity assignment times are calculated, never read from legacy place start/end fields.
+    let activityCursor = parseClockMinutes(day.wake_up_time);
+    for (const a of assignments) {
+      const duration = normalizeDuration(a.duration_minutes ?? a.place_duration_minutes);
       ics += `BEGIN:VEVENT\r\nUID:${uid(a.id, 'assign')}\r\nDTSTAMP:${now}\r\n`;
-      ics += `DTSTART:${fmtDateTime(a.effective_time, day.date + 'T00:00')}\r\n`;
-      if (a.effective_end_time) {
-        ics += `DTEND:${fmtDateTime(a.effective_end_time, day.date + 'T00:00')}\r\n`;
-      }
+      ics += `DTSTART:${fmtDayMinutes(day.date, activityCursor)}\r\n`;
+      ics += `DTEND:${fmtDayMinutes(day.date, activityCursor + duration)}\r\n`;
       ics += `SUMMARY:${esc(a.place_name)}\r\n`;
       let desc = '';
       if (a.notes) desc += a.notes;
@@ -640,10 +650,11 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       if (desc) ics += `DESCRIPTION:${esc(desc)}\r\n`;
       if (a.place_address) ics += `LOCATION:${esc(a.place_address)}\r\n`;
       ics += `END:VEVENT\r\n`;
+      activityCursor += duration;
     }
 
-    // Build all-day summary event if there are untimed activities or notes
-    if (untimed.length > 0 || notes.length > 0) {
+    // Build all-day summary event for notes.
+    if (notes.length > 0) {
       const dayTitle = day.title || `Day ${day.day_number}`;
       const endNext = new Date(day.date + 'T00:00:00');
       endNext.setDate(endNext.getDate() + 1);
@@ -654,16 +665,7 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       ics += `SUMMARY:${esc(dayTitle)}\r\n`;
 
       let desc = '';
-      if (untimed.length > 0) {
-        desc += untimed.map(a => {
-          let line = `• ${a.place_name}`;
-          if (a.place_address) line += ` (${a.place_address})`;
-          if (a.notes) line += ` — ${a.notes}`;
-          return line;
-        }).join('\n');
-      }
       if (notes.length > 0) {
-        if (desc) desc += '\n\n';
         desc += 'Notes:\n' + notes.map(n => {
           let line = n.time ? `${n.time} — ${n.text}` : `• ${n.text}`;
           return line;
@@ -779,9 +781,9 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
 
     const oldDays = db.prepare('SELECT * FROM days WHERE trip_id = ? ORDER BY day_number').all(sourceTripId) as any[];
     const dayMap = new Map<number, number | bigint>();
-    const insertDay = db.prepare('INSERT INTO days (trip_id, day_number, date, notes, title) VALUES (?, ?, ?, ?, ?)');
+    const insertDay = db.prepare('INSERT INTO days (trip_id, day_number, date, notes, title, wake_up_time) VALUES (?, ?, ?, ?, ?, ?)');
     for (const d of oldDays) {
-      const r = insertDay.run(newTripId, d.day_number, d.date, d.notes, d.title);
+      const r = insertDay.run(newTripId, d.day_number, d.date, d.notes, d.title, d.wake_up_time ?? '08:00');
       dayMap.set(d.id, r.lastInsertRowid);
     }
 
@@ -796,7 +798,7 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
     for (const p of oldPlaces) {
       const r = insertPlace.run(newTripId, p.name, p.description, p.lat, p.lng, p.address, p.category_id,
         p.price, p.currency, p.reservation_status, p.reservation_notes, p.reservation_datetime,
-        p.place_time, p.end_time, p.duration_minutes, p.notes, p.image_url, p.google_place_id,
+        null, null, p.duration_minutes, p.notes, p.image_url, p.google_place_id,
         p.google_ftid, p.website, p.phone, p.transport_mode, p.osm_id);
       placeMap.set(p.id, r.lastInsertRowid);
     }
@@ -815,16 +817,16 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
     `).all(sourceTripId) as any[];
     const assignmentMap = new Map<number, number | bigint>();
     const insertAssignment = db.prepare(`
-      INSERT INTO day_assignments (day_id, place_id, order_index, notes, reservation_status, reservation_notes, reservation_datetime, assignment_time, assignment_end_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO day_assignments (day_id, place_id, order_index, notes, duration_minutes, reservation_status, reservation_notes, reservation_datetime, assignment_time, assignment_end_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const a of oldAssignments) {
       const newDayId = dayMap.get(a.day_id);
       const newPlaceId = placeMap.get(a.place_id);
       if (newDayId && newPlaceId) {
-        const r = insertAssignment.run(newDayId, newPlaceId, a.order_index, a.notes,
+        const r = insertAssignment.run(newDayId, newPlaceId, a.order_index, a.notes, a.duration_minutes ?? 60,
           a.reservation_status, a.reservation_notes, a.reservation_datetime,
-          a.assignment_time, a.assignment_end_time);
+          null, null);
         assignmentMap.set(a.id, r.lastInsertRowid);
       }
     }

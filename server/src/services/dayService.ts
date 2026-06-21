@@ -10,11 +10,13 @@ export { verifyTripAccess } from './tripAccess';
 
 export function getAssignmentsForDay(dayId: number | string) {
   const assignments = db.prepare(`
-    SELECT da.*, p.id as place_id, p.name as place_name, p.description as place_description,
+    SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
+      da.assignment_time, da.assignment_end_time, da.created_at,
+      p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
-      COALESCE(da.assignment_time, p.place_time) as place_time,
-      COALESCE(da.assignment_end_time, p.end_time) as end_time,
-      p.duration_minutes, p.notes as place_notes,
+      NULL as place_time,
+      NULL as end_time,
+      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
@@ -34,8 +36,10 @@ export function getAssignmentsForDay(dayId: number | string) {
     return {
       id: a.id,
       day_id: a.day_id,
+      place_id: a.place_id,
       order_index: a.order_index,
       notes: a.notes,
+      duration_minutes: a.duration_minutes,
       created_at: a.created_at,
       place: {
         id: a.place_id,
@@ -47,8 +51,8 @@ export function getAssignmentsForDay(dayId: number | string) {
         category_id: a.category_id,
         price: a.price,
         currency: a.place_currency,
-        place_time: a.place_time,
-        end_time: a.end_time,
+        place_time: null,
+        end_time: null,
         duration_minutes: a.duration_minutes,
         notes: a.place_notes,
         image_url: a.image_url,
@@ -84,11 +88,13 @@ export function listDays(tripId: string | number) {
   const dayPlaceholders = dayIds.map(() => '?').join(',');
 
   const allAssignments = db.prepare(`
-    SELECT da.*, p.id as place_id, p.name as place_name, p.description as place_description,
+    SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
+      da.assignment_time, da.assignment_end_time, da.created_at,
+      p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
-      COALESCE(da.assignment_time, p.place_time) as place_time,
-      COALESCE(da.assignment_end_time, p.end_time) as end_time,
-      p.duration_minutes, p.notes as place_notes,
+      NULL as place_time,
+      NULL as end_time,
+      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
@@ -144,10 +150,11 @@ export function getDay(id: string | number, tripId: string | number) {
   return db.prepare('SELECT * FROM days WHERE id = ? AND trip_id = ?').get(id, tripId) as Day | undefined;
 }
 
-export function updateDay(id: string | number, current: Day, fields: { notes?: string; title?: string | null }) {
-  db.prepare('UPDATE days SET notes = ?, title = ? WHERE id = ?').run(
-    fields.notes || null,
+export function updateDay(id: string | number, current: Day, fields: { notes?: string; title?: string | null; wake_up_time?: string | null }) {
+  db.prepare('UPDATE days SET notes = ?, title = ?, wake_up_time = ? WHERE id = ?').run(
+    'notes' in fields ? (fields.notes ?? null) : current.notes,
     'title' in fields ? (fields.title ?? null) : current.title,
+    'wake_up_time' in fields ? (fields.wake_up_time ?? null) : current.wake_up_time,
     id
   );
   const updatedDay = db.prepare('SELECT * FROM days WHERE id = ?').get(id) as Day;

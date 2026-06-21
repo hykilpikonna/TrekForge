@@ -4,11 +4,13 @@ import { AssignmentRow, DayAssignment } from '../types';
 
 export function getAssignmentWithPlace(assignmentId: number | bigint) {
   const a = db.prepare(`
-    SELECT da.*, p.id as place_id, p.name as place_name, p.description as place_description,
+    SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
+      da.assignment_time, da.assignment_end_time, da.created_at,
+      p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
-      COALESCE(da.assignment_time, p.place_time) as place_time,
-      COALESCE(da.assignment_end_time, p.end_time) as end_time,
-      p.duration_minutes, p.notes as place_notes,
+      NULL as place_time,
+      NULL as end_time,
+      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
@@ -38,8 +40,9 @@ export function getAssignmentWithPlace(assignmentId: number | bigint) {
     place_id: a.place_id,
     order_index: a.order_index,
     notes: a.notes,
-    assignment_time: a.assignment_time ?? null,
-    assignment_end_time: a.assignment_end_time ?? null,
+    duration_minutes: a.duration_minutes,
+    assignment_time: null,
+    assignment_end_time: null,
     participants,
     created_at: a.created_at,
     place: {
@@ -52,8 +55,8 @@ export function getAssignmentWithPlace(assignmentId: number | bigint) {
       category_id: a.category_id,
       price: a.price,
       currency: a.place_currency,
-      place_time: a.place_time,
-      end_time: a.end_time,
+      place_time: null,
+      end_time: null,
       duration_minutes: a.duration_minutes,
       notes: a.place_notes,
       image_url: a.image_url,
@@ -75,11 +78,13 @@ export function getAssignmentWithPlace(assignmentId: number | bigint) {
 
 export function listDayAssignments(dayId: string | number) {
   const assignments = db.prepare(`
-    SELECT da.*, p.id as place_id, p.name as place_name, p.description as place_description,
+    SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
+      da.assignment_time, da.assignment_end_time, da.created_at,
+      p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
-      COALESCE(da.assignment_time, p.place_time) as place_time,
-      COALESCE(da.assignment_end_time, p.end_time) as end_time,
-      p.duration_minutes, p.notes as place_notes,
+      NULL as place_time,
+      NULL as end_time,
+      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
@@ -111,10 +116,13 @@ export function placeExists(placeId: string | number, tripId: string | number) {
 export function createAssignment(dayId: string | number, placeId: string | number, notes: string | null) {
   const maxOrder = db.prepare('SELECT MAX(order_index) as max FROM day_assignments WHERE day_id = ?').get(dayId) as { max: number | null };
   const orderIndex = (maxOrder.max !== null ? maxOrder.max : -1) + 1;
+  const placeDuration = db.prepare('SELECT duration_minutes FROM places WHERE id = ?').get(placeId) as
+    | { duration_minutes: number | null }
+    | undefined;
 
   const result = db.prepare(
-    'INSERT INTO day_assignments (day_id, place_id, order_index, notes) VALUES (?, ?, ?, ?)'
-  ).run(dayId, placeId, orderIndex, notes || null);
+    'INSERT INTO day_assignments (day_id, place_id, order_index, notes, duration_minutes) VALUES (?, ?, ?, ?, ?)'
+  ).run(dayId, placeId, orderIndex, notes || null, placeDuration?.duration_minutes ?? 60);
 
   return getAssignmentWithPlace(result.lastInsertRowid);
 }
@@ -166,36 +174,20 @@ export function getParticipants(assignmentId: string | number) {
   `).all(assignmentId);
 }
 
-export function updateTime(id: string | number, placeTime: string | null, endTime: string | null) {
-  db.prepare('UPDATE day_assignments SET assignment_time = ?, assignment_end_time = ? WHERE id = ?')
-    .run(placeTime ?? null, endTime ?? null, id);
+function normalizeDurationMinutes(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(n);
+}
 
-  // Auto-sort: reorder timed assignments chronologically within the day
-  if (placeTime) {
-    const assignment = db.prepare('SELECT day_id FROM day_assignments WHERE id = ?').get(id) as { day_id: number } | undefined;
-    if (assignment) {
-      const dayAssignments = db.prepare(`
-        SELECT da.id, COALESCE(da.assignment_time, p.place_time) as effective_time
-        FROM day_assignments da
-        JOIN places p ON da.place_id = p.id
-        WHERE da.day_id = ?
-        ORDER BY da.order_index ASC
-      `).all(assignment.day_id) as { id: number; effective_time: string | null }[];
-
-      // Separate timed and untimed, sort timed by time
-      const timed = dayAssignments.filter(a => a.effective_time).sort((a, b) => {
-        const ta = a.effective_time!.includes(':') ? a.effective_time! : '99:99';
-        const tb = b.effective_time!.includes(':') ? b.effective_time! : '99:99';
-        return ta.localeCompare(tb);
-      });
-      const untimed = dayAssignments.filter(a => !a.effective_time);
-
-      // Interleave: timed in chronological order, untimed keep relative position
-      const reordered = [...timed, ...untimed];
-      const update = db.prepare('UPDATE day_assignments SET order_index = ? WHERE id = ?');
-      reordered.forEach((a, i) => update.run(i, a.id));
-    }
-  }
+export function updateTime(id: string | number, durationMinutes?: number | null) {
+  const current = db.prepare('SELECT duration_minutes FROM day_assignments WHERE id = ?').get(id) as
+    | { duration_minutes: number | null }
+    | undefined;
+  const nextDuration = normalizeDurationMinutes(durationMinutes) ?? current?.duration_minutes ?? 60;
+  db.prepare('UPDATE day_assignments SET assignment_time = NULL, assignment_end_time = NULL, duration_minutes = ? WHERE id = ?')
+    .run(nextDuration, id);
 
   return getAssignmentWithPlace(Number(id));
 }

@@ -14,6 +14,7 @@ import { isDayInAccommodationRange } from '../utils/dayOrder'
 import { getTransportForDay, getMergedItems } from '../utils/dayMerge'
 import { getFlightLegs, getTrainLegs } from '../utils/flightLegs'
 import { splitReservationDateTime } from '../utils/formatters'
+import { buildActivitySchedule, formatDurationMinutes } from '../utils/daySchedule'
 
 const TRANSPORT_ICONS = { flight: Plane, train: Train, bus: Bus, car: Car, cruise: Ship }
 
@@ -200,6 +201,10 @@ export default function SharedTripPage() {
               dayTransports: dayTransport,
               dayId: day.id,
             })
+            const activitySchedule = buildActivitySchedule(
+              day,
+              merged.filter((item: any) => item.type === 'place').map((item: any) => item.data),
+            )
 
             return (
               <div key={day.id} className="bg-surface-card border border-edge-faint" style={{ borderRadius: 14, overflow: 'hidden' }}>
@@ -270,6 +275,7 @@ export default function SharedTripPage() {
                       const place = item.data.place
                       if (!place) return null
                       const cat = categories?.find((c: any) => c.id === place.category_id)
+                      const slot = activitySchedule[item.data.id]
                       return (
                         <div key={`p-${item.data.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 6 }}>
                           <div style={{ width: 28, height: 28, borderRadius: '50%', background: cat?.color || '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -279,7 +285,7 @@ export default function SharedTripPage() {
                             <div className="text-[#111827]" style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 500 }}>{place.name}</div>
                             {(place.address || place.description) && <div className="text-[#9ca3af]" style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.address || place.description}</div>}
                           </div>
-                          {place.place_time && <span className="text-[#6b7280]" style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}><Clock size={9} />{place.place_time}{place.end_time ? ` – ${place.end_time}` : ''}</span>}
+                          {slot && <span className="text-[#6b7280]" style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}><Clock size={9} />{slot.start} ~ {slot.end} · {formatDurationMinutes(slot.durationMinutes)}</span>}
                         </div>
                       )
                     })}

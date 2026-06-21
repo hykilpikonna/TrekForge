@@ -394,7 +394,7 @@ export function syncTripPlaces(journeyId: number, tripId: number, authorId: numb
     existingPlaceIds.add(place.id);
 
     const entryDate = place.day_date || new Date().toISOString().split('T')[0];
-    const entryTime = place.assignment_time || place.place_time || null;
+    const entryTime = null;
     const nextOrder = (dateMaxOrder.get(entryDate) ?? -1) + 1;
     dateMaxOrder.set(entryDate, nextOrder);
 
@@ -490,7 +490,7 @@ export function onPlaceCreated(tripId: number, placeId: number) {
       journey.user_id,
       place.name,
       entryDate,
-      place.assignment_time || place.place_time || null,
+      null,
       place.address || place.name,
       place.lat || null,
       place.lng || null,
@@ -531,7 +531,7 @@ export function onPlaceUpdated(placeId: number) {
       ).run(
         place.name,
         place.day_date || entry.entry_date,
-        place.assignment_time || place.place_time || entry.entry_time,
+        null,
         place.address || place.name,
         place.lat || null,
         place.lng || null,

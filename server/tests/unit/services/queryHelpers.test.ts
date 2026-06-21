@@ -60,8 +60,8 @@ describe('formatAssignmentWithPlace', () => {
     expect(place.address).toBe('Champ de Mars, Paris');
     expect(place.price).toBe(25.0);
     expect(place.currency).toBe('EUR');
-    expect(place.place_time).toBe('10:00');
-    expect(place.end_time).toBe('12:00');
+    expect(place.place_time).toBeNull();
+    expect(place.end_time).toBeNull();
     expect(place.duration_minutes).toBe(120);
     expect(place.notes).toBe('Bring tickets');
     expect(place.image_url).toBe('https://example.com/img.jpg');
