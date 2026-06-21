@@ -379,14 +379,32 @@ export const placesApi = {
     if (opts?.paths !== undefined) fd.append('importPaths', String(opts.paths))
     return apiClient.post(`/trips/${tripId}/places/import/map`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
   },
-  importGoogleList: (tripId: number | string, url: string, enrich?: boolean) =>
-      apiClient.post(`/trips/${tripId}/places/import/google-list`, { url, enrich } satisfies PlaceImportListRequest).then(r => r.data),
-  importNaverList: (tripId: number | string, url: string, enrich?: boolean) =>
-      apiClient.post(`/trips/${tripId}/places/import/naver-list`, { url, enrich } satisfies PlaceImportListRequest).then(r => r.data),
+  importGoogleList: (tripId: number | string, url: string, opts?: boolean | PlaceImportOptions) =>
+      apiClient.post(`/trips/${tripId}/places/import/google-list`, buildPlaceImportListBody(url, opts)).then(r => r.data),
+  importNaverList: (tripId: number | string, url: string, opts?: boolean | PlaceImportOptions) =>
+      apiClient.post(`/trips/${tripId}/places/import/naver-list`, buildPlaceImportListBody(url, opts)).then(r => r.data),
   bulkDelete: (tripId: number | string, ids: number[]) =>
       apiClient.post(`/trips/${tripId}/places/bulk-delete`, { ids } satisfies PlaceBulkDeleteRequest).then(r => r.data),
   bulkUpdate: (tripId: number | string, ids: number[], data: Omit<PlaceBulkUpdateRequest, 'ids'>) =>
       apiClient.post(`/trips/${tripId}/places/bulk-update`, { ids, ...data } satisfies PlaceBulkUpdateRequest).then(r => r.data),
+}
+
+interface PlaceImportOptions {
+  enrich?: boolean
+  categoryId?: number | string | null
+  createCategoryFromList?: boolean
+  categoryIcon?: string
+}
+
+function buildPlaceImportListBody(url: string, opts?: boolean | PlaceImportOptions): PlaceImportListRequest {
+  const options = typeof opts === 'boolean' ? { enrich: opts } : (opts || {})
+  return {
+    url,
+    enrich: options.enrich,
+    category_id: options.categoryId || undefined,
+    create_category_from_list: options.createCategoryFromList || undefined,
+    category_icon: options.categoryIcon || undefined,
+  }
 }
 
 export const assignmentsApi = {

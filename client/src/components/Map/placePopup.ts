@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { CATEGORY_ICON_MAP } from '../shared/categoryIcons'
+import { CATEGORY_ICON_MAP, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import { POI_CATEGORY_BY_KEY, type Poi } from './poiCategories'
 import type { Place } from '../../types'
 
@@ -26,6 +26,9 @@ function esc(s: string | null | undefined): string {
 
 // Render a lucide category icon to an inline SVG string in the given colour.
 function iconSvg(iconName: string | null | undefined, size: number, color: string): string {
+  if (isEmojiCategoryIcon(iconName)) {
+    return `<span style="font-size:${size}px;line-height:1;display:inline-flex;align-items:center;justify-content:center;">${esc(iconName)}</span>`
+  }
   const Icon = (iconName && CATEGORY_ICON_MAP[iconName]) || CATEGORY_ICON_MAP['MapPin']
   try {
     return renderToStaticMarkup(createElement(Icon, { size, color, strokeWidth: 2 }))

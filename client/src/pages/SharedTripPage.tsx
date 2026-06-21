@@ -6,7 +6,7 @@ import { useTranslation, SUPPORTED_LANGUAGES } from '../i18n'
 import { useSettingsStore } from '../store/settingsStore'
 import { getLocaleForLanguage } from '../i18n'
 import { useSharedTrip } from './sharedTrip/useSharedTrip'
-import { getCategoryIcon } from '../components/shared/categoryIcons'
+import { getCategoryIcon, isEmojiCategoryIcon } from '../components/shared/categoryIcons'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Clock, MapPin, FileText, Train, Plane, Bus, Car, Ship, Ticket, Hotel, Map, Luggage, Wallet, MessageCircle } from 'lucide-react'
@@ -21,13 +21,23 @@ function createMarkerIcon(place: any) {
   const cat = place.category
   const color = cat?.color || '#6366f1'
   const CatIcon = getCategoryIcon(cat?.icon)
-  const iconSvg = renderToStaticMarkup(createElement(CatIcon, { size: 14, strokeWidth: 2, color: 'white' }))
+  const iconSvg = isEmojiCategoryIcon(cat?.icon)
+    ? `<span style="font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;">${escHtml(cat.icon)}</span>`
+    : renderToStaticMarkup(createElement(CatIcon, { size: 14, strokeWidth: 2, color: 'white' }))
   return L.divIcon({
     className: '',
     iconSize: [28, 28],
     iconAnchor: [14, 14],
     html: `<div style="width:28px;height:28px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);border:2px solid white;">${iconSvg}</div>`,
   })
+}
+
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 function FitBoundsToPlaces({ places }: { places: any[] }) {

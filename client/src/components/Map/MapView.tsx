@@ -7,13 +7,16 @@ import L from 'leaflet'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { mapsApi } from '../../api/client'
-import { getCategoryIcon, CATEGORY_ICON_MAP } from '../shared/categoryIcons'
+import { getCategoryIcon, CATEGORY_ICON_MAP, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import ReservationOverlay from './ReservationOverlay'
 import { useTransportRoutes } from '../../hooks/useTransportRoutes'
 import type { Reservation } from '../../types'
 import { POI_CATEGORY_BY_KEY, type Poi } from './poiCategories'
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
+  if (isEmojiCategoryIcon(iconName)) {
+    return `<span style="font-size:${size}px;line-height:1;display:inline-flex;align-items:center;justify-content:center;">${escAttr(iconName)}</span>`
+  }
   const IconComponent = (iconName && CATEGORY_ICON_MAP[iconName]) || CATEGORY_ICON_MAP['MapPin']
   try {
     return renderToStaticMarkup(createElement(IconComponent, { size, color: 'white', strokeWidth: 2.5 }))
@@ -637,6 +640,7 @@ export const MapView = memo(function MapView({
 
   const TooltipOverlay = !hoverDisabled && hoveredPlace && tooltipPos && !isTouchDevice
   const CatIcon = TooltipOverlay ? getCategoryIcon(hoveredPlace.category_icon) : null
+  const catEmoji = TooltipOverlay && isEmojiCategoryIcon(hoveredPlace.category_icon) ? hoveredPlace.category_icon : null
 
   const { position: userPosition, mode: trackingMode, error: trackingError, cycleMode: cycleTrackingMode } = useGeolocation()
   // Desktop browsers only get IP-based geolocation (city-level accuracy),
@@ -748,7 +752,11 @@ export const MapView = memo(function MapView({
         </div>
         {hoveredPlace.category_name && CatIcon && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 1 }}>
-            <CatIcon size={10} style={{ color: hoveredPlace.category_color || '#6b7280', flexShrink: 0 }} />
+            {catEmoji ? (
+              <span style={{ fontSize: 10, lineHeight: 1, flexShrink: 0 }}>{catEmoji}</span>
+            ) : (
+              <CatIcon size={10} style={{ color: hoveredPlace.category_color || '#6b7280', flexShrink: 0 }} />
+            )}
             <span style={{ fontSize: 11, color: '#6b7280' }}>{hoveredPlace.category_name}</span>
           </div>
         )}

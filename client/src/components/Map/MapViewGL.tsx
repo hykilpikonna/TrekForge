@@ -7,7 +7,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useAuthStore } from '../../store/authStore'
 import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs } from '../../services/photoService'
-import { CATEGORY_ICON_MAP } from '../shared/categoryIcons'
+import { CATEGORY_ICON_MAP, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import { isStandardFamily, supportsCustom3d, wantsTerrain, addCustom3dBuildings, addTerrainAndSky } from './mapboxSetup'
 import { attachLocationMarker, type LocationMarkerHandle } from './locationMarkerMapbox'
 import { ReservationMapboxOverlay } from './reservationsMapbox'
@@ -20,6 +20,9 @@ import { POI_CATEGORY_BY_KEY, type Poi } from './poiCategories'
 import { buildPoiPopupHtml } from './placePopup'
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
+  if (isEmojiCategoryIcon(iconName)) {
+    return `<span style="font-size:${size}px;line-height:1;display:inline-flex;align-items:center;justify-content:center;">${escapeHtml(iconName)}</span>`
+  }
   const IconComponent = (iconName && CATEGORY_ICON_MAP[iconName]) || CATEGORY_ICON_MAP['MapPin']
   try {
     return renderToStaticMarkup(createElement(IconComponent, { size, color: 'white', strokeWidth: 2.5 }))
@@ -52,6 +55,14 @@ function buildPlaceClusterData(places: Place[]) {
       geometry: { type: 'Point' as const, coordinates: [place.lng, place.lat] },
     })),
   }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 interface RouteSegment {

@@ -164,17 +164,45 @@ export class PlacesController {
   }
 
   @Post('import/google-list')
-  async importGoogle(@CurrentUser() user: User, @Param('tripId') tripId: string, @Body('url') url: unknown, @Body('enrich') enrich: unknown, @Headers('x-socket-id') socketId?: string) {
-    return this.importList('google', user, tripId, url, enrich, socketId);
+  async importGoogle(
+    @CurrentUser() user: User,
+    @Param('tripId') tripId: string,
+    @Body('url') url: unknown,
+    @Body('enrich') enrich: unknown,
+    @Body('category_id') categoryId: unknown,
+    @Body('create_category_from_list') createCategoryFromList: unknown,
+    @Body('category_icon') categoryIcon: unknown,
+    @Headers('x-socket-id') socketId?: string,
+  ) {
+    return this.importList('google', user, tripId, url, enrich, categoryId, createCategoryFromList, categoryIcon, socketId);
   }
 
   @Post('import/naver-list')
-  async importNaver(@CurrentUser() user: User, @Param('tripId') tripId: string, @Body('url') url: unknown, @Body('enrich') enrich: unknown, @Headers('x-socket-id') socketId?: string) {
-    return this.importList('naver', user, tripId, url, enrich, socketId);
+  async importNaver(
+    @CurrentUser() user: User,
+    @Param('tripId') tripId: string,
+    @Body('url') url: unknown,
+    @Body('enrich') enrich: unknown,
+    @Body('category_id') categoryId: unknown,
+    @Body('create_category_from_list') createCategoryFromList: unknown,
+    @Body('category_icon') categoryIcon: unknown,
+    @Headers('x-socket-id') socketId?: string,
+  ) {
+    return this.importList('naver', user, tripId, url, enrich, categoryId, createCategoryFromList, categoryIcon, socketId);
   }
 
   /** Shared google/naver list import — identical flow, different provider + error string. */
-  private async importList(provider: 'google' | 'naver', user: User, tripId: string, url: unknown, enrich: unknown, socketId?: string) {
+  private async importList(
+    provider: 'google' | 'naver',
+    user: User,
+    tripId: string,
+    url: unknown,
+    enrich: unknown,
+    categoryId: unknown,
+    createCategoryFromList: unknown,
+    categoryIcon: unknown,
+    socketId?: string,
+  ) {
     const trip = this.requireTrip(tripId, user);
     this.requireEdit(trip, user);
     if (!url || typeof url !== 'string') {
@@ -182,7 +210,13 @@ export class PlacesController {
     }
     // Opt-in: re-resolve each imported place via the Places API to fill in
     // photo / address / website / phone and persist a google_place_id (#886).
-    const opts = { enrich: parseBool(enrich, false), userId: user.id };
+    const opts = {
+      enrich: parseBool(enrich, false),
+      userId: user.id,
+      categoryId: (typeof categoryId === 'string' || typeof categoryId === 'number') ? categoryId : undefined,
+      createCategoryFromList: parseBool(createCategoryFromList, false),
+      categoryIcon: typeof categoryIcon === 'string' ? categoryIcon : undefined,
+    };
     const label = provider === 'google' ? 'Google' : 'Naver';
     try {
       const result = provider === 'google'

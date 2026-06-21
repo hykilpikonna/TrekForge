@@ -1,6 +1,6 @@
 // Trip PDF via browser print window
 import { createElement } from 'react'
-import { getCategoryIcon } from '../shared/categoryIcons'
+import { getCategoryIcon, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import { FileText, Info, Clock, MapPin, Navigation, Train, Plane, Bus, Car, Ship, Sailboat, Bike, CarTaxiFront, Route, Coffee, Ticket, Star, Heart, Camera, Flag, Lightbulb, AlertTriangle, ShoppingBag, Bookmark, Hotel, LogIn, LogOut, KeyRound, BedDouble, Utensils, Users, LucideIcon } from 'lucide-react'
 import { accommodationsApi, mapsApi } from '../../api/client'
 import type { Trip, Day, Place, Category, AssignmentsMap, DayNote } from '../../types'
@@ -72,6 +72,9 @@ async function ensureRenderer() {
   }
 }
 function categoryIconSvg(iconName, color = '#6366f1', size = 24) {
+  if (isEmojiCategoryIcon(iconName)) {
+    return `<span style="font-size:${size}px;line-height:1;display:inline-flex;align-items:center;justify-content:center;">${escHtml(iconName)}</span>`
+  }
   if (!_renderToStaticMarkup) return ''
   const Icon = getCategoryIcon(iconName)
   return _renderToStaticMarkup(

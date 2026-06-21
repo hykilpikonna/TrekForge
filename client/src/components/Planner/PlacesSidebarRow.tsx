@@ -1,7 +1,7 @@
 import React from 'react'
 import { Plus, Check, Route } from 'lucide-react'
 import PlaceAvatar from '../shared/PlaceAvatar'
-import { getCategoryIcon } from '../shared/categoryIcons'
+import { getCategoryIcon, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import type { Place, Category } from '../../types'
 
 interface MemoPlaceRowProps {
@@ -79,8 +79,13 @@ export const MemoPlaceRow = React.memo(function MemoPlaceRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
           {hasGeometry && <span title="Track / Route" style={{ display: 'inline-flex', flexShrink: 0 }}><Route size={11} strokeWidth={2} color="var(--text-faint)" /></span>}
           {cat && (() => {
+            if (isEmojiCategoryIcon(cat.icon)) return null
             const CatIcon = getCategoryIcon(cat.icon)
-            return <span title={cat.name} style={{ display: 'inline-flex', flexShrink: 0 }}><CatIcon size={11} strokeWidth={2} color={cat.color || '#6366f1'} /></span>
+            return (
+              <span title={cat.name} style={{ display: 'inline-flex', flexShrink: 0 }}>
+                <CatIcon size={11} strokeWidth={2} color={cat.color || '#6366f1'} />
+              </span>
+            )
           })()}
           <span className="text-content" style={{ fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
             {place.name}
