@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { categoriesApi } from '../../api/client'
 import { useToast } from '../shared/Toast'
 import { Plus, Edit2, Trash2, Pipette } from 'lucide-react'
-import { CATEGORY_ICON_MAP, ICON_LABELS, getCategoryIcon } from '../shared/categoryIcons'
+import { CATEGORY_ICON_MAP, ICON_LABELS, getCategoryIcon, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import { useTranslation } from '../../i18n'
 import { getApiErrorMessage } from '../../types'
 
@@ -18,7 +18,7 @@ export default function CategoryManager() {
   const [categories, setCategories] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ name: '', color: '#6366f1', icon: 'MapPin' })
+  const [form, setForm] = useState({ name: '', color: '#6366f1', icon: '📍' })
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const colorInputRef = useRef(null)
@@ -41,13 +41,13 @@ export default function CategoryManager() {
 
   const handleStartEdit = (cat) => {
     setEditingId(cat.id)
-    setForm({ name: cat.name, color: cat.color || '#6366f1', icon: cat.icon || 'MapPin' })
+    setForm({ name: cat.name, color: cat.color || '#6366f1', icon: cat.icon || '📍' })
     setShowForm(false)
   }
 
   const handleStartCreate = () => {
     setEditingId(null)
-    setForm({ name: '', color: '#6366f1', icon: 'MapPin' })
+    setForm({ name: '', color: '#6366f1', icon: '📍' })
     setShowForm(true)
   }
 
@@ -60,18 +60,19 @@ export default function CategoryManager() {
     if (!form.name.trim()) { toast.error(t('categories.toast.nameRequired')); return }
     setIsSaving(true)
     try {
+      const payload = { ...form, icon: form.icon.trim() || '📍' }
       if (editingId) {
-        const result = await categoriesApi.update(editingId, form)
+        const result = await categoriesApi.update(editingId, payload)
         setCategories(prev => prev.map(c => c.id === editingId ? result.category : c))
         setEditingId(null)
         toast.success(t('categories.toast.updated'))
       } else {
-        const result = await categoriesApi.create(form)
+        const result = await categoriesApi.create(payload)
         setCategories(prev => [...prev, result.category])
         setShowForm(false)
         toast.success(t('categories.toast.created'))
       }
-      setForm({ name: '', color: '#6366f1', icon: 'MapPin' })
+      setForm({ name: '', color: '#6366f1', icon: '📍' })
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, t('categories.toast.saveError')))
     } finally {
@@ -92,6 +93,7 @@ export default function CategoryManager() {
 
   const isPresetColor = PRESET_COLORS.includes(form.color)
   const PreviewIcon = getCategoryIcon(form.icon)
+  const previewEmoji = isEmojiCategoryIcon(form.icon) ? form.icon : null
 
   const categoryForm = (
     <div className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
@@ -106,6 +108,14 @@ export default function CategoryManager() {
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-2">{t('categories.icon')}</label>
+        <input
+          type="text"
+          value={form.icon}
+          onChange={e => setForm(prev => ({ ...prev, icon: e.target.value }))}
+          aria-label={t('categories.icon')}
+          maxLength={8}
+          className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-center text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white mb-2"
+        />
         <div className="max-h-48 overflow-y-auto">
           <div className="flex flex-wrap gap-1.5 px-1.5 py-1.5">
             {ICON_NAMES.map(name => {
@@ -169,7 +179,11 @@ export default function CategoryManager() {
         <span className="text-xs text-gray-500">{t('categories.preview')}:</span>
         <span className="inline-flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-full font-medium"
           style={{ backgroundColor: `${form.color}20`, color: form.color }}>
-          <PreviewIcon size={14} strokeWidth={1.8} />
+          {previewEmoji ? (
+            <span style={{ fontSize: 14, lineHeight: 1 }}>{previewEmoji}</span>
+          ) : (
+            <PreviewIcon size={14} strokeWidth={1.8} />
+          )}
           {form.name || t('categories.defaultName')}
         </span>
       </div>
@@ -215,6 +229,7 @@ export default function CategoryManager() {
         <div className="space-y-2">
           {categories.map(cat => {
             const Icon = getCategoryIcon(cat.icon)
+            const emoji = isEmojiCategoryIcon(cat.icon) ? cat.icon : null
             return (
               <div key={cat.id}>
                 {editingId === cat.id ? (
@@ -223,7 +238,11 @@ export default function CategoryManager() {
                   <div className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:border-gray-200 group">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: `${cat.color}20` }}>
-                      <Icon size={18} strokeWidth={1.8} color={cat.color} />
+                      {emoji ? (
+                        <span style={{ fontSize: 18, lineHeight: 1 }}>{emoji}</span>
+                      ) : (
+                        <Icon size={18} strokeWidth={1.8} color={cat.color} />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

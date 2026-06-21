@@ -8,7 +8,7 @@ import { useTripStore } from '../../store/tripStore'
 import { useAddonStore } from '../../store/addonStore'
 import CollectionPicker from '../Collections/CollectionPicker'
 import { useToast } from '../shared/Toast'
-import { Search, Paperclip, X, AlertTriangle, Loader2 } from 'lucide-react'
+import { Search, Paperclip, X, AlertTriangle, Loader2, Plus } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import CustomTimePicker from '../shared/CustomTimePicker'
 import { DEFAULT_FORM, isGoogleMapsUrl, type PlaceFormData } from './PlaceFormModal.helpers'
@@ -81,6 +81,7 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
   const [mapsResults, setMapsResults] = useState([])
   const [isSearchingMaps, setIsSearchingMaps] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryIcon, setNewCategoryIcon] = useState('📍')
   const [showNewCategory, setShowNewCategory] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
@@ -93,11 +94,12 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
   const acAbortRef = useRef<AbortController | null>(null)
   const toast = useToast()
   const { t, language } = useTranslation()
-  const { hasMapsKey } = useAuthStore()
+  const { hasMapsKey, user } = useAuthStore()
   const can = useCanDo()
   const tripObj = useTripStore((s) => s.trip)
   const canUploadFiles = can('file_upload', tripObj)
   const collectionsEnabled = useAddonStore((s) => s.isEnabled('collections'))
+  const canCreateCategory = user?.role === 'admin'
 
   useEffect(() => {
     if (place) {
@@ -343,9 +345,10 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
   const handleCreateCategory = async () => {
     if (!newCategoryName.trim()) return
     try {
-      const cat = await onCategoryCreated?.({ name: newCategoryName, color: '#6366f1', icon: 'MapPin' })
+      const cat = await onCategoryCreated?.({ name: newCategoryName, color: '#6366f1', icon: newCategoryIcon.trim() || '📍' })
       if (cat) setForm(prev => ({ ...prev, category_id: String(cat.id) }))
       setNewCategoryName('')
+      setNewCategoryIcon('📍')
       setShowNewCategory(false)
     } catch (err: unknown) {
       toast.error(t('places.categoryCreateError'))
@@ -436,6 +439,8 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
     setIsSearchingMaps,
     newCategoryName,
     setNewCategoryName,
+    newCategoryIcon,
+    setNewCategoryIcon,
     showNewCategory,
     setShowNewCategory,
     isSaving,
@@ -456,6 +461,7 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
     can,
     tripObj,
     canUploadFiles,
+    canCreateCategory,
     places,
     locationBias,
     searchInputRef,
@@ -500,6 +506,8 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
     setIsSearchingMaps,
     newCategoryName,
     setNewCategoryName,
+    newCategoryIcon,
+    setNewCategoryIcon,
     showNewCategory,
     setShowNewCategory,
     isSaving,
@@ -520,6 +528,7 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
     can,
     tripObj,
     canUploadFiles,
+    canCreateCategory,
     places,
     locationBias,
     searchInputRef,
@@ -747,9 +756,28 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
                 style={{ flex: 1 }}
                 size="sm"
               />
+              {canCreateCategory && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewCategory(true)}
+                  aria-label={t('categories.new')}
+                  className="border border-slate-200 text-slate-600 rounded-lg px-2 hover:bg-slate-50"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex gap-2">
+              <input
+                type="text"
+                value={newCategoryIcon}
+                onChange={e => setNewCategoryIcon(e.target.value)}
+                aria-label={t('categories.icon')}
+                maxLength={8}
+                className="form-input text-center"
+                style={{ width: 52, flexShrink: 0 }}
+              />
               <input
                 type="text"
                 value={newCategoryName}
@@ -760,7 +788,7 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
               <button type="button" onClick={handleCreateCategory} className="bg-slate-900 text-white px-3 rounded-lg hover:bg-slate-700 text-sm">
                 OK
               </button>
-              <button type="button" onClick={() => setShowNewCategory(false)} className="text-gray-500 px-2 text-sm">
+              <button type="button" onClick={() => { setShowNewCategory(false); setNewCategoryIcon('📍') }} className="text-gray-500 px-2 text-sm">
                 {t('common.cancel')}
               </button>
             </div>

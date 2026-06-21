@@ -126,6 +126,9 @@ export const placeImportListRequestSchema = z.object({
   // Opt-in: enrich imported places via the Places API (#886). Requires a Google
   // Maps key; runs as a background pass after the import returns.
   enrich: z.boolean().optional(),
+  category_id: z.union([z.number(), z.string()]).optional(),
+  create_category_from_list: z.boolean().optional(),
+  category_icon: z.string().optional(),
 });
 export type PlaceImportListRequest = z.infer<typeof placeImportListRequestSchema>;
 

@@ -7,7 +7,10 @@ export function ListImportModal(S: SidebarState) {
     setListImportOpen, setListImportUrl, t, hasMultipleListImportProviders, availableListImportProviders,
     listImportProvider, setListImportProvider, listImportUrl, listImportLoading, handleListImport,
     listImportEnrich, setListImportEnrich, canEnrichImport,
+    categories, listImportCategoryMode, setListImportCategoryMode,
+    listImportCategoryId, setListImportCategoryId,
   } = S
+  const importDisabled = !listImportUrl.trim() || listImportLoading || (listImportCategoryMode === 'existing' && !listImportCategoryId)
   return ReactDOM.createPortal(
     <div
       onClick={() => { setListImportOpen(false); setListImportUrl('') }}
@@ -57,6 +60,42 @@ export function ListImportModal(S: SidebarState) {
             fontFamily: 'inherit', boxSizing: 'border-box',
           }}
         />
+        <div style={{ marginTop: 12 }}>
+          <label className="text-content" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+            {t('places.formCategory')}
+          </label>
+          <select
+            value={listImportCategoryMode}
+            onChange={e => setListImportCategoryMode(e.target.value as 'none' | 'existing' | 'list')}
+            className="bg-surface-tertiary text-content"
+            style={{
+              width: '100%', padding: '9px 12px', borderRadius: 10,
+              border: '1px solid var(--border-primary)', fontSize: 13,
+              outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+            }}
+          >
+            <option value="none">{t('places.noCategory')}</option>
+            {categories.length > 0 && <option value="existing">Specific category</option>}
+            <option value="list">New category from list title</option>
+          </select>
+          {listImportCategoryMode === 'existing' && (
+            <select
+              value={listImportCategoryId}
+              onChange={e => setListImportCategoryId(e.target.value)}
+              className="bg-surface-tertiary text-content"
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 10,
+                border: '1px solid var(--border-primary)', fontSize: 13,
+                outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginTop: 8,
+              }}
+            >
+              <option value="">{t('places.formCategory')}</option>
+              {categories.map(category => (
+                <option key={category.id} value={String(category.id)}>{category.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
         {canEnrichImport && (
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginTop: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -80,11 +119,11 @@ export function ListImportModal(S: SidebarState) {
           </button>
           <button
             onClick={handleListImport}
-            disabled={!listImportUrl.trim() || listImportLoading}
-            className={!listImportUrl.trim() || listImportLoading ? 'bg-surface-tertiary text-content-faint' : 'bg-accent text-accent-text'}
+            disabled={importDisabled}
+            className={importDisabled ? 'bg-surface-tertiary text-content-faint' : 'bg-accent text-accent-text'}
             style={{
               padding: '8px 16px', borderRadius: 10, border: 'none',
-              fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500, cursor: !listImportUrl.trim() || listImportLoading ? 'default' : 'pointer',
+              fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500, cursor: importDisabled ? 'default' : 'pointer',
               fontFamily: 'inherit',
             }}
           >

@@ -39,6 +39,10 @@ export const ICON_LABELS: Record<string, string> = {
   Luggage: 'Luggage', Backpack: 'Backpack', Zap: 'Adventure',
 }
 
+export function isEmojiCategoryIcon(iconName: string | null | undefined): iconName is string {
+  return !!iconName && !CATEGORY_ICON_MAP[iconName]
+}
+
 export function getCategoryIcon(iconName: string | null | undefined): LucideIcon {
   return (iconName && CATEGORY_ICON_MAP[iconName]) || MapPin
 }

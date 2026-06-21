@@ -31,11 +31,66 @@ function reclaimPhotoCache(googlePlaceId: string | null, imageUrl: string | null
   }
 }
 
-/** Opt-in Places-API enrichment for list imports (#886). */
+/** Options for list imports: optional enrichment and category assignment. */
 export interface ListImportOptions {
   enrich?: boolean;
   userId?: number;
   lang?: string;
+  categoryId?: number | string | null;
+  createCategoryFromList?: boolean;
+  categoryIcon?: string | null;
+}
+
+type ImportCategoryResult =
+  | { categoryId: number | null }
+  | { error: string; status: number };
+
+const EMOJI_PATTERN = /(?:[\u{1F1E6}-\u{1F1FF}]{2}|\p{Extended_Pictographic}[\uFE0E\uFE0F]?(?:[\u{1F3FB}-\u{1F3FF}])?(?:\u200D\p{Extended_Pictographic}[\uFE0E\uFE0F]?(?:[\u{1F3FB}-\u{1F3FF}])?)*)/u;
+
+function firstEmoji(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.match(EMOJI_PATTERN)?.[0] || null;
+}
+
+function extractGoogleListIcon(meta: unknown): string | null {
+  if (!Array.isArray(meta)) return null;
+  const knownIcon = firstEmoji(meta[17]);
+  if (knownIcon) return knownIcon;
+  for (const value of meta) {
+    const icon = firstEmoji(value);
+    if (icon) return icon;
+  }
+  return null;
+}
+
+function resolveListImportCategoryId(listName: string, opts?: ListImportOptions, listIcon?: string | null): ImportCategoryResult {
+  const requestedId = opts?.categoryId;
+  if (requestedId !== undefined && requestedId !== null && String(requestedId).trim() !== '') {
+    const categoryId = Number(requestedId);
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+      return { error: 'Category not found', status: 400 };
+    }
+    const existing = db.prepare('SELECT id FROM categories WHERE id = ?').get(categoryId) as { id: number } | undefined;
+    if (!existing) {
+      return { error: 'Category not found', status: 404 };
+    }
+    return { categoryId };
+  }
+
+  if (opts?.createCategoryFromList) {
+    const name = listName.trim() || 'Imported list';
+    const existing = db.prepare('SELECT id FROM categories WHERE lower(name) = lower(?) LIMIT 1').get(name) as { id: number } | undefined;
+    if (existing) {
+      return { categoryId: existing.id };
+    }
+    const icon = listIcon?.trim() || opts.categoryIcon?.trim() || '📍';
+    const result = db.prepare(
+      'INSERT INTO categories (name, color, icon, user_id) VALUES (?, ?, ?, ?)',
+    ).run(name, '#6366f1', icon, opts.userId || null);
+    return { categoryId: Number(result.lastInsertRowid) };
+  }
+
+  return { categoryId: null };
 }
 
 interface PlaceWithCategory extends Place {
@@ -782,6 +837,7 @@ export async function importGoogleList(tripId: string, url: string, opts?: ListI
   }
 
   const listName = meta[4] || 'Google Maps List';
+  const listIcon = extractGoogleListIcon(meta);
   const items = meta[8];
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -806,10 +862,14 @@ export async function importGoogleList(tripId: string, url: string, opts?: ListI
     return { error: 'No places with coordinates found in list', status: 400 };
   }
 
+  const categoryResult = resolveListImportCategoryId(listName, opts, listIcon);
+  if ('error' in categoryResult) return categoryResult;
+  const categoryId = categoryResult.categoryId;
+
   const dedup = buildDedupSet(tripId);
   const insertStmt = db.prepare(`
-    INSERT INTO places (trip_id, name, lat, lng, notes, google_ftid, transport_mode)
-    VALUES (?, ?, ?, ?, ?, ?, 'walking')
+    INSERT INTO places (trip_id, name, lat, lng, notes, google_ftid, category_id, transport_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'walking')
   `);
   const updateGoogleFtidStmt = db.prepare('UPDATE places SET google_ftid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
   const created: any[] = [];
@@ -824,7 +884,7 @@ export async function importGoogleList(tripId: string, url: string, opts?: ListI
         skipped++;
         continue;
       }
-      const result = insertStmt.run(tripId, p.name, p.lat, p.lng, p.notes, p.googleFtid);
+      const result = insertStmt.run(tripId, p.name, p.lat, p.lng, p.notes, p.googleFtid, categoryId);
       const place = getPlaceWithTags(Number(result.lastInsertRowid));
       created.push(place);
       trackInsertedInDedupSet({ name: p.name, lat: p.lat, lng: p.lng }, dedup);
@@ -945,10 +1005,14 @@ export async function importNaverList(
     return { error: 'No places with coordinates found in list', status: 400 };
   }
 
+  const categoryResult = resolveListImportCategoryId(listName, opts);
+  if ('error' in categoryResult) return categoryResult;
+  const categoryId = categoryResult.categoryId;
+
   const dedup = buildDedupSet(tripId);
   const insertStmt = db.prepare(`
-    INSERT INTO places (trip_id, name, lat, lng, address, notes, transport_mode)
-    VALUES (?, ?, ?, ?, ?, ?, 'walking')
+    INSERT INTO places (trip_id, name, lat, lng, address, notes, category_id, transport_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'walking')
   `);
   const created: any[] = [];
   let skipped = 0;
@@ -958,7 +1022,7 @@ export async function importNaverList(
         skipped++;
         continue;
       }
-      const result = insertStmt.run(tripId, p.name, p.lat, p.lng, p.address, p.notes);
+      const result = insertStmt.run(tripId, p.name, p.lat, p.lng, p.address, p.notes, categoryId);
       const place = getPlaceWithTags(Number(result.lastInsertRowid));
       created.push(place);
       trackInsertedInDedupSet({ name: p.name, lat: p.lat, lng: p.lng }, dedup);

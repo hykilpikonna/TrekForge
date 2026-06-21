@@ -1,5 +1,5 @@
 import { Search, Plus, X, Upload, ChevronDown, Check, MapPin } from 'lucide-react'
-import { getCategoryIcon } from '../shared/categoryIcons'
+import { getCategoryIcon, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import Tooltip from '../shared/Tooltip'
 import type { SidebarState } from './usePlacesSidebar'
 
@@ -209,6 +209,7 @@ export function PlacesHeader(S: SidebarState) {
                 {categories.map(c => {
                   const active = categoryFilters.has(String(c.id))
                   const CatIcon = getCategoryIcon(c.icon)
+                  const emojiIcon = isEmojiCategoryIcon(c.icon) ? c.icon : null
                   return (
                     <button key={c.id} onClick={() => toggleCategoryFilter(String(c.id))} className={`text-content ${active ? 'bg-surface-hover' : 'bg-transparent'}`} style={{
                       display: 'flex', alignItems: 'center', gap: 8, width: '100%',
@@ -224,7 +225,11 @@ export function PlacesHeader(S: SidebarState) {
                       }}>
                         {active && <Check size={10} strokeWidth={3} color="white" />}
                       </div>
-                      <CatIcon size={12} strokeWidth={2} color={c.color || 'var(--text-muted)'} />
+                      {emojiIcon ? (
+                        <span style={{ fontSize: 12, lineHeight: 1 }}>{emojiIcon}</span>
+                      ) : (
+                        <CatIcon size={12} strokeWidth={2} color={c.color || 'var(--text-muted)'} />
+                      )}
                       <span style={{ flex: 1 }}>{c.name}</span>
                     </button>
                   )

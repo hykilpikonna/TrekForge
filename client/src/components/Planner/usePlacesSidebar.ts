@@ -106,6 +106,8 @@ export function usePlacesSidebar(props: PlacesSidebarProps) {
   const [listImportLoading, setListImportLoading] = useState(false)
   const [listImportProvider, setListImportProvider] = useState<'google' | 'naver'>('google')
   const [listImportEnrich, setListImportEnrich] = useState(false)
+  const [listImportCategoryMode, setListImportCategoryMode] = useState<'none' | 'existing' | 'list'>('none')
+  const [listImportCategoryId, setListImportCategoryId] = useState('')
   const availableListImportProviders: Array<'google' | 'naver'> = isNaverListImportEnabled ? ['google', 'naver'] : ['google']
   const hasMultipleListImportProviders = availableListImportProviders.length > 1
 
@@ -117,13 +119,19 @@ export function usePlacesSidebar(props: PlacesSidebarProps) {
 
   const handleListImport = async () => {
     if (!listImportUrl.trim()) return
+    if (listImportCategoryMode === 'existing' && !listImportCategoryId) return
     setListImportLoading(true)
     const provider = listImportProvider === 'naver' && isNaverListImportEnabled ? 'naver' : 'google'
     try {
       const enrich = listImportEnrich && canEnrichImport
+      const categoryOptions = listImportCategoryMode === 'existing' && listImportCategoryId
+        ? { categoryId: listImportCategoryId }
+        : listImportCategoryMode === 'list'
+          ? { createCategoryFromList: true }
+          : {}
       const result = provider === 'google'
-        ? await placesApi.importGoogleList(tripId, listImportUrl.trim(), enrich)
-        : await placesApi.importNaverList(tripId, listImportUrl.trim(), enrich)
+        ? await placesApi.importGoogleList(tripId, listImportUrl.trim(), { enrich, ...categoryOptions })
+        : await placesApi.importNaverList(tripId, listImportUrl.trim(), { enrich, ...categoryOptions })
       await loadTrip(tripId)
       if (result.count === 0 && result.skipped > 0) {
         toast.warning(t('places.importAllSkipped'))
@@ -265,6 +273,8 @@ export function usePlacesSidebar(props: PlacesSidebarProps) {
     listImportOpen, setListImportOpen, listImportUrl, setListImportUrl,
     listImportLoading, listImportProvider, setListImportProvider,
     listImportEnrich, setListImportEnrich, canEnrichImport,
+    listImportCategoryMode, setListImportCategoryMode,
+    listImportCategoryId, setListImportCategoryId,
     availableListImportProviders, hasMultipleListImportProviders, handleListImport,
     search, setSearch, filter, setFilter, categoryFilters, setCategoryFilters,
     selectMode, setSelectMode, selectedIds, setSelectedIds, pendingDeleteIds, setPendingDeleteIds,

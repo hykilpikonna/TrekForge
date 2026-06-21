@@ -14,7 +14,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import WeatherWidget from '../Weather/WeatherWidget'
 import { useToast } from '../shared/Toast'
-import { getCategoryIcon } from '../shared/categoryIcons'
+import { getCategoryIcon, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -1825,8 +1825,13 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
                                 {cat && (() => {
+                                  if (isEmojiCategoryIcon(cat.icon)) return null
                                   const CatIcon = getCategoryIcon(cat.icon)
-                                  return <span title={cat.name} style={{ display: 'inline-flex', flexShrink: 0 }}><CatIcon size={10} strokeWidth={2} color={cat.color || 'var(--text-muted)'} /></span>
+                                  return (
+                                    <span title={cat.name} style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                      <CatIcon size={10} strokeWidth={2} color={cat.color || 'var(--text-muted)'} />
+                                    </span>
+                                  )
                                 })()}
                                 <span style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                   {place.name}
