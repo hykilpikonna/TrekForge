@@ -4,7 +4,7 @@ declare global { interface Window { __dragData: DragDataPayload | null } }
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { avatarSrc } from '../../utils/avatarSrc'
-import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List } from 'lucide-react'
 import { assignmentsApi, reservationsApi } from '../../api/client'
 import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl } from '../Map/RouteCalculator'
 import PlaceAvatar from '../shared/PlaceAvatar'
@@ -29,7 +29,7 @@ import {
   type MergedItem,
 } from '../../utils/dayMerge'
 import { formatDate, formatTime, dayTotalCost, splitReservationDateTime } from '../../utils/formatters'
-import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes } from '../../utils/daySchedule'
+import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes, minutesToClock } from '../../utils/daySchedule'
 import { useDayNotes } from '../../hooks/useDayNotes'
 import { RES_ICONS, getNoteIcon } from './DayPlanSidebar.constants'
 import { RouteConnector, HotelRouteConnector } from './DayPlanSidebarRouteConnector'
@@ -45,6 +45,27 @@ import { getGoogleMapsUrlForPlace } from './placeGoogleMaps'
 function routeSecondsToMinutes(seconds?: number | null): number {
   const n = Number(seconds)
   return Number.isFinite(n) && n > 0 ? Math.round(n / 60) : 0
+}
+
+type DayPlanView = 'list' | 'calendar'
+
+const DAY_MINUTES = 24 * 60
+const CALENDAR_MINUTE_HEIGHT = 1.15
+const CALENDAR_MIN_TILE_HEIGHT = 30
+
+function readDayPlanViewPreference(tripId: number): DayPlanView {
+  if (typeof window === 'undefined') return 'list'
+  try {
+    return window.localStorage.getItem(`trek:day-plan-view:${tripId}`) === 'calendar' ? 'calendar' : 'list'
+  } catch {
+    return 'list'
+  }
+}
+
+function minutesAfterClock(clock: string, startMinutes: number): number {
+  const parsed = parseTimeToMinutes(clock)
+  if (parsed == null) return 0
+  return parsed >= startMinutes ? parsed - startMinutes : parsed + DAY_MINUTES - startMinutes
 }
 
 interface DayPlanSidebarProps {
@@ -97,10 +118,16 @@ interface DayPlanSidebarProps {
   onEditTransport?: (reservation: Reservation) => void
   onEditReservation?: (reservation: Reservation) => void
   onAddBookingToAssignment?: (dayId: number, assignmentId: number) => void
+  onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number) => Promise<void> | void
   initialScrollTop?: number
   onScrollTopChange?: (top: number) => void
   /** Mobile: show the route tools footer (Route toggle / Optimize / travel profile) on expanded days, since selecting a day closes the sheet */
   showRouteToolsWhenExpanded?: boolean
+}
+
+type DayHotelRouteLegs = {
+  top?: { seg: RouteSegment; name: string }
+  bottom?: { seg: RouteSegment; name: string }
 }
 
 /**
@@ -142,6 +169,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   onEditTransport,
   onEditReservation,
   onAddBookingToAssignment,
+  onUpdateAssignmentDuration,
   initialScrollTop,
   onScrollTopChange,
   showRouteToolsWhenExpanded = false,
@@ -153,6 +181,13 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   const tripActions = useRef(useTripStore.getState()).current
   const can = useCanDo()
   const canEditDays = can('day_edit', trip)
+  const [planView, setPlanView] = useState<DayPlanView>(() => readDayPlanViewPreference(tripId))
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`trek:day-plan-view:${tripId}`, planView)
+    } catch {}
+  }, [tripId, planView])
 
   const { noteUi, setNoteUi, noteInputRef, dayNotes, openAddNote: _openAddNote, openEditNote: _openEditNote, cancelNote, saveNote, deleteNote: _deleteNote, moveNote: _moveNote } = useDayNotes(tripId)
 
@@ -172,10 +207,10 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   // transport's reservation id). Nested per day so several Route-toggled mobile days
   // can't collide in one flat map — assignment ids and reservation ids come from
   // independent sequences and would overwrite each other across days (#1374).
-  const [routeLegs, setRouteLegs] = useState<Record<number, Record<number, RouteSegment>>>({})
+  const [dayRouteLegs, setDayRouteLegs] = useState<Record<number, Record<number, RouteSegment>>>({})
   // Hotel bookend legs keyed by day id. Desktop keys only the selected day; mobile
   // keys every day whose Route toggle is on, so each shows its own bookends (#1374).
-  const [hotelLegs, setHotelLegs] = useState<Record<number, { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } }>>({})
+  const [dayHotelLegs, setDayHotelLegs] = useState<Record<number, DayHotelRouteLegs>>({})
   // Mobile only: days the user tapped "Route" on. Their leg distances show inline in
   // the expanded day, so seeing distances doesn't require selecting the day (which
   // closes the mobile sheet) — #1374.
@@ -185,6 +220,8 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   // distances refresh instead of showing stale cached text (#1300).
   const distanceUnit = useSettingsStore(s => s.settings.distance_unit)
   const legsAbortRef = useRef<AbortController | null>(null)
+  const resizeRef = useRef<{ assignmentId: number; dayId: number; startY: number; startDuration: number; draftDuration: number } | null>(null)
+  const [resizePreview, setResizePreview] = useState<{ assignmentId: number; durationMinutes: number } | null>(null)
   const [draggingId, setDraggingId] = useState(null)
   const [lockedIds, setLockedIds] = useState(new Set())
   const [lockHoverId, setLockHoverId] = useState(null)
@@ -413,7 +450,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   // selected day on desktop, each Route-toggled day on mobile (#1374).
   useEffect(() => {
     if (legsAbortRef.current) legsAbortRef.current.abort()
-    if (routeDayIds.length === 0) { setRouteLegs({}); setHotelLegs({}); return }
+    if (routeDayIds.length === 0) { setDayRouteLegs({}); setDayHotelLegs({}); return }
 
     const hotelName = (a: Accommodation) => (a as any).place_name || (a as any).reservation_title || ''
 
@@ -485,15 +522,18 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     const controller = new AbortController()
     legsAbortRef.current = controller
     ;(async () => {
-      const legsByDay: Record<number, Record<number, RouteSegment>> = {}
-      const hotelByDay: Record<number, { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } }> = {}
+      const nextRouteLegs: Record<number, Record<number, RouteSegment>> = {}
+      const nextHotelLegs: Record<number, DayHotelRouteLegs> = {}
 
       // One cached OSRM call per waypoint pair; shares RouteCalculator's cache.
       const legBetween = async (a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<RouteSegment | undefined> => {
         try {
           const r = await calculateRouteWithLegs([a, b], { signal: controller.signal, profile: routeProfile })
           return r.legs[0]
-        } catch { return undefined }
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') throw err
+          return undefined
+        }
       }
 
       for (const dayId of routeDayIds) {
@@ -507,8 +547,8 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
             if (err instanceof Error && err.name === 'AbortError') return
           }
         }
-        if (Object.keys(dayLegs).length) legsByDay[dayId] = dayLegs
-        const hotel: { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } } = {}
+        if (Object.keys(dayLegs).length) nextRouteLegs[dayId] = dayLegs
+        const hotel: DayHotelRouteLegs = {}
         if (wantTop) {
           const seg = await legBetween({ lat: startHotel!.place_lat as number, lng: startHotel!.place_lng as number }, { lat: firstWay!.lat, lng: firstWay!.lng })
           if (seg) hotel.top = { seg, name: hotelName(startHotel!) }
@@ -518,11 +558,20 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
           if (seg) hotel.bottom = { seg, name: hotelName(endHotel!) }
         }
         if (controller.signal.aborted) return
-        if (hotel.top || hotel.bottom) hotelByDay[dayId] = hotel
+        if (hotel.top || hotel.bottom) nextHotelLegs[dayId] = hotel
       }
 
-      if (!controller.signal.aborted) { setRouteLegs(legsByDay); setHotelLegs(hotelByDay) }
-    })()
+      if (!controller.signal.aborted) {
+        setDayRouteLegs(nextRouteLegs)
+        setDayHotelLegs(nextHotelLegs)
+      }
+    })().catch((err: unknown) => {
+      if (!(err instanceof Error) || err.name !== 'AbortError') {
+        setDayRouteLegs({})
+        setDayHotelLegs({})
+      }
+    })
+    return () => controller.abort()
     // routeDayIds is memoized from the same inputs as routeDayKey below, so keying the
     // effect on the string is equivalent while staying stable across unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -716,6 +765,50 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     }
   }
 
+  const startCalendarResize = (
+    e: React.PointerEvent<HTMLElement>,
+    assignmentId: number,
+    dayId: number,
+    currentDuration: number,
+  ) => {
+    if (!canEditDays || !onUpdateAssignmentDuration) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const startY = e.clientY
+    const startDuration = Math.max(5, Math.round(currentDuration))
+    resizeRef.current = { assignmentId, dayId, startY, startDuration, draftDuration: startDuration }
+    setResizePreview({ assignmentId, durationMinutes: startDuration })
+
+    const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault()
+      const state = resizeRef.current
+      if (!state || state.assignmentId !== assignmentId) return
+      const deltaMinutes = Math.round(((event.clientY - state.startY) / CALENDAR_MINUTE_HEIGHT) / 5) * 5
+      const draftDuration = Math.max(5, state.startDuration + deltaMinutes)
+      resizeRef.current = { ...state, draftDuration }
+      setResizePreview({ assignmentId, durationMinutes: draftDuration })
+    }
+
+    const finishResize = () => {
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', finishResize)
+      document.removeEventListener('pointercancel', finishResize)
+
+      const state = resizeRef.current
+      resizeRef.current = null
+      setResizePreview(null)
+      if (!state || state.draftDuration === state.startDuration) return
+
+      Promise.resolve(onUpdateAssignmentDuration(assignmentId, dayId, state.draftDuration))
+        .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t('common.unknownError')))
+    }
+
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', finishResize, { once: true })
+    document.addEventListener('pointercancel', finishResize, { once: true })
+  }
+
   const handleCalculateRoute = async () => {
     if (!selectedDayId) return
     const da = getDayAssignments(selectedDayId)
@@ -903,6 +996,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     setExpandedTransitIds,
     onEditReservation,
     onAddBookingToAssignment,
+    onUpdateAssignmentDuration,
     initialScrollTop,
     onScrollTopChange,
     showRouteToolsWhenExpanded,
@@ -915,6 +1009,8 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     tripActions,
     can,
     canEditDays,
+    planView,
+    setPlanView,
     noteUi,
     setNoteUi,
     noteInputRef,
@@ -937,11 +1033,11 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     setIsCalculating,
     routeInfo,
     setRouteInfo,
-    routeLegs,
-    setRouteLegs,
-    hotelLegs,
-    setHotelLegs,
+    dayRouteLegs,
+    dayHotelLegs,
     legsAbortRef,
+    resizePreview,
+    startCalendarResize,
     draggingId,
     setDraggingId,
     lockedIds,
@@ -1066,6 +1162,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     setExpandedTransitIds,
     onEditReservation,
     onAddBookingToAssignment,
+    onUpdateAssignmentDuration,
     initialScrollTop,
     onScrollTopChange,
     showRouteToolsWhenExpanded,
@@ -1078,6 +1175,8 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     tripActions,
     can,
     canEditDays,
+    planView,
+    setPlanView,
     noteUi,
     setNoteUi,
     noteInputRef,
@@ -1100,11 +1199,11 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     setIsCalculating,
     routeInfo,
     setRouteInfo,
-    routeLegs,
-    setRouteLegs,
-    hotelLegs,
-    setHotelLegs,
+    dayRouteLegs,
+    dayHotelLegs,
     legsAbortRef,
+    resizePreview,
+    startCalendarResize,
     draggingId,
     setDraggingId,
     lockedIds,
@@ -1196,6 +1295,40 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
         onAddDay={onAddDay}
       />
 
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-faint)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: '1px solid var(--border-faint)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-hover)' }}>
+          {([
+            { id: 'list' as const, label: 'List', icon: List },
+            { id: 'calendar' as const, label: 'Calendar', icon: CalendarDays },
+          ]).map(({ id, label, icon: Icon }, idx) => {
+            const active = planView === id
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-label={label}
+                aria-pressed={active}
+                onClick={() => setPlanView(id)}
+                className={active ? 'bg-accent text-accent-text' : 'bg-transparent text-content-secondary'}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '6px 8px',
+                  border: 'none',
+                  borderRight: idx === 0 ? '1px solid var(--border-faint)' : 'none',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Icon size={13} strokeWidth={2} />
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Tagesliste */}
       <div className={`scroll-container${draggingId ? '' : ' trek-stagger'}`} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }} ref={scrollContainerRef} onScroll={(e) => onScrollTopChange?.((e.currentTarget as HTMLElement).scrollTop)}>
         {days.map((day, index) => {
@@ -1224,17 +1357,133 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
           const dayNoteUi = noteUi[day.id]
           const placeItems = merged.filter(i => i.type === 'place')
           const activityAssignments = placeItems.map(i => i.data as Assignment)
+          const renderedRouteLegs = dayRouteLegs[day.id] || {}
+          const renderedHotelLegs = dayHotelLegs[day.id] || {}
           const travelAfterAssignmentMinutes = Object.fromEntries(
-            activityAssignments.map(a => [a.id, routeSecondsToMinutes(isSelected ? routeLegs[a.id]?.duration : 0)])
+            activityAssignments.map(a => [a.id, routeSecondsToMinutes(renderedRouteLegs[a.id]?.duration)])
           )
-          const scheduleTravel = isSelected ? {
-            initialTravelMinutes: routeSecondsToMinutes(hotelLegs.top?.seg.duration),
+          const scheduleTravel = routeActive ? {
+            initialTravelMinutes: routeSecondsToMinutes(renderedHotelLegs.top?.seg.duration),
             travelAfterAssignmentMinutes,
-            finalTravelMinutes: routeSecondsToMinutes(hotelLegs.bottom?.seg.duration),
-          } : undefined
+            finalTravelMinutes: routeSecondsToMinutes(renderedHotelLegs.bottom?.seg.duration),
+          } : {}
           const activitySchedule = buildActivitySchedule(day, activityAssignments, scheduleTravel)
           const maxSleep = getMaxSleepMinutes(day, activityAssignments, days[index + 1], scheduleTravel)
           const wakeUpTime = day.wake_up_time || DEFAULT_WAKE_UP_TIME
+          const calendarStartMinutes = parseTimeToMinutes(wakeUpTime) ?? parseTimeToMinutes(DEFAULT_WAKE_UP_TIME)!
+          const calendarBlocks = activityAssignments
+            .map((assignment) => {
+              const slot = activitySchedule[assignment.id]
+              if (!slot || !assignment.place) return null
+              const durationMinutes = resizePreview?.assignmentId === assignment.id ? resizePreview.durationMinutes : slot.durationMinutes
+              const topMinutes = minutesAfterClock(slot.start, calendarStartMinutes)
+              const topPx = topMinutes * CALENDAR_MINUTE_HEIGHT
+              const heightPx = Math.max(durationMinutes * CALENDAR_MINUTE_HEIGHT, CALENDAR_MIN_TILE_HEIGHT)
+              return { assignment, place: assignment.place as Place, slot, durationMinutes, topMinutes, topPx, heightPx }
+            })
+            .filter(Boolean)
+          const calendarRouteBlocks = routeActive ? (() => {
+            const blocks: Array<{
+              key: string
+              seg: RouteSegment
+              start: string
+              end: string
+              durationMinutes: number
+              topMinutes: number
+              topPx: number
+              heightPx: number
+            }> = []
+            const pushRouteBlock = (key: string, seg: RouteSegment | undefined, topMinutes: number) => {
+              const durationMinutes = routeSecondsToMinutes(seg?.duration)
+              if (!seg || durationMinutes <= 0) return
+              const start = minutesToClock(calendarStartMinutes + topMinutes)
+              blocks.push({
+                key,
+                seg,
+                start,
+                end: minutesToClock(calendarStartMinutes + topMinutes + durationMinutes),
+                durationMinutes,
+                topMinutes,
+                topPx: topMinutes * CALENDAR_MINUTE_HEIGHT,
+                heightPx: Math.max(durationMinutes * CALENDAR_MINUTE_HEIGHT, 22),
+              })
+            }
+
+            if (calendarBlocks.length > 0) {
+              pushRouteBlock(`${day.id}-start`, renderedHotelLegs.top?.seg, 0)
+              for (const block of calendarBlocks) {
+                if (!block) continue
+                pushRouteBlock(`${day.id}-${block.assignment.id}`, renderedRouteLegs[block.assignment.id], block.topMinutes + block.slot.durationMinutes)
+              }
+              const lastBlock = calendarBlocks[calendarBlocks.length - 1]
+              if (lastBlock) {
+                const afterLast = routeSecondsToMinutes(renderedRouteLegs[lastBlock.assignment.id]?.duration)
+                pushRouteBlock(`${day.id}-end`, renderedHotelLegs.bottom?.seg, lastBlock.topMinutes + lastBlock.slot.durationMinutes + afterLast)
+              }
+            }
+            return blocks
+          })() : []
+          const calendarContentMinutes = Math.max(
+            8 * 60,
+            ...calendarBlocks.map(block => block!.topMinutes + block!.durationMinutes),
+            ...calendarRouteBlocks.map(block => block.topMinutes + block.durationMinutes),
+          )
+          const calendarHourCount = Math.max(1, Math.ceil((calendarContentMinutes + 30) / 60))
+          const calendarHeight = calendarHourCount * 60 * CALENDAR_MINUTE_HEIGHT
+          const calendarDropIndex = String(dropTargetKey || '').startsWith(`calendar-${day.id}-`)
+            ? Number(String(dropTargetKey).split('-').pop())
+            : null
+          const getCalendarDropIndex = (e: React.DragEvent<HTMLDivElement>) => {
+            const y = e.clientY - e.currentTarget.getBoundingClientRect().top
+            const idx = calendarBlocks.findIndex(block => block && y < block.topPx + block.heightPx / 2)
+            return idx === -1 ? calendarBlocks.length : idx
+          }
+          const clearCalendarDrag = () => {
+            setDraggingId(null)
+            setDragOverDayId(null)
+            setDropTargetKey(null)
+            dragDataRef.current = null
+            window.__dragData = null
+          }
+          const handleCalendarDrop = (e: React.DragEvent<HTMLDivElement>) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const insertIndex = getCalendarDropIndex(e)
+            const { placeId, assignmentId, fromDayId } = getDragData(e)
+            if (placeId) {
+              onAssignToDay?.(parseInt(placeId), day.id, insertIndex)
+              clearCalendarDrag()
+              return
+            }
+            if (!assignmentId) {
+              clearCalendarDrag()
+              return
+            }
+            const movingId = Number(assignmentId)
+            const sourceDayId = Number(fromDayId)
+            if (sourceDayId && sourceDayId !== day.id) {
+              tripActions.moveAssignment(tripId, movingId, sourceDayId, day.id, insertIndex)
+                .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t('common.unknownError')))
+              clearCalendarDrag()
+              return
+            }
+            const ids = activityAssignments.map(a => a.id)
+            const currentIndex = ids.indexOf(movingId)
+            if (currentIndex === -1) {
+              clearCalendarDrag()
+              return
+            }
+            const nextIds = ids.filter(id => id !== movingId)
+            const adjustedIndex = currentIndex < insertIndex ? insertIndex - 1 : insertIndex
+            nextIds.splice(Math.max(0, Math.min(adjustedIndex, nextIds.length)), 0, movingId)
+            if (nextIds.some((id, i) => id !== ids[i])) onReorder(day.id, nextIds)
+            clearCalendarDrag()
+          }
+          const calendarDropTop = calendarDropIndex == null
+            ? null
+            : calendarDropIndex >= calendarBlocks.length
+              ? Math.min(calendarHeight - 2, (calendarBlocks[calendarBlocks.length - 1]?.topPx ?? 0) + (calendarBlocks[calendarBlocks.length - 1]?.heightPx ?? 0) + 8)
+              : calendarBlocks[calendarDropIndex]?.topPx ?? 0
 
           return (
             <div key={day.id} style={{ borderBottom: '1px solid var(--border-faint)' }}>
@@ -1508,10 +1757,237 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                       handleMergedDrop(day.id, 'note', Number(noteId), lastItem.type, lastItem.data.id, true)
                   }}
                 >
-                  {hotelLegs[day.id]?.top && (
-                    <HotelRouteConnector seg={hotelLegs[day.id]!.top!.seg} name={hotelLegs[day.id]!.top!.name} profile={routeProfile} placement="top" />
+                  {renderedHotelLegs.top && (
+                    <HotelRouteConnector seg={renderedHotelLegs.top.seg} name={renderedHotelLegs.top.name} profile={routeProfile} placement="top" />
                   )}
-                  {merged.length === 0 && !dayNoteUi ? (
+                  {planView === 'calendar' ? (
+                    calendarBlocks.length === 0 ? (
+                      <div
+                        onDragOver={e => { e.preventDefault(); if (dragOverDayId !== day.id) setDragOverDayId(day.id) }}
+                        onDrop={e => handleDropOnDay(e, day.id)}
+                        className={dragOverDayId === day.id ? 'bg-[rgba(17,24,39,0.05)]' : 'bg-transparent'}
+                        style={{ padding: '16px', textAlign: 'center', borderRadius: 8,
+                          border: dragOverDayId === day.id ? '2px dashed rgba(17,24,39,0.2)' : '2px dashed transparent',
+                        }}
+                      >
+                        <span className="text-content-faint" style={{ fontSize: 12 }}>{t('dayplan.emptyDay')}</span>
+                      </div>
+                    ) : (
+                      <div
+                        data-testid={`day-calendar-${day.id}`}
+                        style={{ padding: '8px 10px 12px 8px', display: 'flex', gap: 8 }}
+                      >
+                        <div style={{ width: 44, flexShrink: 0, position: 'relative', height: calendarHeight }}>
+                          {Array.from({ length: calendarHourCount + 1 }, (_, hour) => (
+                            <div
+                              key={hour}
+                              className="text-content-faint"
+                              style={{
+                                position: 'absolute',
+                                top: hour * 60 * CALENDAR_MINUTE_HEIGHT - 6,
+                                right: 2,
+                                fontSize: 9.5,
+                                fontWeight: 500,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {formatTime(minutesToClock(calendarStartMinutes + hour * 60), locale, timeFormat)}
+                            </div>
+                          ))}
+                        </div>
+                        <div
+                          data-testid={`day-calendar-grid-${day.id}`}
+                          style={{
+                            position: 'relative',
+                            flex: 1,
+                            minWidth: 0,
+                            height: calendarHeight,
+                            borderLeft: '1px solid var(--border-faint)',
+                            borderRight: '1px solid var(--border-faint)',
+                            background: 'var(--bg-card)',
+                            overflow: 'hidden',
+                          }}
+                          onDragOver={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            e.dataTransfer.dropEffect = 'move'
+                            setDropTargetKey(`calendar-${day.id}-${getCalendarDropIndex(e)}`)
+                          }}
+                          onDrop={handleCalendarDrop}
+                        >
+                          {Array.from({ length: calendarHourCount + 1 }, (_, hour) => (
+                            <div
+                              key={hour}
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                top: hour * 60 * CALENDAR_MINUTE_HEIGHT,
+                                borderTop: '1px solid var(--border-faint)',
+                              }}
+                            />
+                          ))}
+                          {calendarDropTop != null && (
+                            <div
+                              data-testid="calendar-drop-indicator"
+                              style={{
+                                position: 'absolute',
+                                left: 8,
+                                right: 8,
+                                top: calendarDropTop,
+                                height: 2,
+                                borderRadius: 1,
+                                background: 'var(--text-primary)',
+                                zIndex: 4,
+                              }}
+                            />
+                          )}
+                          {calendarRouteBlocks.map(block => {
+                            const RouteModeIcon = routeProfile === 'driving' ? Car : Footprints
+                            return (
+                              <div
+                                key={block.key}
+                                data-testid={`calendar-route-${block.key}`}
+                                style={{
+                                  position: 'absolute',
+                                  top: block.topPx,
+                                  left: 14,
+                                  right: 14,
+                                  height: block.heightPx,
+                                  borderRadius: 6,
+                                  border: '1px dashed rgba(37,99,235,0.55)',
+                                  borderLeft: '4px solid #2563eb',
+                                  background: 'rgba(37,99,235,0.10)',
+                                  color: '#1d4ed8',
+                                  padding: '4px 7px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 7,
+                                  overflow: 'hidden',
+                                  zIndex: 1,
+                                  pointerEvents: 'none',
+                                }}
+                              >
+                                <RouteModeIcon size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: 9.5, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {formatTime(block.start, locale, timeFormat)} ~ {formatTime(block.end, locale, timeFormat)}
+                                    <span> · </span>
+                                    {formatDurationMinutes(block.durationMinutes)}
+                                  </div>
+                                  {block.heightPx >= 34 && (
+                                    <div style={{ marginTop: 2, fontSize: 10.5, fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {t('dayplan.route')} · {block.seg.distanceText}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                          {calendarBlocks.map(block => {
+                            if (!block) return null
+                            const { assignment, place, slot, durationMinutes, topPx, heightPx } = block
+                            const cat = categories.find(c => c.id === place.category_id)
+                            const isPlaceSelected = selectedAssignmentId ? assignment.id === selectedAssignmentId : place.id === selectedPlaceId
+                            const isDraggingThis = draggingId === assignment.id
+                            const color = cat?.color || 'var(--accent)'
+                            const displayEnd = durationMinutes === slot.durationMinutes
+                              ? slot.end
+                              : minutesToClock((parseTimeToMinutes(slot.start) ?? 0) + durationMinutes)
+                            return (
+                              <div
+                                key={assignment.id}
+                                data-testid={`calendar-activity-${assignment.id}`}
+                                draggable={canEditDays}
+                                onDragStart={e => {
+                                  if (!canEditDays) { e.preventDefault(); return }
+                                  e.dataTransfer.setData('assignmentId', String(assignment.id))
+                                  e.dataTransfer.setData('fromDayId', String(day.id))
+                                  e.dataTransfer.effectAllowed = 'move'
+                                  dragDataRef.current = { assignmentId: String(assignment.id), fromDayId: String(day.id) }
+                                  setDraggingId(assignment.id)
+                                }}
+                                onDragEnd={clearCalendarDrag}
+                                onClick={() => { onPlaceClick(isPlaceSelected ? null : place.id, isPlaceSelected ? null : assignment.id); if (!isPlaceSelected) onSelectDay(day.id, true) }}
+                                onContextMenu={e => ctxMenu.open(e, [
+                                  canEditDays && onEditPlace && { label: t('common.edit'), icon: Pencil, onClick: () => onEditPlace(place, assignment.id) },
+                                  canEditDays && onRemoveAssignment && { label: t('planner.removeFromDay'), icon: Trash2, onClick: () => onRemoveAssignment(day.id, assignment.id) },
+                                  place.website && { label: t('inspector.website'), icon: ExternalLink, onClick: () => window.open(place.website, '_blank') },
+                                  (place.lat && place.lng) && { label: 'Google Maps', icon: Navigation, onClick: () => window.open(`https://www.google.com/maps/search/?api=1&query=${place.google_place_id ? encodeURIComponent(place.name) + '&query_place_id=' + place.google_place_id : place.lat + ',' + place.lng}`, '_blank') },
+                                  { divider: true },
+                                  canEditDays && onDeletePlace && { label: t('common.delete'), icon: Trash2, danger: true, onClick: () => onDeletePlace(place.id) },
+                                ])}
+                                style={{
+                                  position: 'absolute',
+                                  top: topPx,
+                                  left: 8,
+                                  right: 8,
+                                  height: heightPx,
+                                  borderRadius: 7,
+                                  border: `1px solid ${isPlaceSelected ? 'var(--accent)' : 'var(--border-faint)'}`,
+                                  borderLeft: `4px solid ${color}`,
+                                  background: isPlaceSelected ? 'var(--bg-selected)' : 'var(--bg-card)',
+                                  boxShadow: '0 1px 3px rgba(15,23,42,0.08)',
+                                  cursor: canEditDays ? 'grab' : 'pointer',
+                                  opacity: isDraggingThis ? 0.45 : 1,
+                                  padding: canEditDays && onUpdateAssignmentDuration ? '5px 7px 12px' : '5px 7px',
+                                  display: 'grid',
+                                  gridTemplateColumns: '24px minmax(0, 1fr)',
+                                  gap: 7,
+                                  alignItems: 'start',
+                                  zIndex: isPlaceSelected ? 3 : 2,
+                                  overflow: 'hidden',
+                                  userSelect: 'none',
+                                }}
+                              >
+                                <PlaceAvatar place={place} category={cat} size={24} />
+                                <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                                  <div className="text-content-faint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+                                    <Clock size={9} strokeWidth={2} />
+                                    {formatTime(slot.start, locale, timeFormat)} ~ {formatTime(displayEnd, locale, timeFormat)}
+                                    <span>·</span>
+                                    {formatDurationMinutes(durationMinutes)}
+                                  </div>
+                                  <div className="text-content" style={{ marginTop: 3, fontSize: 12, fontWeight: 600, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {place.name}
+                                  </div>
+                                  {(place.address || cat?.name) && heightPx >= 42 && (
+                                    <div className="text-content-faint" style={{ marginTop: 2, fontSize: 10, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {place.address || cat?.name}
+                                    </div>
+                                  )}
+                                </div>
+                                {canEditDays && onUpdateAssignmentDuration && (
+                                  <div
+                                    data-testid={`calendar-resize-handle-${assignment.id}`}
+                                    role="separator"
+                                    aria-label={t('places.durationMinutes')}
+                                    draggable={false}
+                                    onPointerDown={e => startCalendarResize(e, assignment.id, day.id, slot.durationMinutes)}
+                                    onClick={e => { e.preventDefault(); e.stopPropagation() }}
+                                    style={{
+                                      position: 'absolute',
+                                      left: 14,
+                                      right: 14,
+                                      bottom: 2,
+                                      height: 8,
+                                      cursor: 'ns-resize',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      touchAction: 'none',
+                                    }}
+                                  >
+                                    <span style={{ width: 30, height: 2, borderRadius: 2, background: 'var(--border-primary)' }} />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  ) : merged.length === 0 && !dayNoteUi ? (
                     <div
                       onDragOver={e => { e.preventDefault(); if (dragOverDayId !== day.id) setDragOverDayId(day.id) }}
                       onDrop={e => handleDropOnDay(e, day.id)}
@@ -1848,7 +2324,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               </button>
                             )}
                           </div>
-                          {routeLegs[day.id]?.[assignment.id] && <RouteConnector seg={routeLegs[day.id]![assignment.id]} profile={routeProfile} />}
+                          {renderedRouteLegs[assignment.id] && <RouteConnector seg={renderedRouteLegs[assignment.id]} profile={routeProfile} />}
                           </React.Fragment>
                         )
                       }
@@ -2076,7 +2552,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               <TransitItineraryInline legs={transitMeta.legs} t={t} />
                             </div>
                           )}
-                          {routeLegs[day.id]?.[res.id] && <RouteConnector seg={routeLegs[day.id]![res.id]} profile={routeProfile} />}
+                          {renderedRouteLegs[res.id] && <RouteConnector seg={renderedRouteLegs[res.id]} profile={routeProfile} />}
                           </React.Fragment>
                         )
                       }
@@ -2184,8 +2660,8 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                       )
                     })
                   )}
-                  {hotelLegs[day.id]?.bottom && (
-                    <HotelRouteConnector seg={hotelLegs[day.id]!.bottom!.seg} name={hotelLegs[day.id]!.bottom!.name} profile={routeProfile} placement="bottom" />
+                  {renderedHotelLegs.bottom && (
+                    <HotelRouteConnector seg={renderedHotelLegs.bottom.seg} name={renderedHotelLegs.bottom.name} profile={routeProfile} placement="bottom" />
                   )}
                   {/* Drop-Zone am Listenende — immer vorhanden als Drop-Target */}
                   <div
