@@ -4,6 +4,48 @@ import { cleanup } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { server } from './helpers/msw/server';
 
+function createMemoryStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.has(key) ? store.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  };
+}
+
+function ensureStorage(name: 'localStorage' | 'sessionStorage'): void {
+  let storage: Storage | undefined;
+  try {
+    const candidate = globalThis[name] ?? window[name];
+    if (candidate && typeof candidate.clear === 'function') {
+      storage = candidate;
+    }
+  } catch {
+    // Some DOM environments expose storage getters that throw for opaque origins.
+  }
+  storage ??= createMemoryStorage();
+  Object.defineProperty(globalThis, name, { configurable: true, value: storage });
+  Object.defineProperty(window, name, { configurable: true, value: storage });
+}
+
+ensureStorage('localStorage');
+ensureStorage('sessionStorage');
+
 // Mock the websocket module so stores don't try to open real connections
 vi.mock('../src/api/websocket', () => ({
   connect: vi.fn(),
