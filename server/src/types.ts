@@ -104,6 +104,8 @@ export interface DayAssignment {
   order_index: number;
   notes?: string | null;
   duration_minutes?: number | null;
+  margin_before_minutes?: number | null;
+  margin_after_minutes?: number | null;
   reservation_status?: string;
   reservation_notes?: string | null;
   reservation_datetime?: string | null;
@@ -326,6 +328,8 @@ export interface AssignmentRow extends DayAssignment {
   place_time: string | null;
   end_time: string | null;
   duration_minutes: number;
+  margin_before_minutes: number;
+  margin_after_minutes: number;
   place_notes: string | null;
   image_url: string | null;
   transport_mode: string;
