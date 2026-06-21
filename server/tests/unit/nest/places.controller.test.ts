@@ -154,9 +154,16 @@ describe('PlacesController (parity with the legacy /api/trips/:tripId/places rou
       const importGoogleList = vi.fn().mockResolvedValue({ places: [{ id: 1 }, { id: 2 }], listName: 'L', skipped: 0 });
       const broadcast = vi.fn();
       const s = svc({ importGoogleList, broadcast } as Partial<PlacesService>);
-      expect(await new PlacesController(s).importGoogle(user, '5', 'http://x', 'true', 'sock')).toEqual({ places: [{ id: 1 }, { id: 2 }], count: 2, listName: 'L', skipped: 0 });
-      expect(importGoogleList).toHaveBeenCalledWith('5', 'http://x', { enrich: true, userId: 1 });
+      expect(await new PlacesController(s).importGoogle(user, '5', 'http://x', 'true', '42', 'true', 'pin', 'sock')).toEqual({ places: [{ id: 1 }, { id: 2 }], count: 2, listName: 'L', skipped: 0 });
+      expect(importGoogleList).toHaveBeenCalledWith('5', 'http://x', {
+        enrich: true,
+        userId: 1,
+        categoryId: '42',
+        createCategoryFromList: true,
+        categoryIcon: 'pin',
+      });
       expect(broadcast).toHaveBeenCalledTimes(2);
+      expect(broadcast).toHaveBeenCalledWith('5', 'place:created', { place: { id: 1 } }, 'sock');
     });
     it('wraps a thrown Error in the provider-specific 400 (Google)', async () => {
       const s = svc({ importGoogleList: vi.fn().mockRejectedValue(new Error('network down')) } as Partial<PlacesService>);
