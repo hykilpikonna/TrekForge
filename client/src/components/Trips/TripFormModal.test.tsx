@@ -155,6 +155,20 @@ describe('TripFormModal', () => {
     expect(screen.queryByText('Number of Days')).not.toBeInTheDocument();
   });
 
+  it('FE-COMP-TRIPFORM-018b: submits a flexible trip schedule margin', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue({ trip: buildTrip({ id: 99 }) });
+    render(<TripFormModal {...defaultProps} onSave={onSave} trip={null} />);
+    await user.type(screen.getByPlaceholderText(/Summer in Japan/i), 'Margin Trip');
+    const marginInput = screen.getByLabelText('Schedule margin');
+    await user.clear(marginInput);
+    await user.type(marginInput, '15 min');
+    const submitBtn = screen.getAllByText('Create New Trip').find(el => el.closest('button'))!;
+    await user.click(submitBtn.closest('button')!);
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ schedule_margin_minutes: 15 }));
+  });
+
   it('FE-COMP-TRIPFORM-019: reminder buttons visible when tripRemindersEnabled=true', async () => {
     seedStore(useAuthStore, { tripRemindersEnabled: true });
     render(<TripFormModal {...defaultProps} trip={null} />);

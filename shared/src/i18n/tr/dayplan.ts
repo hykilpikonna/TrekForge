@@ -25,7 +25,7 @@ const dayplan: TranslationStrings = {
   'dayplan.dayN': '{n}. gün',
   'dayplan.calculating': 'Hesaplanıyor...',
   'dayplan.wake': 'Wake',
-  'dayplan.maxSleep': 'Max sleep',
+  'dayplan.maxSleep': 'Rest',
   'dayplan.route': 'Rota',
   'dayplan.optimize': 'Optimize et',
   'dayplan.optimized': 'Rota optimize edildi',

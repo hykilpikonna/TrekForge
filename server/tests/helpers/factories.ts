@@ -80,18 +80,19 @@ export interface TestTrip {
   title: string;
   start_date: string | null;
   end_date: string | null;
+  schedule_margin_minutes?: number;
 }
 
 export function createTrip(
   db: Database.Database,
   userId: number,
-  overrides: Partial<{ title: string; start_date: string; end_date: string; description: string }> = {}
+  overrides: Partial<{ title: string; start_date: string; end_date: string; description: string; schedule_margin_minutes: number }> = {}
 ): TestTrip {
   _tripSeq++;
   const title = overrides.title ?? `Test Trip ${_tripSeq}`;
   const result = db.prepare(
-    'INSERT INTO trips (user_id, title, description, start_date, end_date) VALUES (?, ?, ?, ?, ?)'
-  ).run(userId, title, overrides.description ?? null, overrides.start_date ?? null, overrides.end_date ?? null);
+    'INSERT INTO trips (user_id, title, description, start_date, end_date, schedule_margin_minutes) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(userId, title, overrides.description ?? null, overrides.start_date ?? null, overrides.end_date ?? null, overrides.schedule_margin_minutes ?? 0);
 
   // Auto-generate days if dates are provided
   if (overrides.start_date && overrides.end_date) {

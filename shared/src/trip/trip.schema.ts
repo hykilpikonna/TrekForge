@@ -30,6 +30,7 @@ export const tripSchema = z.object({
   cover_image: z.string().nullable().optional(),
   is_archived: z.number(),
   reminder_days: z.number(),
+  schedule_margin_minutes: z.number().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   // computed in TRIP_SELECT (list/get)
@@ -78,6 +79,7 @@ export const tripCreateRequestSchema = z.object({
   end_date: z.string().nullable().optional(),
   currency: z.string().optional(),
   reminder_days: z.number().optional(),
+  schedule_margin_minutes: z.number().int().min(0).optional(),
   day_count: z.number().optional(),
 });
 export type TripCreateRequest = z.infer<typeof tripCreateRequestSchema>;
@@ -97,6 +99,7 @@ export const tripUpdateRequestSchema = z.object({
   date_shift_mode: z.enum(['keep_bookings', 'shift_all']).optional(),
   currency: z.string().optional(),
   reminder_days: z.number().optional(),
+  schedule_margin_minutes: z.number().int().min(0).optional(),
   day_count: z.number().optional(),
   is_archived: z.union([z.boolean(), z.number()]).optional(),
   cover_image: z.string().nullable().optional(),

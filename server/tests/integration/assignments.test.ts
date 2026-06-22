@@ -370,7 +370,7 @@ describe('Assignment participants', () => {
     expect(found.participants).toHaveLength(2);
   });
 
-  it('ASSIGN-009 — PUT /time updates duration, margins, and clears manual time fields', async () => {
+  it('ASSIGN-009 - PUT /time updates duration and clears manual time fields', async () => {
     const { user } = createUser(testDb);
     const { trip, day, place } = setupAssignmentFixtures(user.id);
 
@@ -379,15 +379,16 @@ describe('Assignment participants', () => {
       .set('Cookie', authCookie(user.id))
       .send({ place_id: place.id });
     const assignmentId = create.body.assignment.id;
+    testDb.prepare('UPDATE day_assignments SET assignment_time = ?, assignment_end_time = ? WHERE id = ?').run('14:00', '16:00', assignmentId);
 
     const update = await request(app)
       .put(`/api/trips/${trip.id}/assignments/${assignmentId}/time`)
       .set('Cookie', authCookie(user.id))
-      .send({ duration_minutes: 95, margin_before_minutes: 10, margin_after_minutes: 15, place_time: '14:00', end_time: '16:00' });
+      .send({ duration_minutes: 95 });
     expect(update.status).toBe(200);
     expect(update.body.assignment.duration_minutes).toBe(95);
-    expect(update.body.assignment.margin_before_minutes).toBe(10);
-    expect(update.body.assignment.margin_after_minutes).toBe(15);
+    expect(update.body.assignment.margin_before_minutes).toBe(0);
+    expect(update.body.assignment.margin_after_minutes).toBe(0);
     expect(update.body.assignment.assignment_time).toBeNull();
     expect(update.body.assignment.assignment_end_time).toBeNull();
   });

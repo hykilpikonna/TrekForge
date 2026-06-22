@@ -60,20 +60,32 @@ describe('daySchedule', () => {
     expect(slots[2]).toMatchObject({ start: '10:35', end: '11:05' })
   })
 
-  it('adds assignment margins outside activity duration', () => {
-    const slots = buildActivitySchedule(day('08:00'), [
-      assignment(1, 60, null, { margin_before_minutes: 15, margin_after_minutes: 10 }),
+  it('adds the trip schedule margin after route travel time', () => {
+    const slots = buildActivitySchedule(day('09:00'), [
+      assignment(1, 60),
       assignment(2, 30),
-    ])
+    ], {
+      initialTravelMinutes: 15,
+      travelAfterAssignmentMinutes: { 1: 20 },
+      scheduleMarginMinutes: 10,
+    })
+
+    expect(slots[1]).toMatchObject({ start: '09:25', end: '10:25' })
+    expect(slots[2]).toMatchObject({ start: '11:05', end: '11:35' })
+  })
+
+  it('adds the trip schedule margin after activities', () => {
+    const slots = buildActivitySchedule(day('08:00'), [
+      assignment(1, 60),
+      assignment(2, 30),
+    ], { scheduleMarginMinutes: 10 })
 
     expect(slots[1]).toMatchObject({
-      start: '08:15',
-      end: '09:15',
+      start: '08:00',
+      end: '09:00',
       durationMinutes: 60,
-      marginBeforeMinutes: 15,
-      marginAfterMinutes: 10,
     })
-    expect(slots[2]).toMatchObject({ start: '09:25', end: '09:55' })
+    expect(slots[2]).toMatchObject({ start: '09:10', end: '09:40' })
   })
 
   it('calculates max sleep until the next wake up time', () => {
@@ -87,10 +99,10 @@ describe('daySchedule', () => {
     })).toBe(1255)
   })
 
-  it('subtracts assignment margins from max sleep', () => {
+  it('subtracts the trip schedule margin from max sleep', () => {
     expect(getMaxSleepMinutes(day('08:00'), [
-      assignment(1, 120, null, { margin_before_minutes: 15, margin_after_minutes: 10 }),
-    ], day('07:30'))).toBe(1265)
+      assignment(1, 120),
+    ], day('07:30'), { scheduleMarginMinutes: 25 })).toBe(1265)
   })
 
   it('treats the next wake up as the following day for empty days', () => {

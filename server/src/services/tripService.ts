@@ -180,18 +180,27 @@ interface CreateTripData {
   end_date?: string | null;
   currency?: string;
   reminder_days?: number;
+  schedule_margin_minutes?: number;
   day_count?: number;
+}
+
+function normalizeScheduleMarginMinutes(value: unknown, fallback = 0): number {
+  if (value === undefined || value === null || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.round(n);
 }
 
 export function createTrip(userId: number, data: CreateTripData, maxDays?: number) {
   const rd = data.reminder_days !== undefined
     ? (Number(data.reminder_days) >= 0 && Number(data.reminder_days) <= 30 ? Number(data.reminder_days) : 3)
     : 3;
+  const scheduleMargin = normalizeScheduleMarginMinutes(data.schedule_margin_minutes, 0);
 
   const result = db.prepare(`
-    INSERT INTO trips (user_id, title, description, start_date, end_date, currency, reminder_days)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, data.title, data.description || null, data.start_date || null, data.end_date || null, data.currency || 'EUR', rd);
+    INSERT INTO trips (user_id, title, description, start_date, end_date, currency, reminder_days, schedule_margin_minutes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(userId, data.title, data.description || null, data.start_date || null, data.end_date || null, data.currency || 'EUR', rd, scheduleMargin);
 
   const tripId = result.lastInsertRowid;
   generateDays(tripId, data.start_date || null, data.end_date || null, maxDays, data.day_count);
@@ -217,6 +226,7 @@ interface UpdateTripData {
   is_archived?: boolean | number;
   cover_image?: string;
   reminder_days?: number;
+  schedule_margin_minutes?: number;
   day_count?: number;
   date_shift_mode?: 'keep_bookings' | 'shift_all';
 }
@@ -235,7 +245,7 @@ export function updateTrip(tripId: string | number, userId: number, data: Update
   const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(tripId) as Trip & { reminder_days?: number } | undefined;
   if (!trip) throw new NotFoundError('Trip not found');
 
-  const { title, description, start_date, end_date, currency, is_archived, cover_image, reminder_days } = data;
+  const { title, description, start_date, end_date, currency, is_archived, cover_image, reminder_days, schedule_margin_minutes } = data;
 
   if (start_date && end_date && new Date(end_date) < new Date(start_date))
     throw new ValidationError('End date must be after start date');
@@ -251,12 +261,16 @@ export function updateTrip(tripId: string | number, userId: number, data: Update
   const newReminder = reminder_days !== undefined
     ? (Number(reminder_days) >= 0 && Number(reminder_days) <= 30 ? Number(reminder_days) : oldReminder)
     : oldReminder;
+  const oldScheduleMargin = normalizeScheduleMarginMinutes((trip as any).schedule_margin_minutes, 0);
+  const newScheduleMargin = schedule_margin_minutes !== undefined
+    ? normalizeScheduleMarginMinutes(schedule_margin_minutes, oldScheduleMargin)
+    : oldScheduleMargin;
 
   db.prepare(`
     UPDATE trips SET title=?, description=?, start_date=?, end_date=?,
-      currency=?, is_archived=?, cover_image=?, reminder_days=?, updated_at=CURRENT_TIMESTAMP
+      currency=?, is_archived=?, cover_image=?, reminder_days=?, schedule_margin_minutes=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=?
-  `).run(newTitle, newDesc, newStart || null, newEnd || null, newCurrency, newArchived, newCover, newReminder, tripId);
+  `).run(newTitle, newDesc, newStart || null, newEnd || null, newCurrency, newArchived, newCover, newReminder, newScheduleMargin, tripId);
 
   if (trip.start_date && trip.end_date && newStart && newStart !== trip.start_date)
     shiftOwnerEntriesForTripWindow(trip.user_id, trip.start_date, trip.end_date, newStart);
@@ -294,6 +308,7 @@ export function updateTrip(tripId: string | number, userId: number, data: Update
   if (newStart !== trip.start_date) changes.start_date = newStart;
   if (newEnd !== trip.end_date) changes.end_date = newEnd;
   if (newReminder !== oldReminder) changes.reminder_days = newReminder === 0 ? 'none' : `${newReminder} days`;
+  if (newScheduleMargin !== oldScheduleMargin) changes.schedule_margin_minutes = `${newScheduleMargin} min`;
   if (is_archived !== undefined && newArchived !== trip.is_archived) changes.archived = !!newArchived;
 
   const isAdminEdit = userRole === 'admin' && trip.user_id !== userId;
@@ -691,10 +706,7 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.round(n) : 60;
   };
-  const normalizeMargin = (value: unknown) => {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
-  };
+  const scheduleMargin = normalizeScheduleMarginMinutes(trip.schedule_margin_minutes, 0);
   const fmtDayMinutes = (date: string, minutes: number) => {
     const dt = new Date(date + 'T00:00:00Z');
     dt.setUTCMinutes(dt.getUTCMinutes() + Math.round(minutes));
@@ -759,9 +771,6 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     for (const a of assignments) {
       const duration = normalizeDuration(a.duration_minutes ?? a.place_duration_minutes);
       const zone = resolveTimeZone(a.place_lat, a.place_lng);
-      const marginBefore = normalizeMargin(a.margin_before_minutes);
-      const marginAfter = normalizeMargin(a.margin_after_minutes);
-      activityCursor += marginBefore;
       ics += `BEGIN:VEVENT\r\nUID:${uid(a.id, 'assign')}\r\nDTSTAMP:${now}\r\n`;
       ics += dtLine('DTSTART', fmtDayMinutes(day.date, activityCursor), zone);
       ics += dtLine('DTEND', fmtDayMinutes(day.date, activityCursor + duration), zone);
@@ -772,7 +781,7 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       if (desc) ics += `DESCRIPTION:${esc(desc)}\r\n`;
       if (a.place_address) ics += `LOCATION:${esc(a.place_address)}\r\n`;
       ics += `END:VEVENT\r\n`;
-      activityCursor += duration + marginAfter;
+      activityCursor += duration + scheduleMargin;
     }
 
     // Build all-day summary event for notes.
@@ -908,9 +917,9 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
 
   const fn = db.transaction(() => {
     const tripResult = db.prepare(`
-      INSERT INTO trips (user_id, title, description, start_date, end_date, currency, cover_image, is_archived, reminder_days)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-    `).run(newOwnerId, newTitle, src.description, src.start_date, src.end_date, src.currency, src.cover_image, src.reminder_days ?? 3);
+      INSERT INTO trips (user_id, title, description, start_date, end_date, currency, cover_image, is_archived, reminder_days, schedule_margin_minutes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(newOwnerId, newTitle, src.description, src.start_date, src.end_date, src.currency, src.cover_image, src.reminder_days ?? 3, src.schedule_margin_minutes ?? 0);
     const newTripId = tripResult.lastInsertRowid;
 
     const oldDays = db.prepare('SELECT * FROM days WHERE trip_id = ? ORDER BY day_number').all(sourceTripId) as any[];

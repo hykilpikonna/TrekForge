@@ -22,7 +22,7 @@ const dayplan: TranslationStrings = {
   'dayplan.dayN': 'اليوم {n}',
   'dayplan.calculating': 'جارٍ الحساب...',
   'dayplan.wake': 'Wake',
-  'dayplan.maxSleep': 'Max sleep',
+  'dayplan.maxSleep': 'Rest',
   'dayplan.route': 'المسار',
   'dayplan.optimize': 'تحسين',
   'dayplan.optimized': 'تم تحسين المسار',

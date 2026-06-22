@@ -25,7 +25,7 @@ const dayplan: TranslationStrings = {
   'dayplan.dayN': 'Ημέρα {n}',
   'dayplan.calculating': 'Υπολογισμός...',
   'dayplan.wake': 'Wake',
-  'dayplan.maxSleep': 'Max sleep',
+  'dayplan.maxSleep': 'Rest',
   'dayplan.route': 'Διαδρομή',
   'dayplan.optimize': 'Βελτιστοποίηση',
   'dayplan.optimized': 'Η διαδρομή βελτιστοποιήθηκε',

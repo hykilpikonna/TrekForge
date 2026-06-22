@@ -45,10 +45,11 @@ export function registerTripTools(server: McpServer, userId: number, scopes: str
         start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Start date (YYYY-MM-DD)'),
         end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('End date (YYYY-MM-DD)'),
         currency: z.string().length(3).optional().describe('Currency code (e.g. EUR, USD)'),
+        schedule_margin_minutes: z.number().int().min(0).optional().describe('Trip-level buffer after each scheduled place and route segment'),
       },
       annotations: TOOL_ANNOTATIONS_NON_IDEMPOTENT,
     },
-    async ({ title, description, start_date, end_date, currency }) => {
+    async ({ title, description, start_date, end_date, currency, schedule_margin_minutes }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (start_date) {
         const d = new Date(start_date + 'T00:00:00Z');
@@ -63,7 +64,7 @@ export function registerTripTools(server: McpServer, userId: number, scopes: str
       if (start_date && end_date && new Date(end_date) < new Date(start_date)) {
         return { content: [{ type: 'text' as const, text: 'End date must be after start date.' }], isError: true };
       }
-      const { trip } = createTrip(userId, { title, description, start_date, end_date, currency }, MAX_MCP_TRIP_DAYS);
+      const { trip } = createTrip(userId, { title, description, start_date, end_date, currency, schedule_margin_minutes }, MAX_MCP_TRIP_DAYS);
       return ok({ trip });
     }
   );
@@ -79,6 +80,7 @@ export function registerTripTools(server: McpServer, userId: number, scopes: str
         start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         currency: z.string().length(3).optional(),
+        schedule_margin_minutes: z.number().int().min(0).optional(),
         is_archived: z.boolean().optional().describe('Archive (true) or unarchive (false) the trip'),
         cover_image: z.string().optional().describe('Cover image path, e.g. /uploads/covers/abc.jpg'),
         date_shift_mode: z.enum(['keep_bookings', 'shift_all']).optional().describe(
@@ -86,7 +88,7 @@ export function registerTripTools(server: McpServer, userId: number, scopes: str
       },
       annotations: TOOL_ANNOTATIONS_WRITE,
     },
-    async ({ tripId, title, description, start_date, end_date, currency, is_archived, cover_image, date_shift_mode }) => {
+    async ({ tripId, title, description, start_date, end_date, currency, schedule_margin_minutes, is_archived, cover_image, date_shift_mode }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('trip_edit', tripId, userId)) return permissionDenied();
@@ -102,7 +104,7 @@ export function registerTripTools(server: McpServer, userId: number, scopes: str
       }
       // Re-anchor the budget before the trip row moves off the old currency (#1543).
       await rebaseTripCurrency(tripId, currency);
-      const { updatedTrip } = updateTrip(tripId, userId, { title, description, start_date, end_date, currency, is_archived, cover_image, date_shift_mode }, 'user');
+      const { updatedTrip } = updateTrip(tripId, userId, { title, description, start_date, end_date, currency, schedule_margin_minutes, is_archived, cover_image, date_shift_mode }, 'user');
       safeBroadcast(tripId, 'trip:updated', { trip: updatedTrip });
       return ok({ trip: updatedTrip });
     }
