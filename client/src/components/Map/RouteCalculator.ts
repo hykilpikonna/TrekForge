@@ -1,6 +1,7 @@
 import { useSettingsStore } from '../../store/settingsStore'
 import type { DistanceUnit, RouteResult, RouteSegment, RouteWithLegs, Waypoint, RouteAnchors } from '../../types'
 import { formatDistance } from '../../utils/units'
+import { apiClient } from '../../api/client'
 
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1'
 
@@ -20,6 +21,26 @@ const ROUTE_CACHE_MAX = 200
 const ROUTE_CACHE_STORAGE_KEY = 'trek:route-cache:v1'
 const ROUTE_CACHE_VERSION = 1
 const ROUTE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+export type RoutingProvider = 'osrm' | 'google_maps'
+
+interface GoogleDirectionsDuration {
+  seconds: number | null
+  text: string | null
+}
+
+interface GoogleDirectionsRoute {
+  distance?: { meters: number | null; text: string | null }
+  duration?: GoogleDirectionsDuration
+  traffic?: {
+    duration?: GoogleDirectionsDuration | null
+    range?: { minSeconds: number | null; maxSeconds: number | null; text: string | null } | null
+  } | null
+  overviewGeometry?: Array<{ lat: number; lng: number }>
+}
+
+interface GoogleDirectionsResponse {
+  routes?: GoogleDirectionsRoute[]
+}
 
 interface StoredRouteCacheEntry {
   key: string
@@ -310,7 +331,19 @@ export async function calculateSegments(
  */
 export async function calculateRouteWithLegs(
   waypoints: Waypoint[],
-  { signal, profile = 'driving' }: { signal?: AbortSignal; profile?: 'driving' | 'walking' | 'cycling' } = {}
+  {
+    signal,
+    profile = 'driving',
+    provider = 'osrm',
+    optimism = 0.33,
+    departureLocalDateTime,
+  }: {
+    signal?: AbortSignal
+    profile?: 'driving' | 'walking' | 'cycling'
+    provider?: RoutingProvider
+    optimism?: number
+    departureLocalDateTime?: string | null
+  } = {}
 ): Promise<RouteWithLegs> {
   if (!waypoints || waypoints.length < 2) {
     return { coordinates: [], distance: 0, duration: 0, legs: [] }
@@ -319,11 +352,26 @@ export async function calculateRouteWithLegs(
   const coords = waypoints.map((p) => `${p.lng},${p.lat}`).join(';')
   // The cached result carries formatted leg distances, so the active distance unit is
   // part of the key — otherwise switching km↔mi would return stale text (#1300).
-  const cacheKey = `${profile}:${getDistanceUnit()}:${coords}`
+  const distanceUnit = getDistanceUnit()
+  const boundedOptimism = normalizeOptimism(optimism)
+  const cacheKey = provider === 'google_maps'
+    ? `${provider}:${profile}:${distanceUnit}:${boundedOptimism.toFixed(2)}:${departureLocalDateTime || 'now'}:${coords}`
+    : `${provider}:${profile}:${distanceUnit}:${coords}`
   const cached = routeCache.get(cacheKey)
   if (cached) return cached
   const persisted = getPersistedRoute(cacheKey)
   if (persisted) return persisted
+
+  if (provider === 'google_maps') {
+    const result = await calculateGoogleRouteWithLegs(waypoints, {
+      signal,
+      profile,
+      optimism: boundedOptimism,
+      departureLocalDateTime,
+    })
+    setCachedRoute(cacheKey, result)
+    return result
+  }
 
   const url = `${OSRM_PROFILE_BASE[profile]}/${coords}?overview=full&geometries=geojson&annotations=distance,duration`
   const response = await fetch(url, { signal })
@@ -361,6 +409,113 @@ export async function calculateRouteWithLegs(
 
 function getDistanceUnit(): DistanceUnit {
   return useSettingsStore.getState().settings.distance_unit === 'imperial' ? 'imperial' : 'metric'
+}
+
+function normalizeOptimism(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.33
+}
+
+function googleMode(profile: 'driving' | 'walking' | 'cycling'): 'driving' | 'walking' | 'bicycling' {
+  return profile === 'cycling' ? 'bicycling' : profile
+}
+
+function addSecondsToLocalDateTime(localDateTime: string, seconds: number): string {
+  const match = localDateTime.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/)
+  if (!match) return localDateTime
+  const [, y, mo, d, h, mi, s = '0'] = match
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s)))
+  date.setUTCSeconds(date.getUTCSeconds() + Math.max(0, Math.round(seconds)))
+  return date.toISOString().slice(0, 16)
+}
+
+function pickGoogleDurationSeconds(route: GoogleDirectionsRoute, optimism: number): number {
+  const min = route.traffic?.range?.minSeconds
+  const max = route.traffic?.range?.maxSeconds
+  if (Number.isFinite(min) && Number.isFinite(max)) {
+    const best = Number(min)
+    const worst = Number(max)
+    return Math.max(0, worst - (worst - best) * optimism)
+  }
+  const trafficDuration = route.traffic?.duration?.seconds
+  if (Number.isFinite(trafficDuration)) return Math.max(0, Number(trafficDuration))
+  const duration = route.duration?.seconds
+  return Number.isFinite(duration) ? Math.max(0, Number(duration)) : 0
+}
+
+async function calculateGoogleRouteWithLegs(
+  waypoints: Waypoint[],
+  {
+    signal,
+    profile,
+    optimism,
+    departureLocalDateTime,
+  }: {
+    signal?: AbortSignal
+    profile: 'driving' | 'walking' | 'cycling'
+    optimism: number
+    departureLocalDateTime?: string | null
+  },
+): Promise<RouteWithLegs> {
+  const legs: RouteSegment[] = []
+  const coordinates: [number, number][] = []
+  let distance = 0
+  let duration = 0
+  let currentDeparture = departureLocalDateTime || null
+
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const from = waypoints[i]
+    const to = waypoints[i + 1]
+    const body = {
+      origin: { lat: from.lat, lng: from.lng },
+      destination: { lat: to.lat, lng: to.lng },
+      mode: googleMode(profile),
+      includeOverviewGeometry: true,
+      includeSteps: false,
+      ...(currentDeparture ? { time: { kind: 'departAtLocal' as const, localDateTime: currentDeparture } } : {}),
+    }
+    const response = await apiClient.post('/maps/directions-preview', body, { signal }).then(r => r.data as GoogleDirectionsResponse)
+    const route = response.routes?.[0]
+    if (!route) throw new Error('No route found')
+
+    const legDuration = pickGoogleDurationSeconds(route, optimism)
+    const legDistance = Number(route.distance?.meters) || 0
+    const geometry = route.overviewGeometry?.map(p => [p.lat, p.lng] as [number, number])
+    if (geometry?.length) {
+      if (coordinates.length && geometry.length && coordinates[coordinates.length - 1][0] === geometry[0][0] && coordinates[coordinates.length - 1][1] === geometry[0][1]) {
+        coordinates.push(...geometry.slice(1))
+      } else {
+        coordinates.push(...geometry)
+      }
+    } else {
+      if (coordinates.length === 0) coordinates.push([from.lat, from.lng])
+      coordinates.push([to.lat, to.lng])
+    }
+
+    const mid: [number, number] = [(from.lat + to.lat) / 2, (from.lng + to.lng) / 2]
+    const durationText = formatDuration(legDuration)
+    legs.push({
+      mid,
+      from: [from.lat, from.lng],
+      to: [to.lat, to.lng],
+      distance: legDistance,
+      duration: legDuration,
+      walkingText: durationText,
+      drivingText: durationText,
+      distanceText: formatRouteDistance(legDistance),
+      durationText,
+    })
+    distance += legDistance
+    duration += legDuration
+    if (currentDeparture) currentDeparture = addSecondsToLocalDateTime(currentDeparture, legDuration)
+  }
+
+  return {
+    coordinates,
+    distance,
+    duration,
+    legs,
+  }
 }
 
 function formatRouteDistance(meters: number): string {
