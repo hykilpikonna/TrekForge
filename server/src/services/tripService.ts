@@ -193,9 +193,11 @@ function normalizeScheduleMarginMinutes(value: unknown, fallback = 0): number {
   return Math.round(n);
 }
 
-function normalizeRoutingProvider(value: unknown, fallback = 'osrm'): 'osrm' | 'google_maps' {
-  if (value === 'osrm' || value === 'google_maps') return value;
-  return fallback === 'google_maps' ? 'google_maps' : 'osrm';
+type RoutingProvider = 'osrm' | 'google_maps' | 'google_maps_mobile';
+
+function normalizeRoutingProvider(value: unknown, fallback: RoutingProvider = 'osrm'): RoutingProvider {
+  if (value === 'osrm' || value === 'google_maps' || value === 'google_maps_mobile') return value;
+  return fallback === 'google_maps' || fallback === 'google_maps_mobile' ? fallback : 'osrm';
 }
 
 function normalizeRoutingOptimism(value: unknown, fallback = 0.33): number {

@@ -21,6 +21,13 @@ vi.mock('../../../src/services/googleMapsPreviewDirections', () => ({
   fetchGoogleMapsPreviewDirections,
 }));
 
+const { fetchGoogleMapsMobileDirections } = vi.hoisted(() => ({
+  fetchGoogleMapsMobileDirections: vi.fn(),
+}));
+vi.mock('../../../src/services/googleMapsMobileDirections', () => ({
+  fetchGoogleMapsMobileDirections,
+}));
+
 const { serveFilePath } = vi.hoisted(() => ({ serveFilePath: vi.fn() }));
 vi.mock('../../../src/services/placePhotoCache', () => ({ serveFilePath }));
 
@@ -126,6 +133,12 @@ describe('MapsService', () => {
       const request = { origin: { lat: 1, lng: 2 }, destination: { lat: 3, lng: 4 } };
       svc().previewDirections(request);
       expect(fetchGoogleMapsPreviewDirections).toHaveBeenCalledWith(request);
+    });
+
+    it('mobileDirections forwards through', () => {
+      const request = { from: 'Tokyo Station', to: 'Fushimi Station Nagoya' };
+      svc().mobileDirections(request);
+      expect(fetchGoogleMapsMobileDirections).toHaveBeenCalledWith(request);
     });
   });
 

@@ -192,6 +192,28 @@ describe('TripFormModal', () => {
     }));
   });
 
+  it('FE-COMP-TRIPFORM-018d: offers Google Maps mobile routing with optimism and avoid toggles', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue({ trip: buildTrip({ id: 99 }) });
+    render(<TripFormModal {...defaultProps} onSave={onSave} trip={null} />);
+    await user.type(screen.getByPlaceholderText(/Summer in Japan/i), 'Mobile Traffic Trip');
+    fireEvent.change(screen.getByLabelText('Estimated Driving Time'), { target: { value: 'google_maps_mobile' } });
+
+    expect(screen.getByText('Google Maps (Mobile)')).toBeInTheDocument();
+    expect(screen.getByText(/0 uses Google Maps' slowest traffic estimate/i)).toBeInTheDocument();
+    await user.click(screen.getByLabelText('Highways'));
+
+    const submitBtn = screen.getAllByText('Create New Trip').find(el => el.closest('button'))!;
+    await user.click(submitBtn.closest('button')!);
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      routing_provider: 'google_maps_mobile',
+      routing_avoid_tolls: false,
+      routing_avoid_highways: true,
+      routing_avoid_ferries: false,
+    }));
+  });
+
   it('FE-COMP-TRIPFORM-019: reminder buttons visible when tripRemindersEnabled=true', async () => {
     seedStore(useAuthStore, { tripRemindersEnabled: true });
     render(<TripFormModal {...defaultProps} trip={null} />);

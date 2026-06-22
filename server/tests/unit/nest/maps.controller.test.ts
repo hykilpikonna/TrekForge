@@ -373,4 +373,21 @@ describe('MapsController (parity with the legacy /api/maps route)', () => {
       });
     });
   });
+
+  describe('POST /directions-mobile', () => {
+    it('returns the mobile directions service result', async () => {
+      const result = { source: 'google-mobile-mmap', routes: [] };
+      const mobileDirections = vi.fn().mockResolvedValue(result);
+      const body = { from: 'Tokyo Station', to: 'Fushimi Station Nagoya' };
+      await expect(makeController({ mobileDirections }).directionsMobile(body)).resolves.toBe(result);
+      expect(mobileDirections).toHaveBeenCalledWith(body);
+    });
+
+    it('maps service errors', async () => {
+      const mobileDirections = vi.fn().mockRejectedValue(withError(502, 'Google failed'));
+      expect(await thrown(() => makeController({ mobileDirections }).directionsMobile({}))).toEqual({
+        status: 502, body: { error: 'Google failed' },
+      });
+    });
+  });
 });

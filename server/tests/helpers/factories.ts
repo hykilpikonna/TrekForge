@@ -81,7 +81,7 @@ export interface TestTrip {
   start_date: string | null;
   end_date: string | null;
   schedule_margin_minutes?: number;
-  routing_provider?: 'osrm' | 'google_maps';
+  routing_provider?: 'osrm' | 'google_maps' | 'google_maps_mobile';
   routing_optimism?: number;
   routing_avoid_tolls?: number;
   routing_avoid_highways?: number;
@@ -97,7 +97,7 @@ export function createTrip(
     end_date: string;
     description: string;
     schedule_margin_minutes: number;
-    routing_provider: 'osrm' | 'google_maps';
+    routing_provider: 'osrm' | 'google_maps' | 'google_maps_mobile';
     routing_optimism: number;
     routing_avoid_tolls: boolean | number;
     routing_avoid_highways: boolean | number;

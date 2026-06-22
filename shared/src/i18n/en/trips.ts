@@ -18,6 +18,7 @@ const trips: TranslationStrings = {
   'trips.routingProvider': 'Estimated Driving Time',
   'trips.routingProviderOsrm': 'OSRM',
   'trips.routingProviderGoogle': 'Google Maps',
+  'trips.routingProviderGoogleMobile': 'Google Maps (Mobile)',
   'trips.routingProviderHint': 'Choose the provider used for driving-time estimates between scheduled places.',
   'trips.routingOptimism': 'Optimism',
   'trips.routingOptimismHint': "0 uses Google Maps' slowest traffic estimate, 1 uses the fastest, and 0.33 leans cautious.",

@@ -240,7 +240,7 @@ export function useRouteCalculation(
     try {
       const polylines: [number, number][][] = []
       const allLegs: RouteSegment[] = []
-      if (provider === 'google_maps' && selectedDay?.date) {
+      if ((provider === 'google_maps' || provider === 'google_maps_mobile') && selectedDay?.date) {
         let cursor = wakeMinutes
         let currentPoint: { lat: number; lng: number } | null = startHotelPoint
         for (const entry of entries) {
