@@ -103,11 +103,6 @@ interface TripMember {
   is_guest?: boolean
 }
 
-interface AssignmentTimeSettings {
-  marginBeforeMinutes?: number
-  marginAfterMinutes?: number
-}
-
 interface PlaceInspectorProps {
   place: Place | null
   categories: Category[]
@@ -465,7 +460,7 @@ interface AssignmentDurationControlProps {
   assignment: Assignment
   dayId: number
   placeDurationMinutes?: number | null
-  onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number, settings?: AssignmentTimeSettings) => Promise<void> | void
+  onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number) => Promise<void> | void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -480,136 +475,76 @@ function AssignmentDurationControl({
   const currentMinutes = parseDurationMinutes(
     assignment.duration_minutes ?? assignment.place?.duration_minutes ?? placeDurationMinutes,
   ) ?? 60
-  const currentMarginBeforeMinutes = parseDurationMinutes(assignment.margin_before_minutes ?? 0, { allowZero: true }) ?? 0
-  const currentMarginAfterMinutes = parseDurationMinutes(assignment.margin_after_minutes ?? 0, { allowZero: true }) ?? 0
   const inputId = `assignment-duration-${assignment.id}`
-  const marginBeforeInputId = `assignment-margin-before-${assignment.id}`
-  const marginAfterInputId = `assignment-margin-after-${assignment.id}`
   const [value, setValue] = useState(formatDurationInput(currentMinutes))
-  const [marginBeforeValue, setMarginBeforeValue] = useState(formatDurationInput(currentMarginBeforeMinutes, { allowZero: true }))
-  const [marginAfterValue, setMarginAfterValue] = useState(formatDurationInput(currentMarginAfterMinutes, { allowZero: true }))
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     setValue(formatDurationInput(currentMinutes))
-    setMarginBeforeValue(formatDurationInput(currentMarginBeforeMinutes, { allowZero: true }))
-    setMarginAfterValue(formatDurationInput(currentMarginAfterMinutes, { allowZero: true }))
-  }, [assignment.id, currentMinutes, currentMarginBeforeMinutes, currentMarginAfterMinutes])
+  }, [assignment.id, currentMinutes])
 
-  const commitTimeField = useCallback(async (field: 'duration' | 'marginBefore' | 'marginAfter') => {
-    const parsed = field === 'duration'
-      ? parseDurationMinutes(value)
-      : parseDurationMinutes(field === 'marginBefore' ? marginBeforeValue : marginAfterValue, { allowZero: true })
+  const commitDuration = useCallback(async () => {
+    const parsed = parseDurationMinutes(value)
     if (parsed == null) {
-      if (field === 'duration') setValue(formatDurationInput(currentMinutes))
-      if (field === 'marginBefore') setMarginBeforeValue(formatDurationInput(currentMarginBeforeMinutes, { allowZero: true }))
-      if (field === 'marginAfter') setMarginAfterValue(formatDurationInput(currentMarginAfterMinutes, { allowZero: true }))
-      toast.error(t(field === 'duration' ? 'places.durationInvalid' : 'places.marginInvalid'))
+      setValue(formatDurationInput(currentMinutes))
+      toast.error(t('places.durationInvalid'))
       return
     }
-    const nextDuration = field === 'duration' ? parsed : currentMinutes
-    const nextMarginBefore = field === 'marginBefore' ? parsed : currentMarginBeforeMinutes
-    const nextMarginAfter = field === 'marginAfter' ? parsed : currentMarginAfterMinutes
-    if (
-      nextDuration === currentMinutes
-      && nextMarginBefore === currentMarginBeforeMinutes
-      && nextMarginAfter === currentMarginAfterMinutes
-    ) {
-      setValue(formatDurationInput(nextDuration))
-      setMarginBeforeValue(formatDurationInput(nextMarginBefore, { allowZero: true }))
-      setMarginAfterValue(formatDurationInput(nextMarginAfter, { allowZero: true }))
+    if (parsed === currentMinutes) {
+      setValue(formatDurationInput(parsed))
       return
     }
     if (!onUpdateAssignmentDuration) return
 
     setIsSaving(true)
     try {
-      const settings = field === 'marginBefore'
-        ? { marginBeforeMinutes: nextMarginBefore }
-        : field === 'marginAfter'
-          ? { marginAfterMinutes: nextMarginAfter }
-          : undefined
-      if (settings) {
-        await onUpdateAssignmentDuration(assignment.id, dayId, nextDuration, settings)
-      } else {
-        await onUpdateAssignmentDuration(assignment.id, dayId, nextDuration)
-      }
-      setValue(formatDurationInput(nextDuration))
-      setMarginBeforeValue(formatDurationInput(nextMarginBefore, { allowZero: true }))
-      setMarginAfterValue(formatDurationInput(nextMarginAfter, { allowZero: true }))
+      await onUpdateAssignmentDuration(assignment.id, dayId, parsed)
+      setValue(formatDurationInput(parsed))
     } catch (err: unknown) {
       setValue(formatDurationInput(currentMinutes))
-      setMarginBeforeValue(formatDurationInput(currentMarginBeforeMinutes, { allowZero: true }))
-      setMarginAfterValue(formatDurationInput(currentMarginAfterMinutes, { allowZero: true }))
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))
     } finally {
       setIsSaving(false)
     }
   }, [
     assignment.id,
-    currentMarginAfterMinutes,
-    currentMarginBeforeMinutes,
     currentMinutes,
     dayId,
-    marginAfterValue,
-    marginBeforeValue,
     onUpdateAssignmentDuration,
     t,
     toast,
     value,
   ])
 
-  const resetField = (field: 'duration' | 'marginBefore' | 'marginAfter') => {
-    if (field === 'duration') setValue(formatDurationInput(currentMinutes))
-    if (field === 'marginBefore') setMarginBeforeValue(formatDurationInput(currentMarginBeforeMinutes, { allowZero: true }))
-    if (field === 'marginAfter') setMarginAfterValue(formatDurationInput(currentMarginAfterMinutes, { allowZero: true }))
-  }
-
-  const renderInput = (
-    id: string,
-    label: string,
-    field: 'duration' | 'marginBefore' | 'marginAfter',
-    inputValue: string,
-    setInputValue: (value: string) => void,
-  ) => (
-    <div style={{ minWidth: 0 }}>
-      <label htmlFor={id} className="text-content-faint" style={{ display: 'block', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 5 }}>
-        {label}
-      </label>
-      <input
-        id={id}
-        type="text"
-        inputMode="text"
-        value={inputValue}
-        disabled={!onUpdateAssignmentDuration || isSaving}
-        onChange={e => setInputValue(e.target.value)}
-        onBlur={() => { void commitTimeField(field) }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            e.currentTarget.blur()
-          }
-          if (e.key === 'Escape') {
-            resetField(field)
-            e.currentTarget.blur()
-          }
-        }}
-        placeholder={t('places.durationPlaceholder')}
-        className="form-input"
-        style={{ width: '100%' }}
-      />
-    </div>
-  )
-
   return (
     <div className="bg-surface-hover" style={{ borderRadius: 10, padding: '8px 10px', display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 8, alignItems: 'start' }}>
       <Clock size={14} color="var(--text-faint)" style={{ marginTop: 18 }} />
-      <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
-        {renderInput(inputId, t('places.durationMinutes'), 'duration', value, setValue)}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8 }}>
-          {renderInput(marginBeforeInputId, t('places.marginBefore'), 'marginBefore', marginBeforeValue, setMarginBeforeValue)}
-          {renderInput(marginAfterInputId, t('places.marginAfter'), 'marginAfter', marginAfterValue, setMarginAfterValue)}
-        </div>
+      <div style={{ minWidth: 0 }}>
+        <label htmlFor={inputId} className="text-content-faint" style={{ display: 'block', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 5 }}>
+          {t('places.durationMinutes')}
+        </label>
+        <input
+          id={inputId}
+          type="text"
+          inputMode="text"
+          value={value}
+          disabled={!onUpdateAssignmentDuration || isSaving}
+          onChange={e => setValue(e.target.value)}
+          onBlur={() => { void commitDuration() }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.blur()
+            }
+            if (e.key === 'Escape') {
+              setValue(formatDurationInput(currentMinutes))
+              e.currentTarget.blur()
+            }
+          }}
+          placeholder={t('places.durationPlaceholder')}
+          className="form-input"
+          style={{ width: '100%' }}
+        />
       </div>
     </div>
   )

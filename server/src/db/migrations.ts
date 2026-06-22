@@ -3458,6 +3458,13 @@ function runMigrations(db: Database.Database): void {
         if (!err.message?.includes('duplicate column name')) throw err;
       }
     },
+    () => {
+      try {
+        db.exec('ALTER TABLE trips ADD COLUMN schedule_margin_minutes INTEGER DEFAULT 0');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+    },
   ];
 
   if (currentVersion < migrations.length) {
@@ -3482,7 +3489,7 @@ function runMigrations(db: Database.Database): void {
   ensureDayTimeColumns(db);
 }
 
-function columnExists(db: Database.Database, table: 'days' | 'day_assignments', column: string): boolean {
+function columnExists(db: Database.Database, table: 'trips' | 'days' | 'day_assignments', column: string): boolean {
   return Boolean(db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column));
 }
 
@@ -3493,6 +3500,11 @@ function ensureDayTimeColumns(db: Database.Database): void {
     if (!columnExists(db, 'days', 'wake_up_time')) {
       db.exec("ALTER TABLE days ADD COLUMN wake_up_time TEXT DEFAULT '08:00'");
       console.log('[DB] Repaired missing days.wake_up_time column');
+    }
+
+    if (!columnExists(db, 'trips', 'schedule_margin_minutes')) {
+      db.exec('ALTER TABLE trips ADD COLUMN schedule_margin_minutes INTEGER DEFAULT 0');
+      console.log('[DB] Repaired missing trips.schedule_margin_minutes column');
     }
 
     if (!columnExists(db, 'day_assignments', 'duration_minutes')) {

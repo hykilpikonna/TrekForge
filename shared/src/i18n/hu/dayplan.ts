@@ -14,7 +14,7 @@ const dayplan: TranslationStrings = {
   'dayplan.dayN': '{n}. nap',
   'dayplan.calculating': 'Számítás...',
   'dayplan.wake': 'Wake',
-  'dayplan.maxSleep': 'Max sleep',
+  'dayplan.maxSleep': 'Rest',
   'dayplan.route': 'Útvonal',
   'dayplan.optimize': 'Optimalizálás',
   'dayplan.optimized': 'Útvonal optimalizálva',

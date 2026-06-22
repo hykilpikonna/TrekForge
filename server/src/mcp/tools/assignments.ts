@@ -73,25 +73,21 @@ export function registerAssignmentTools(server: McpServer, userId: number, scope
   if (W) server.registerTool(
     'update_assignment_duration',
     {
-      description: 'Set the duration and optional time margins for a place assignment on a day. Activity start/end timestamps are calculated from day wake-up time, route travel, durations, and margins.',
+      description: 'Set the duration for a place assignment on a day. Activity start/end timestamps are calculated from day wake-up time, route travel, durations, and the trip-level schedule margin.',
       inputSchema: {
         tripId: z.number().int().positive(),
         assignmentId: z.number().int().positive(),
         duration_minutes: z.number().int().positive().describe('Activity duration in minutes'),
-        margin_before_minutes: z.number().int().min(0).optional().describe('Optional buffer before the activity in minutes'),
-        margin_after_minutes: z.number().int().min(0).optional().describe('Optional buffer after the activity in minutes'),
       },
       annotations: TOOL_ANNOTATIONS_WRITE,
     },
-    async ({ tripId, assignmentId, duration_minutes, margin_before_minutes, margin_after_minutes }) => {
+    async ({ tripId, assignmentId, duration_minutes }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('day_edit', tripId, userId)) return permissionDenied();
       const existing = getAssignmentForTrip(assignmentId, tripId);
       if (!existing) return { content: [{ type: 'text' as const, text: 'Assignment not found.' }], isError: true };
-      const assignment = margin_before_minutes !== undefined || margin_after_minutes !== undefined
-        ? updateTime(assignmentId, duration_minutes, margin_before_minutes, margin_after_minutes)
-        : updateTime(assignmentId, duration_minutes);
+      const assignment = updateTime(assignmentId, duration_minutes);
       safeBroadcast(tripId, 'assignment:updated', { assignment });
       return ok({ assignment });
     }

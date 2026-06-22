@@ -25,7 +25,7 @@ const dayplan: TranslationStrings = {
   'dayplan.dayN': '{n}일차',
   'dayplan.calculating': '계산 중...',
   'dayplan.wake': 'Wake',
-  'dayplan.maxSleep': 'Max sleep',
+  'dayplan.maxSleep': 'Rest',
   'dayplan.route': '경로',
   'dayplan.optimize': '최적화',
   'dayplan.optimized': '경로가 최적화되었습니다',

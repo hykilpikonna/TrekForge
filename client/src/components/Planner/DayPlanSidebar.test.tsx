@@ -288,7 +288,7 @@ describe('DayPlanSidebar', () => {
     expect(screen.queryByText(/10:00/)).not.toBeInTheDocument()
   })
 
-  it('FE-PLANNER-DAYPLAN-012b: displays calculated ranges, wake time, and max sleep', async () => {
+  it('FE-PLANNER-DAYPLAN-012b: displays calculated ranges, wake time, and rest', async () => {
     const user = userEvent.setup()
     const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '09:30' })
     const museum = buildPlace({ name: 'Museum' })
@@ -307,7 +307,7 @@ describe('DayPlanSidebar', () => {
     expect(screen.getByDisplayValue('09:30')).toBeInTheDocument()
     expect(screen.getByText(/09:30 ~ 10:40/)).toBeInTheDocument()
     expect(screen.getByText(/10:40 ~ 11:30/)).toBeInTheDocument()
-    expect(screen.getByText(/Max sleep 22h/)).toBeInTheDocument()
+    expect(screen.getByText(/Rest 22\.0h/)).toBeInTheDocument()
   })
 
   it('FE-PLANNER-DAYPLAN-012c: includes route leg duration between calculated activity ranges', async () => {
@@ -374,6 +374,36 @@ describe('DayPlanSidebar', () => {
     await waitFor(() => expect(onReorder).toHaveBeenCalledWith(10, [22, 11]))
   })
 
+  it('FE-PLANNER-DAYPLAN-012e2: dropping a place-list item onto a calendar tile assigns it', async () => {
+    const user = userEvent.setup()
+    const onAssignToDay = vi.fn()
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
+    const museum = buildPlace({ id: 1, name: 'Museum' })
+    const lunch = buildPlace({ id: 2, name: 'Lunch' })
+    const assignments = {
+      '10': [
+        buildAssignment({ id: 11, day_id: 10, order_index: 0, place: museum, duration_minutes: 60 }),
+        buildAssignment({ id: 22, day_id: 10, order_index: 1, place: lunch, duration_minutes: 60 }),
+      ],
+    }
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [museum, lunch], assignments, onAssignToDay })} />)
+
+    await user.click(screen.getByRole('button', { name: 'Calendar' }))
+
+    try {
+      ;(window as any).__dragData = { placeId: '99' }
+      const tile = screen.getByTestId('calendar-activity-11')
+      const dataTransfer = { dropEffect: 'none', getData: vi.fn().mockReturnValue('') }
+      fireEvent.dragOver(tile, { clientY: 999, dataTransfer })
+      expect(dataTransfer.dropEffect).toBe('copy')
+      fireEvent.drop(tile, { clientY: 999, dataTransfer: { getData: vi.fn().mockReturnValue('') } })
+
+      expect(onAssignToDay).toHaveBeenCalledWith(99, 10, expect.any(Number))
+    } finally {
+      ;(window as any).__dragData = null
+    }
+  })
+
   it('FE-PLANNER-DAYPLAN-012f: route travel stays in a day schedule after selecting another day', async () => {
     const day1 = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
     const day2 = buildDay({ id: 20, date: '2025-06-02', title: 'Day 2', wake_up_time: '08:00' })
@@ -421,25 +451,26 @@ describe('DayPlanSidebar', () => {
     expect(screen.getByText(/09:15 ~ 10:15/)).toBeInTheDocument()
   })
 
-  it('FE-PLANNER-DAYPLAN-012g2: calendar route blocks start after assignment margins', async () => {
+  it('FE-PLANNER-DAYPLAN-012g2: calendar route blocks respect the trip schedule margin', async () => {
     const user = userEvent.setup()
     const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
     const museum = buildPlace({ id: 1, name: 'Museum', lat: 48.86, lng: 2.34 })
     const lunch = buildPlace({ id: 2, name: 'Lunch', lat: 48.87, lng: 2.35 })
+    const marginTrip = buildTrip({ id: 1, currency: 'EUR', schedule_margin_minutes: 10 })
     const assignments = {
       '10': [
-        buildAssignment({ id: 11, day_id: 10, order_index: 0, place: museum, duration_minutes: 60, margin_before_minutes: 15, margin_after_minutes: 10 }),
+        buildAssignment({ id: 11, day_id: 10, order_index: 0, place: museum, duration_minutes: 60 }),
         buildAssignment({ id: 22, day_id: 10, order_index: 1, place: lunch, duration_minutes: 60 }),
       ],
     }
-    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [museum, lunch], assignments, routeShown: true })} />)
+    render(<DayPlanSidebar {...makeDefaultProps({ trip: marginTrip, days: [day], places: [museum, lunch], assignments, routeShown: true })} />)
 
     await user.click(screen.getByRole('button', { name: 'Calendar' }))
 
     await waitFor(() => expect(screen.getByTestId('calendar-route-10-11')).toBeInTheDocument())
-    expect(screen.getByText(/08:15 ~ 09:15/)).toBeInTheDocument()
-    expect(screen.getByTestId('calendar-route-10-11')).toHaveTextContent(/09:25 ~ 09:40/)
-    expect(screen.getByText(/09:40 ~ 10:40/)).toBeInTheDocument()
+    expect(screen.getByText(/08:00 ~ 09:00/)).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-route-10-11')).toHaveTextContent(/09:10 ~ 09:25/)
+    expect(screen.getByText(/09:35 ~ 10:35/)).toBeInTheDocument()
   })
 
   it('FE-PLANNER-DAYPLAN-012h: calendar resize handle updates assignment duration', async () => {

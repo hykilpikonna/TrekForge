@@ -189,35 +189,21 @@ function normalizeDurationMinutes(value: unknown): number | undefined {
   return Math.round(n);
 }
 
-function normalizeMarginMinutes(value: unknown): number | undefined {
-  if (value === undefined) return undefined;
-  if (value === null || value === '') return 0;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return undefined;
-  return Math.round(n);
-}
-
 export function updateTime(
   id: string | number,
   durationMinutes?: number | null,
-  marginBeforeMinutes?: number | null,
-  marginAfterMinutes?: number | null,
 ) {
-  const current = db.prepare('SELECT duration_minutes, margin_before_minutes, margin_after_minutes FROM day_assignments WHERE id = ?').get(id) as
-    | { duration_minutes: number | null; margin_before_minutes: number | null; margin_after_minutes: number | null }
+  const current = db.prepare('SELECT duration_minutes FROM day_assignments WHERE id = ?').get(id) as
+    | { duration_minutes: number | null }
     | undefined;
   const nextDuration = normalizeDurationMinutes(durationMinutes) ?? current?.duration_minutes ?? 60;
-  const nextMarginBefore = normalizeMarginMinutes(marginBeforeMinutes) ?? current?.margin_before_minutes ?? 0;
-  const nextMarginAfter = normalizeMarginMinutes(marginAfterMinutes) ?? current?.margin_after_minutes ?? 0;
   db.prepare(`
     UPDATE day_assignments
     SET assignment_time = NULL,
         assignment_end_time = NULL,
-        duration_minutes = ?,
-        margin_before_minutes = ?,
-        margin_after_minutes = ?
+        duration_minutes = ?
     WHERE id = ?
-  `).run(nextDuration, nextMarginBefore, nextMarginAfter, id);
+  `).run(nextDuration, id);
 
   return getAssignmentWithPlace(Number(id));
 }

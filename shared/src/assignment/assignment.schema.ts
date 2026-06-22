@@ -30,8 +30,8 @@ export type AssignmentParticipant = z.infer<typeof assignmentParticipantSchema>;
  * assignmentService.getAssignmentWithPlace). The embedded `place` is the trimmed
  * assignment-place projection, NOT the full place pool entity. Legacy
  * assignment_time / assignment_end_time fields may appear on older rows, but
- * activity timestamps are calculated from wake-up time, route travel, duration,
- * and assignment margins.
+ * activity timestamps are calculated from wake-up time, route travel, activity
+ * duration, and the trip-level schedule margin.
  */
 export const assignmentSchema = z.object({
   id: z.number(),
@@ -69,8 +69,6 @@ export type AssignmentMoveRequest = z.infer<typeof assignmentMoveRequestSchema>;
 
 export const assignmentTimeRequestSchema = z.object({
   duration_minutes: z.number().int().positive().nullable().optional(),
-  margin_before_minutes: z.number().int().min(0).nullable().optional(),
-  margin_after_minutes: z.number().int().min(0).nullable().optional(),
 }).strict();
 export type AssignmentTimeRequest = z.infer<typeof assignmentTimeRequestSchema>;
 

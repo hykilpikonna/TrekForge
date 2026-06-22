@@ -8,14 +8,13 @@ export interface ActivityTimeSlot {
   start: string
   end: string
   durationMinutes: number
-  marginBeforeMinutes: number
-  marginAfterMinutes: number
 }
 
 export interface ActivityScheduleTravel {
   initialTravelMinutes?: number
   travelAfterAssignmentMinutes?: Record<number, number | undefined>
   finalTravelMinutes?: number
+  scheduleMarginMinutes?: number
 }
 
 function wakeMinutes(day?: Pick<Day, 'wake_up_time'> | null): number {
@@ -26,7 +25,7 @@ function assignmentDurationMinutes(assignment: Assignment): number {
   return normalizeDurationMinutes(assignment.duration_minutes ?? assignment.place?.duration_minutes)
 }
 
-function assignmentMarginMinutes(value: unknown): number {
+export function normalizeScheduleMarginMinutes(value: unknown): number {
   const n = Number(value)
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0
 }
@@ -62,21 +61,19 @@ export function buildActivitySchedule(
   assignments: Assignment[],
   travel: ActivityScheduleTravel = {},
 ): Record<number, ActivityTimeSlot> {
-  let cursor = wakeMinutes(day) + normalizeTravelMinutes(travel.initialTravelMinutes)
+  const scheduleMargin = normalizeScheduleMarginMinutes(travel.scheduleMarginMinutes)
+  const initialTravel = normalizeTravelMinutes(travel.initialTravelMinutes)
+  let cursor = wakeMinutes(day) + initialTravel + (initialTravel > 0 ? scheduleMargin : 0)
   const slots: Record<number, ActivityTimeSlot> = {}
   for (const assignment of assignments) {
     const duration = assignmentDurationMinutes(assignment)
-    const marginBefore = assignmentMarginMinutes(assignment.margin_before_minutes)
-    const marginAfter = assignmentMarginMinutes(assignment.margin_after_minutes)
-    cursor += marginBefore
     slots[assignment.id] = {
       start: minutesToClock(cursor),
       end: minutesToClock(cursor + duration),
       durationMinutes: duration,
-      marginBeforeMinutes: marginBefore,
-      marginAfterMinutes: marginAfter,
     }
-    cursor += duration + marginAfter + normalizeTravelMinutes(travel.travelAfterAssignmentMinutes?.[assignment.id])
+    const nextTravel = normalizeTravelMinutes(travel.travelAfterAssignmentMinutes?.[assignment.id])
+    cursor += duration + scheduleMargin + nextTravel + (nextTravel > 0 ? scheduleMargin : 0)
   }
   return slots
 }
@@ -87,14 +84,15 @@ export function getMaxSleepMinutes(
   nextDay?: Pick<Day, 'wake_up_time'> | null,
   travel: ActivityScheduleTravel = {},
 ): number {
-  const start = wakeMinutes(day) + normalizeTravelMinutes(travel.initialTravelMinutes)
-  const end = assignments.reduce((cursor, assignment) => {
-    return cursor
-      + assignmentMarginMinutes(assignment.margin_before_minutes)
-      + assignmentDurationMinutes(assignment)
-      + assignmentMarginMinutes(assignment.margin_after_minutes)
-      + normalizeTravelMinutes(travel.travelAfterAssignmentMinutes?.[assignment.id])
-  }, start) + normalizeTravelMinutes(travel.finalTravelMinutes)
+  const scheduleMargin = normalizeScheduleMarginMinutes(travel.scheduleMarginMinutes)
+  const initialTravel = normalizeTravelMinutes(travel.initialTravelMinutes)
+  let end = wakeMinutes(day) + initialTravel + (initialTravel > 0 ? scheduleMargin : 0)
+  for (const assignment of assignments) {
+    const nextTravel = normalizeTravelMinutes(travel.travelAfterAssignmentMinutes?.[assignment.id])
+    end += assignmentDurationMinutes(assignment) + scheduleMargin + nextTravel + (nextTravel > 0 ? scheduleMargin : 0)
+  }
+  const finalTravel = normalizeTravelMinutes(travel.finalTravelMinutes)
+  end += finalTravel + (finalTravel > 0 ? scheduleMargin : 0)
   const nextWake = wakeMinutes(nextDay ?? day)
   let nextWakeAbsolute = DAY_MINUTES + nextWake
   while (nextWakeAbsolute < end) nextWakeAbsolute += DAY_MINUTES
