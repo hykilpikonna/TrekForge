@@ -7,7 +7,7 @@ import { getDayBookendHotels } from '../utils/dayOrder'
 import { DEFAULT_WAKE_UP_TIME, normalizeDurationMinutes, normalizeScheduleMarginMinutes } from '../utils/daySchedule'
 import type { TripStoreState } from '../store/tripStore'
 import type { RouteSegment, RouteResult, Accommodation } from '../types'
-import type { RoutingProvider } from '../components/Map/RouteCalculator'
+import type { GoogleRoutingOptions, RoutingProvider } from '../components/Map/RouteCalculator'
 
 const TRANSPORT_TYPES = ['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transit', 'transport_other']
 
@@ -51,6 +51,7 @@ export function useRouteCalculation(
   provider: RoutingProvider = 'osrm',
   optimism: number = 0.33,
   scheduleMarginMinutes: number = 0,
+  googleRoutingOptions: GoogleRoutingOptions = {},
 ) {
   const [route, setRoute] = useState<[number, number][][] | null>(null)
   const [routeInfo, setRouteInfo] = useState<RouteResult | null>(null)
@@ -61,6 +62,9 @@ export function useRouteCalculation(
   // Recompute when the user flips km↔mi so leg distances (formatted at compute time)
   // refresh instead of showing stale cached text (#1300).
   const distanceUnit = useSettingsStore((s) => s.settings.distance_unit)
+  const avoidTolls = googleRoutingOptions.avoidTolls === true
+  const avoidHighways = googleRoutingOptions.avoidHighways === true
+  const avoidFerries = googleRoutingOptions.avoidFerries === true
 
   const updateRouteForDay = useCallback(async (dayId: number | null) => {
     if (routeAbortRef.current) routeAbortRef.current.abort()
@@ -220,6 +224,7 @@ export function useRouteCalculation(
           profile,
           provider,
           optimism,
+          google: { avoidTolls, avoidHighways, avoidFerries },
           departureLocalDateTime: departure,
         })
         appendRoutePolyline(polylines, r.coordinates, leg.map(p => [p.lat, p.lng] as [number, number]))
@@ -288,7 +293,7 @@ export function useRouteCalculation(
       // Aborted (day changed) — newer call owns the state. Anything else: keep straight lines.
       if (!(err instanceof Error) || err.name !== 'AbortError') setRouteSegments([])
     }
-  }, [enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes])
+  }, [enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes, avoidTolls, avoidHighways, avoidFerries])
 
   // Stable signature for transport reservations on the selected day — changes when a transport
   // is added, removed, or repositioned, ensuring route recalc fires even on transport-only reorders.
@@ -312,7 +317,7 @@ export function useRouteCalculation(
     if (!selectedDayId) { setRoute(null); setRouteSegments([]); return }
     updateRouteForDay(selectedDayId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDayId, selectedDayAssignments, transportSignature, enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes])
+  }, [selectedDayId, selectedDayAssignments, transportSignature, enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes, avoidTolls, avoidHighways, avoidFerries])
 
   return { route, routeSegments, routeInfo, setRoute, setRouteInfo, updateRouteForDay }
 }

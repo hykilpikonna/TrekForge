@@ -88,6 +88,10 @@ function normalizeRoutingOptimism(value: unknown): number {
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.33
 }
 
+function normalizeRoutingAvoidFlag(value: unknown): boolean {
+  return value === true || value === 1
+}
+
 interface DayPlanSidebarProps {
   tripId: number
   trip: Trip
@@ -550,6 +554,11 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
       // One cached OSRM call per waypoint pair; shares RouteCalculator's cache.
       const routeProvider = normalizeRoutingProvider(trip?.routing_provider)
       const routeOptimism = normalizeRoutingOptimism(trip?.routing_optimism)
+      const googleRoutingOptions = {
+        avoidTolls: normalizeRoutingAvoidFlag(trip?.routing_avoid_tolls),
+        avoidHighways: normalizeRoutingAvoidFlag(trip?.routing_avoid_highways),
+        avoidFerries: normalizeRoutingAvoidFlag(trip?.routing_avoid_ferries),
+      }
       const scheduleMarginMinutes = Math.max(0, Math.round(Number(trip?.schedule_margin_minutes) || 0))
       const legBetween = async (
         a: { lat: number; lng: number },
@@ -562,6 +571,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
             profile: routeProfile,
             provider: routeProvider,
             optimism: routeOptimism,
+            google: googleRoutingOptions,
             departureLocalDateTime,
           })
           return r.legs[0]
@@ -644,6 +654,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
                 profile: routeProfile,
                 provider: routeProvider,
                 optimism: routeOptimism,
+                google: googleRoutingOptions,
               })
               r.legs.forEach((leg, i) => { dayLegs[run[i].id] = leg })
             } catch (err) {
@@ -680,7 +691,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     // routeDayIds is memoized from the same inputs as routeDayKey below, so keying the
     // effect on the string is equivalent while staying stable across unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeDayKey, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit, trip?.routing_provider, trip?.routing_optimism, trip?.schedule_margin_minutes])
+  }, [routeDayKey, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit, trip?.routing_provider, trip?.routing_optimism, trip?.routing_avoid_tolls, trip?.routing_avoid_highways, trip?.routing_avoid_ferries, trip?.schedule_margin_minutes])
 
   const openAddNote = (dayId, e) => {
     e?.stopPropagation()
