@@ -83,6 +83,73 @@ export const mapsDirectionsPreviewRequestSchema = z.object({
 });
 export type MapsDirectionsPreviewRequest = z.infer<typeof mapsDirectionsPreviewRequestSchema>;
 
+export const mapsDirectionsMobileLocationSchema = z.union([
+  z.string().min(1).max(500),
+  z
+    .object({
+      text: z.string().min(1).max(500).optional(),
+      label: z.string().min(1).max(500).optional(),
+      address: z.string().min(1).max(500).optional(),
+      lat: z.number().optional(),
+      lng: z.number().optional(),
+      placeId: z.string().min(1).optional(),
+      dataId: z.string().min(1).optional(),
+      cid: z.string().min(1).optional(),
+    })
+    .refine(
+      (value) =>
+        Boolean(value.text || value.label || value.address) ||
+        (Number.isFinite(value.lat) && Number.isFinite(value.lng)),
+      {
+        message: 'Provide text, label/address, or lat/lng',
+      },
+    ),
+]);
+export type MapsDirectionsMobileLocation = z.infer<typeof mapsDirectionsMobileLocationSchema>;
+
+export const mapsDirectionsMobileDepartureTimeSchema = z.union([
+  z.number(),
+  z.string().min(1),
+  z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('departAt'),
+      epochSeconds: z.number(),
+      timeZone: z.string().min(1).optional(),
+    }),
+    z.object({
+      kind: z.literal('departAtLocal'),
+      localDateTime: z.string().min(1),
+      timeZone: z.string().min(1).optional(),
+    }),
+    z.object({
+      kind: z.literal('raw'),
+      googleMapsEpochSeconds: z.number(),
+      timeZone: z.string().min(1).optional(),
+    }),
+  ]),
+]);
+export type MapsDirectionsMobileDepartureTime = z.infer<typeof mapsDirectionsMobileDepartureTimeSchema>;
+
+export const mapsDirectionsMobileRequestSchema = z.object({
+  from: mapsDirectionsMobileLocationSchema,
+  to: mapsDirectionsMobileLocationSchema,
+  departureTime: mapsDirectionsMobileDepartureTimeSchema.optional(),
+  options: z
+    .object({
+      language: z.string().min(1).optional(),
+      region: z.string().min(1).optional(),
+      timeZone: z.string().min(1).optional(),
+      timeoutMs: z.number().positive().optional(),
+      includeRaw: z.boolean().optional(),
+      includeDebug: z.boolean().optional(),
+      avoidTolls: z.boolean().optional(),
+      avoidHighways: z.boolean().optional(),
+      avoidFerries: z.boolean().optional(),
+    })
+    .optional(),
+});
+export type MapsDirectionsMobileRequest = z.infer<typeof mapsDirectionsMobileRequestSchema>;
+
 export const mapsSearchRequestSchema = z.object({
   query: z.string().min(1),
 });

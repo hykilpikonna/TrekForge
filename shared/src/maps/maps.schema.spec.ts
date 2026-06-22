@@ -1,5 +1,6 @@
 import {
   mapsDirectionsPreviewRequestSchema,
+  mapsDirectionsMobileRequestSchema,
   mapsSearchRequestSchema,
   mapsAutocompleteRequestSchema,
   mapsReverseQuerySchema,
@@ -85,6 +86,34 @@ describe('mapsDirectionsPreviewRequestSchema', () => {
         origin: location,
         destination: location,
         waypoints: Array.from({ length: 9 }, () => location),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('mapsDirectionsMobileRequestSchema', () => {
+  it('accepts text endpoints, departure time and mobile options', () => {
+    expect(
+      mapsDirectionsMobileRequestSchema.safeParse({
+        from: 'Tokyo Station',
+        to: 'Fushimi Station Nagoya',
+        departureTime: { kind: 'departAtLocal', localDateTime: '2026-06-23T10:40', timeZone: 'Asia/Tokyo' },
+        options: { includeDebug: true, timeoutMs: 5000, avoidTolls: true, avoidHighways: false, avoidFerries: true },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts rich endpoints and rejects empty text endpoints', () => {
+    expect(
+      mapsDirectionsMobileRequestSchema.safeParse({
+        from: { label: 'Tokyo Station', lat: 35.681236, lng: 139.767125 },
+        to: { text: 'Fushimi Station Nagoya' },
+      }).success,
+    ).toBe(true);
+    expect(
+      mapsDirectionsMobileRequestSchema.safeParse({
+        from: '',
+        to: 'Fushimi Station Nagoya',
       }).success,
     ).toBe(false);
   });

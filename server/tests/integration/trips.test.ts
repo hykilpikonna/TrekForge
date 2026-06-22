@@ -94,7 +94,7 @@ describe('Create trip', () => {
         start_date: '2026-06-01',
         end_date: '2026-06-05',
         schedule_margin_minutes: 15,
-        routing_provider: 'google_maps',
+        routing_provider: 'google_maps_mobile',
         routing_optimism: 0.33,
         routing_avoid_tolls: true,
         routing_avoid_highways: false,
@@ -105,7 +105,7 @@ describe('Create trip', () => {
     expect(res.body.trip).toBeDefined();
     expect(res.body.trip.title).toBe('Paris Adventure');
     expect(res.body.trip.schedule_margin_minutes).toBe(15);
-    expect(res.body.trip.routing_provider).toBe('google_maps');
+    expect(res.body.trip.routing_provider).toBe('google_maps_mobile');
     expect(res.body.trip.routing_optimism).toBe(0.33);
     expect(res.body.trip.routing_avoid_tolls).toBe(1);
     expect(res.body.trip.routing_avoid_highways).toBe(0);

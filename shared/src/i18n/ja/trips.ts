@@ -16,5 +16,6 @@ const trips: TranslationStrings = {
   'trips.routingAvoidTolls': 'Tolls', // en-fallback
   'trips.routingAvoidHighways': 'Highways', // en-fallback
   'trips.routingAvoidFerries': 'Ferries', // en-fallback
+  'trips.routingProviderGoogleMobile': 'Google Maps (Mobile)', // en-fallback
 };
 export default trips;

@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { createReadStream } from 'node:fs';
+import type { GoogleMapsMobileDirectionsResult } from '../../services/googleMapsMobileDirections';
 import type { GoogleMapsPreviewDirectionsResult } from '../../services/googleMapsPreviewDirections';
 import type {
   MapsAutocompleteResult,
@@ -231,6 +232,17 @@ export class MapsController {
     } catch (err: unknown) {
       console.error('Maps directions preview error:', err);
       throw toHttpException(err, 'Directions preview error', 500);
+    }
+  }
+
+  @Post('directions-mobile')
+  @HttpCode(200)
+  async directionsMobile(@Body() body: unknown): Promise<GoogleMapsMobileDirectionsResult> {
+    try {
+      return await this.maps.mobileDirections(body);
+    } catch (err: unknown) {
+      console.error('Maps mobile directions error:', err);
+      throw toHttpException(err, 'Mobile directions error', 500);
     }
   }
 }

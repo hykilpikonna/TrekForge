@@ -14,6 +14,7 @@ import { z } from 'zod';
  */
 
 const sqliteBoolean = z.union([z.boolean(), z.number().int().min(0).max(1)]);
+const routingProviderSchema = z.enum(['osrm', 'google_maps', 'google_maps_mobile']);
 
 /**
  * Trip entity as returned by the trip list / get / create / update endpoints
@@ -33,7 +34,7 @@ export const tripSchema = z.object({
   is_archived: z.number(),
   reminder_days: z.number(),
   schedule_margin_minutes: z.number().optional(),
-  routing_provider: z.enum(['osrm', 'google_maps']).optional(),
+  routing_provider: routingProviderSchema.optional(),
   routing_optimism: z.number().min(0).max(1).optional(),
   routing_avoid_tolls: sqliteBoolean.optional(),
   routing_avoid_highways: sqliteBoolean.optional(),
@@ -87,7 +88,7 @@ export const tripCreateRequestSchema = z.object({
   currency: z.string().optional(),
   reminder_days: z.number().optional(),
   schedule_margin_minutes: z.number().int().min(0).optional(),
-  routing_provider: z.enum(['osrm', 'google_maps']).optional(),
+  routing_provider: routingProviderSchema.optional(),
   routing_optimism: z.number().min(0).max(1).optional(),
   routing_avoid_tolls: z.boolean().optional(),
   routing_avoid_highways: z.boolean().optional(),
@@ -112,7 +113,7 @@ export const tripUpdateRequestSchema = z.object({
   currency: z.string().optional(),
   reminder_days: z.number().optional(),
   schedule_margin_minutes: z.number().int().min(0).optional(),
-  routing_provider: z.enum(['osrm', 'google_maps']).optional(),
+  routing_provider: routingProviderSchema.optional(),
   routing_optimism: z.number().min(0).max(1).optional(),
   routing_avoid_tolls: z.boolean().optional(),
   routing_avoid_highways: z.boolean().optional(),

@@ -55,7 +55,8 @@ function readRouteProfilePreference(tripId: number): 'driving' | 'walking' {
 }
 
 function normalizeRoutingProvider(value: unknown): RoutingProvider {
-  return value === 'google_maps' ? 'google_maps' : 'osrm'
+  if (value === 'google_maps' || value === 'google_maps_mobile') return value
+  return 'osrm'
 }
 
 function normalizeRoutingOptimism(value: unknown): number {

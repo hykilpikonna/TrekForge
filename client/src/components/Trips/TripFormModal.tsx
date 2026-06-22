@@ -17,6 +17,13 @@ import { currenciesWith, SYMBOLS } from '../Budget/BudgetPanel.constants'
 
 type DateShiftMode = 'keep_bookings' | 'shift_all'
 
+type RoutingProvider = 'osrm' | 'google_maps' | 'google_maps_mobile'
+
+function normalizeRoutingProvider(value: unknown): RoutingProvider {
+  if (value === 'google_maps' || value === 'google_maps_mobile') return value
+  return 'osrm'
+}
+
 interface TripFormModalProps {
   isOpen: boolean
   onClose: () => void
@@ -57,7 +64,7 @@ export default function TripFormModal({ isOpen, onClose, onSave, trip, onCoverUp
     currency: 'EUR',
     reminder_days: 0 as number,
     schedule_margin_minutes: '0m',
-    routing_provider: 'osrm' as 'osrm' | 'google_maps',
+    routing_provider: 'osrm' as RoutingProvider,
     routing_optimism: 0.33,
     routing_avoid_tolls: false,
     routing_avoid_highways: false,
@@ -95,7 +102,7 @@ export default function TripFormModal({ isOpen, onClose, onSave, trip, onCoverUp
         currency: trip.currency || 'EUR',
         reminder_days: rd,
         schedule_margin_minutes: formatDurationInput(trip.schedule_margin_minutes ?? 0, { allowZero: true }),
-        routing_provider: trip.routing_provider === 'google_maps' ? 'google_maps' : 'osrm',
+        routing_provider: normalizeRoutingProvider(trip.routing_provider),
         routing_optimism: Number.isFinite(Number(trip.routing_optimism)) ? Math.min(1, Math.max(0, Number(trip.routing_optimism))) : 0.33,
         routing_avoid_tolls: trip.routing_avoid_tolls === true || trip.routing_avoid_tolls === 1,
         routing_avoid_highways: trip.routing_avoid_highways === true || trip.routing_avoid_highways === 1,
@@ -586,17 +593,18 @@ export default function TripFormModal({ isOpen, onClose, onSave, trip, onCoverUp
           <select
             id="trip-routing-provider-input"
             value={formData.routing_provider}
-            onChange={e => canEditTrip && update('routing_provider', e.target.value === 'google_maps' ? 'google_maps' : 'osrm')}
+            onChange={e => canEditTrip && update('routing_provider', normalizeRoutingProvider(e.target.value))}
             disabled={!canEditTrip}
             className={inputCls}
           >
             <option value="osrm">{t('trips.routingProviderOsrm')}</option>
             <option value="google_maps">{t('trips.routingProviderGoogle')}</option>
+            <option value="google_maps_mobile">{t('trips.routingProviderGoogleMobile')}</option>
           </select>
           <p className="text-xs text-slate-400 mt-1.5">{t('trips.routingProviderHint')}</p>
         </div>
 
-        {formData.routing_provider === 'google_maps' && (
+        {(formData.routing_provider === 'google_maps' || formData.routing_provider === 'google_maps_mobile') && (
           <div className="space-y-3">
             <div>
               <label htmlFor="trip-routing-optimism-input" className="block text-sm font-medium text-slate-700 mb-1.5">

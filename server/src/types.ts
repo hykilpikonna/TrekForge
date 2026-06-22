@@ -38,7 +38,7 @@ export interface Trip {
   is_archived: number;
   reminder_days: number;
   schedule_margin_minutes?: number;
-  routing_provider?: 'osrm' | 'google_maps';
+  routing_provider?: 'osrm' | 'google_maps' | 'google_maps_mobile';
   routing_optimism?: number;
   routing_avoid_tolls?: number | boolean;
   routing_avoid_highways?: number | boolean;
