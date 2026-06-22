@@ -19,7 +19,7 @@ const OSRM_PROFILE_BASE: Record<'driving' | 'walking' | 'cycling', string> = {
 const routeCache = new Map<string, RouteWithLegs>()
 const ROUTE_CACHE_MAX = 200
 const ROUTE_CACHE_STORAGE_KEY = 'trek:route-cache:v1'
-const ROUTE_CACHE_VERSION = 2
+const ROUTE_CACHE_VERSION = 3
 const ROUTE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 export type RoutingProvider = 'osrm' | 'google_maps' | 'google_maps_mobile'
 
@@ -53,6 +53,13 @@ interface GoogleMobileDirectionsDuration {
   text: string | null
 }
 
+interface GoogleMobileDirectionsMoney {
+  amount: number | null
+  text: string | null
+  currency: string | null
+  label: string | null
+}
+
 interface GoogleMobileDirectionsRoute {
   distance?: { meters: number | null; text: string | null }
   duration?: GoogleMobileDirectionsDuration
@@ -61,6 +68,7 @@ interface GoogleMobileDirectionsRoute {
     pessimistic?: GoogleMobileDirectionsDuration | null
     text?: string | null
   } | null
+  tollFee?: GoogleMobileDirectionsMoney | null
   overviewGeometry?: Array<{ lat: number; lng: number }>
 }
 
@@ -471,6 +479,14 @@ function googleMode(profile: 'driving' | 'walking' | 'cycling'): 'driving' | 'wa
   return profile === 'cycling' ? 'bicycling' : profile
 }
 
+function formatGoogleMobileTollText(tollFee?: GoogleMobileDirectionsMoney | null): string | undefined {
+  const text = tollFee?.text?.trim()
+  if (!text) return undefined
+  const label = tollFee?.label?.trim()
+  if (!label) return text
+  return text.toLowerCase().includes(label.toLowerCase()) ? text : `${label} ${text}`
+}
+
 function addSecondsToLocalDateTime(localDateTime: string, seconds: number): string {
   const match = localDateTime.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/)
   if (!match) return localDateTime
@@ -639,6 +655,7 @@ async function calculateGoogleMobileRouteWithLegs(
 
     const legDuration = pickGoogleMobileDurationSeconds(response, route, optimism)
     const legDistance = Number(route.distance?.meters) || 0
+    const tollText = formatGoogleMobileTollText(route.tollFee)
     appendOverviewGeometry(coordinates, route.overviewGeometry, from, to)
 
     const mid: [number, number] = [(from.lat + to.lat) / 2, (from.lng + to.lng) / 2]
@@ -653,6 +670,7 @@ async function calculateGoogleMobileRouteWithLegs(
       drivingText: durationText,
       distanceText: formatRouteDistance(legDistance),
       durationText,
+      ...(tollText ? { tollText } : {}),
     })
     distance += legDistance
     duration += legDuration

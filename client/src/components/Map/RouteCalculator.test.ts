@@ -258,6 +258,7 @@ describe('calculateRouteWithLegs persistent cache', () => {
                 pessimistic: { seconds: 1200, text: '20 min' },
                 text: '10 min to 20 min',
               },
+              tollFee: { amount: 8620, text: '\u00a58620', currency: 'JPY', label: 'ETC' },
               overviewGeometry: [
                 { lat: body.from.lat, lng: body.from.lng },
                 { lat: 48.858, lng: 2.356 },
@@ -286,6 +287,7 @@ describe('calculateRouteWithLegs persistent cache', () => {
     expect(first.duration).toBe(1050)
     expect(first.distance).toBe(1200)
     expect(first.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
+    expect(first.legs[0].tollText).toBe('ETC \u00a58620')
     expect(second.legs[0].duration).toBe(1050)
     expect(calls).toBe(1)
     expect(bodies[0].options).toMatchObject({

@@ -1,4 +1,4 @@
-import { Car, Footprints, Hotel } from 'lucide-react'
+import { Car, Coins, Footprints, Hotel } from 'lucide-react'
 import type { RouteSegment } from '../../types'
 
 /** Slim travel-time connector shown between two consecutive located stops in a day. */
@@ -6,6 +6,7 @@ export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: '
   const driving = profile === 'driving'
   const Icon = driving ? Car : Footprints
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
+  const tollText = seg.tollText?.trim()
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 14px', fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', lineHeight: 1.2 }}>
       <div style={line} />
@@ -14,6 +15,13 @@ export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: '
         <span>{seg.durationText ?? (driving ? seg.drivingText : seg.walkingText)}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>{seg.distanceText}</span>
+        {tollText && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <Coins size={11} strokeWidth={2} />
+            <span>{tollText}</span>
+          </>
+        )}
       </div>
       <div style={line} />
     </div>
@@ -40,6 +48,7 @@ export function HotelRouteConnector({
   const driving = profile === 'driving'
   const Icon = driving ? Car : Footprints
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
+  const tollText = seg.tollText?.trim()
   const hotelRow = (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '0 14px', minWidth: 0 }}>
       <Hotel size={12} strokeWidth={1.8} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
@@ -56,6 +65,13 @@ export function HotelRouteConnector({
         <span>{seg.durationText ?? (driving ? seg.drivingText : seg.walkingText)}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>{seg.distanceText}</span>
+        {tollText && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <Coins size={11} strokeWidth={2} />
+            <span>{tollText}</span>
+          </>
+        )}
       </div>
       <div style={line} />
     </div>

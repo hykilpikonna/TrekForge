@@ -2109,7 +2109,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   </div>
                                   {block.heightPx >= 34 && (
                                     <div style={{ marginTop: 2, fontSize: 10.5, fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                      {t('dayplan.route')} · {block.seg.distanceText}
+                                      {[t('dayplan.route'), block.seg.distanceText, block.seg.tollText].filter(Boolean).join(' · ')}
                                     </div>
                                   )}
                                 </div>
