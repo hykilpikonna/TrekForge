@@ -23,6 +23,12 @@ const ROUTE_CACHE_VERSION = 1
 const ROUTE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 export type RoutingProvider = 'osrm' | 'google_maps'
 
+export interface GoogleRoutingOptions {
+  avoidTolls?: boolean
+  avoidHighways?: boolean
+  avoidFerries?: boolean
+}
+
 interface GoogleDirectionsDuration {
   seconds: number | null
   text: string | null
@@ -337,12 +343,14 @@ export async function calculateRouteWithLegs(
     provider = 'osrm',
     optimism = 0.33,
     departureLocalDateTime,
+    google = {},
   }: {
     signal?: AbortSignal
     profile?: 'driving' | 'walking' | 'cycling'
     provider?: RoutingProvider
     optimism?: number
     departureLocalDateTime?: string | null
+    google?: GoogleRoutingOptions
   } = {}
 ): Promise<RouteWithLegs> {
   if (!waypoints || waypoints.length < 2) {
@@ -354,8 +362,9 @@ export async function calculateRouteWithLegs(
   // part of the key — otherwise switching km↔mi would return stale text (#1300).
   const distanceUnit = getDistanceUnit()
   const boundedOptimism = normalizeOptimism(optimism)
+  const googleOptionsKey = googleOptionsCacheKey(google)
   const cacheKey = provider === 'google_maps'
-    ? `${provider}:${profile}:${distanceUnit}:${boundedOptimism.toFixed(2)}:${departureLocalDateTime || 'now'}:${coords}`
+    ? `${provider}:${profile}:${distanceUnit}:${boundedOptimism.toFixed(2)}:${googleOptionsKey}:${departureLocalDateTime || 'now'}:${coords}`
     : `${provider}:${profile}:${distanceUnit}:${coords}`
   const cached = routeCache.get(cacheKey)
   if (cached) return cached
@@ -368,6 +377,7 @@ export async function calculateRouteWithLegs(
       profile,
       optimism: boundedOptimism,
       departureLocalDateTime,
+      google,
     })
     setCachedRoute(cacheKey, result)
     return result
@@ -416,6 +426,14 @@ function normalizeOptimism(value: unknown): number {
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.33
 }
 
+function googleOptionsCacheKey(options: GoogleRoutingOptions = {}): string {
+  return [
+    options.avoidTolls ? 'tolls' : 'no-tolls',
+    options.avoidHighways ? 'highways' : 'no-highways',
+    options.avoidFerries ? 'ferries' : 'no-ferries',
+  ].join(',')
+}
+
 function googleMode(profile: 'driving' | 'walking' | 'cycling'): 'driving' | 'walking' | 'bicycling' {
   return profile === 'cycling' ? 'bicycling' : profile
 }
@@ -450,11 +468,13 @@ async function calculateGoogleRouteWithLegs(
     profile,
     optimism,
     departureLocalDateTime,
+    google,
   }: {
     signal?: AbortSignal
     profile: 'driving' | 'walking' | 'cycling'
     optimism: number
     departureLocalDateTime?: string | null
+    google?: GoogleRoutingOptions
   },
 ): Promise<RouteWithLegs> {
   const legs: RouteSegment[] = []
@@ -472,6 +492,9 @@ async function calculateGoogleRouteWithLegs(
       mode: googleMode(profile),
       includeOverviewGeometry: true,
       includeSteps: false,
+      avoidTolls: google?.avoidTolls === true,
+      avoidHighways: google?.avoidHighways === true,
+      avoidFerries: google?.avoidFerries === true,
       ...(currentDeparture ? { time: { kind: 'departAtLocal' as const, localDateTime: currentDeparture } } : {}),
     }
     const response = await apiClient.post('/maps/directions-preview', body, { signal }).then(r => r.data as GoogleDirectionsResponse)
