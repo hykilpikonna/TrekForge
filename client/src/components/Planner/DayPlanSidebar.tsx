@@ -5,8 +5,8 @@ declare global { interface Window { __dragData: DragDataPayload | null } }
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { avatarSrc } from '../../utils/avatarSrc'
 import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List } from 'lucide-react'
-import { assignmentsApi, reservationsApi } from '../../api/client'
-import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl } from '../Map/RouteCalculator'
+import { reservationsApi } from '../../api/client'
+import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl, type RoutingProvider } from '../Map/RouteCalculator'
 import PlaceAvatar from '../shared/PlaceAvatar'
 import ConfirmDialog from '../shared/ConfirmDialog'
 import { useContextMenu, ContextMenu } from '../shared/ContextMenu'
@@ -29,7 +29,7 @@ import {
   type MergedItem,
 } from '../../utils/dayMerge'
 import { formatDate, formatTime, dayTotalCost, formatMoneySum, splitReservationDateTime } from '../../utils/formatters'
-import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes, minutesToClock } from '../../utils/daySchedule'
+import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes, minutesToClock, normalizeDurationMinutes } from '../../utils/daySchedule'
 import { useDayNotes } from '../../hooks/useDayNotes'
 import { useExchangeRates } from '../../hooks/useExchangeRates'
 import { RES_ICONS, getNoteIcon } from './DayPlanSidebar.constants'
@@ -71,6 +71,22 @@ function minutesAfterClock(clock: string, startMinutes: number): number {
 
 function formatRestHours(totalMinutes: number): string {
   return `${(Math.max(0, Math.round(totalMinutes)) / 60).toFixed(1)}h`
+}
+
+function localDateTimeForDayMinute(day: Pick<Day, 'date'>, minutes: number): string | null {
+  if (!day.date) return null
+  const date = new Date(`${day.date}T00:00:00Z`)
+  date.setUTCMinutes(date.getUTCMinutes() + Math.round(minutes))
+  return date.toISOString().slice(0, 16)
+}
+
+function normalizeRoutingProvider(value: unknown): RoutingProvider {
+  return value === 'google_maps' ? 'google_maps' : 'osrm'
+}
+
+function normalizeRoutingOptimism(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.33
 }
 
 interface DayPlanSidebarProps {
@@ -555,9 +571,22 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
       const nextHotelLegs: Record<number, DayHotelRouteLegs> = {}
 
       // One cached OSRM call per waypoint pair; shares RouteCalculator's cache.
-      const legBetween = async (a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<RouteSegment | undefined> => {
+      const routeProvider = normalizeRoutingProvider(trip?.routing_provider)
+      const routeOptimism = normalizeRoutingOptimism(trip?.routing_optimism)
+      const scheduleMarginMinutes = Math.max(0, Math.round(Number(trip?.schedule_margin_minutes) || 0))
+      const legBetween = async (
+        a: { lat: number; lng: number },
+        b: { lat: number; lng: number },
+        departureLocalDateTime?: string | null,
+      ): Promise<RouteSegment | undefined> => {
         try {
-          const r = await calculateRouteWithLegs([a, b], { signal: controller.signal, profile: routeProfile })
+          const r = await calculateRouteWithLegs([a, b], {
+            signal: controller.signal,
+            profile: routeProfile,
+            provider: routeProvider,
+            optimism: routeOptimism,
+            departureLocalDateTime,
+          })
           return r.legs[0]
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') throw err
@@ -567,26 +596,96 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
 
       for (const dayId of routeDayIds) {
         const { runs, startHotel, endHotel, firstWay, lastWay, wantTop, wantBottom } = planDay(dayId)
+        const day = days.find(d => d.id === dayId)
+        const merged = mergedItemsMap[dayId] || []
         const dayLegs: Record<number, RouteSegment> = {}
-        for (const run of runs) {
-          try {
-            const r = await calculateRouteWithLegs(run.map(p => ({ lat: p.lat, lng: p.lng })), { signal: controller.signal, profile: routeProfile })
-            r.legs.forEach((leg, i) => { dayLegs[run[i].id] = leg })
-          } catch (err) {
-            if (err instanceof Error && err.name === 'AbortError') return
+        const hotel: DayHotelRouteLegs = {}
+
+        if (routeProvider === 'google_maps' && day) {
+          let cursor = parseTimeToMinutes(day.wake_up_time || DEFAULT_WAKE_UP_TIME) ?? parseTimeToMinutes(DEFAULT_WAKE_UP_TIME)!
+          const timedLeg = async (
+            a: { lat: number; lng: number },
+            b: { lat: number; lng: number },
+            departureMinutes: number,
+          ) => legBetween(a, b, localDateTimeForDayMinute(day, departureMinutes))
+
+          if (wantTop) {
+            const seg = await timedLeg(
+              { lat: startHotel!.place_lat as number, lng: startHotel!.place_lng as number },
+              { lat: firstWay!.lat, lng: firstWay!.lng },
+              cursor,
+            )
+            if (seg) {
+              hotel.top = { seg, name: hotelName(startHotel!) }
+              cursor += routeSecondsToMinutes(seg.duration) + scheduleMarginMinutes
+            }
+          }
+
+          let current: { id: number; lat: number; lng: number } | null = null
+          let currentRunHasPlace = false
+          for (const it of merged) {
+            if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
+              const next = { id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng }
+              if (current) {
+                const seg = await timedLeg(current, next, cursor)
+                if (seg) {
+                  dayLegs[current.id] = seg
+                  cursor += routeSecondsToMinutes(seg.duration) + scheduleMarginMinutes
+                }
+              }
+              cursor += normalizeDurationMinutes(it.data.duration_minutes ?? it.data.place.duration_minutes) + scheduleMarginMinutes
+              current = next
+              currentRunHasPlace = true
+            } else if (it.type === 'transport') {
+              const r = it.data
+              const { from, to } = getTransportRouteEndpoints(r, dayId)
+              if (from || to) {
+                if (from && current && currentRunHasPlace) {
+                  const seg = await timedLeg(current, { lat: from.lat, lng: from.lng }, cursor)
+                  if (seg) {
+                    dayLegs[current.id] = seg
+                    cursor += routeSecondsToMinutes(seg.duration) + scheduleMarginMinutes
+                  }
+                }
+                current = to ? { id: r.id, lat: to.lat, lng: to.lng } : null
+                currentRunHasPlace = false
+              } else if (current) {
+                current = { ...current, id: r.id }
+              }
+            }
+          }
+
+          if (wantBottom && current) {
+            const seg = await timedLeg(current, { lat: endHotel!.place_lat as number, lng: endHotel!.place_lng as number }, cursor)
+            if (seg) hotel.bottom = { seg, name: hotelName(endHotel!) }
+          }
+        } else {
+          for (const run of runs) {
+            try {
+              const r = await calculateRouteWithLegs(run.map(p => ({ lat: p.lat, lng: p.lng })), {
+                signal: controller.signal,
+                profile: routeProfile,
+                provider: routeProvider,
+                optimism: routeOptimism,
+              })
+              r.legs.forEach((leg, i) => { dayLegs[run[i].id] = leg })
+            } catch (err) {
+              if (err instanceof Error && err.name === 'AbortError') return
+            }
+          }
+
+          if (wantTop) {
+            const seg = await legBetween({ lat: startHotel!.place_lat as number, lng: startHotel!.place_lng as number }, { lat: firstWay!.lat, lng: firstWay!.lng })
+            if (seg) hotel.top = { seg, name: hotelName(startHotel!) }
+          }
+          if (wantBottom) {
+            const seg = await legBetween({ lat: lastWay!.lat, lng: lastWay!.lng }, { lat: endHotel!.place_lat as number, lng: endHotel!.place_lng as number })
+            if (seg) hotel.bottom = { seg, name: hotelName(endHotel!) }
           }
         }
-        if (Object.keys(dayLegs).length) nextRouteLegs[dayId] = dayLegs
-        const hotel: DayHotelRouteLegs = {}
-        if (wantTop) {
-          const seg = await legBetween({ lat: startHotel!.place_lat as number, lng: startHotel!.place_lng as number }, { lat: firstWay!.lat, lng: firstWay!.lng })
-          if (seg) hotel.top = { seg, name: hotelName(startHotel!) }
-        }
-        if (wantBottom) {
-          const seg = await legBetween({ lat: lastWay!.lat, lng: lastWay!.lng }, { lat: endHotel!.place_lat as number, lng: endHotel!.place_lng as number })
-          if (seg) hotel.bottom = { seg, name: hotelName(endHotel!) }
-        }
+
         if (controller.signal.aborted) return
+        if (Object.keys(dayLegs).length) nextRouteLegs[dayId] = dayLegs
         if (hotel.top || hotel.bottom) nextHotelLegs[dayId] = hotel
       }
 
@@ -604,7 +703,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     // routeDayIds is memoized from the same inputs as routeDayKey below, so keying the
     // effect on the string is equivalent while staying stable across unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeDayKey, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit])
+  }, [routeDayKey, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit, trip?.routing_provider, trip?.routing_optimism, trip?.schedule_margin_minutes])
 
   const openAddNote = (dayId, e) => {
     e?.stopPropagation()
