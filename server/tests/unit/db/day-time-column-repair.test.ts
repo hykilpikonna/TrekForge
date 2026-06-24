@@ -37,6 +37,19 @@ function createVersionCollidedDb(): Database.Database {
   return db;
 }
 
+function createVersionCollidedDbWithTrips(): Database.Database {
+  const db = createVersionCollidedDb();
+  db.exec(`
+    CREATE TABLE trips (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL
+    );
+
+    INSERT INTO trips (id, name) VALUES (1, 'Legacy Trip');
+  `);
+  return db;
+}
+
 describe('day time column migration repair', () => {
   it('repairs missing day time columns even when schema_version already skipped migrations', () => {
     const db = createVersionCollidedDb();
@@ -51,6 +64,46 @@ describe('day time column migration repair', () => {
     expect(db.prepare('SELECT wake_up_time FROM days WHERE id = 1').get()).toEqual({ wake_up_time: '08:00' });
     expect(db.prepare('SELECT duration_minutes FROM day_assignments WHERE id = 1').get()).toEqual({
       duration_minutes: 135,
+    });
+
+    db.close();
+  });
+
+  it('repairs missing trip scheduling columns when the trips table exists', () => {
+    const db = createVersionCollidedDbWithTrips();
+
+    runMigrations(db);
+
+    expect(
+      db.prepare("SELECT name FROM pragma_table_info('trips') WHERE name = 'schedule_margin_minutes'").get(),
+    ).toBeTruthy();
+    expect(db.prepare("SELECT name FROM pragma_table_info('trips') WHERE name = 'routing_provider'").get()).toBeTruthy();
+    expect(db.prepare("SELECT name FROM pragma_table_info('trips') WHERE name = 'routing_optimism'").get()).toBeTruthy();
+    expect(
+      db.prepare("SELECT name FROM pragma_table_info('trips') WHERE name = 'routing_avoid_tolls'").get(),
+    ).toBeTruthy();
+    expect(
+      db.prepare("SELECT name FROM pragma_table_info('trips') WHERE name = 'routing_avoid_highways'").get(),
+    ).toBeTruthy();
+    expect(
+      db.prepare("SELECT name FROM pragma_table_info('trips') WHERE name = 'routing_avoid_ferries'").get(),
+    ).toBeTruthy();
+
+    expect(
+      db
+        .prepare(
+          `SELECT schedule_margin_minutes, routing_provider, routing_optimism,
+                  routing_avoid_tolls, routing_avoid_highways, routing_avoid_ferries
+           FROM trips WHERE id = 1`,
+        )
+        .get(),
+    ).toEqual({
+      schedule_margin_minutes: 0,
+      routing_provider: 'osrm',
+      routing_optimism: 0.33,
+      routing_avoid_tolls: 0,
+      routing_avoid_highways: 0,
+      routing_avoid_ferries: 0,
     });
 
     db.close();
