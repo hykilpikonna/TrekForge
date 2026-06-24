@@ -3510,7 +3510,13 @@ function runMigrations(db: Database.Database): void {
   ensureDayTimeColumns(db);
 }
 
-function columnExists(db: Database.Database, table: 'trips' | 'days' | 'day_assignments', column: string): boolean {
+type RepairTable = 'trips' | 'days' | 'day_assignments' | 'places';
+
+function tableExists(db: Database.Database, table: RepairTable): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
+}
+
+function columnExists(db: Database.Database, table: RepairTable, column: string): boolean {
   return Boolean(db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column));
 }
 
@@ -3518,50 +3524,54 @@ function ensureDayTimeColumns(db: Database.Database): void {
   db.transaction(() => {
     let addedDurationColumn = false;
 
-    if (!columnExists(db, 'days', 'wake_up_time')) {
+    if (tableExists(db, 'days') && !columnExists(db, 'days', 'wake_up_time')) {
       db.exec("ALTER TABLE days ADD COLUMN wake_up_time TEXT DEFAULT '08:00'");
       console.log('[DB] Repaired missing days.wake_up_time column');
     }
 
-    if (!columnExists(db, 'trips', 'schedule_margin_minutes')) {
-      db.exec('ALTER TABLE trips ADD COLUMN schedule_margin_minutes INTEGER DEFAULT 0');
-      console.log('[DB] Repaired missing trips.schedule_margin_minutes column');
-    }
+    if (tableExists(db, 'trips')) {
+      if (!columnExists(db, 'trips', 'schedule_margin_minutes')) {
+        db.exec('ALTER TABLE trips ADD COLUMN schedule_margin_minutes INTEGER DEFAULT 0');
+        console.log('[DB] Repaired missing trips.schedule_margin_minutes column');
+      }
 
-    if (!columnExists(db, 'trips', 'routing_provider')) {
-      db.exec("ALTER TABLE trips ADD COLUMN routing_provider TEXT DEFAULT 'osrm'");
-      console.log('[DB] Repaired missing trips.routing_provider column');
-    }
+      if (!columnExists(db, 'trips', 'routing_provider')) {
+        db.exec("ALTER TABLE trips ADD COLUMN routing_provider TEXT DEFAULT 'osrm'");
+        console.log('[DB] Repaired missing trips.routing_provider column');
+      }
 
-    if (!columnExists(db, 'trips', 'routing_optimism')) {
-      db.exec('ALTER TABLE trips ADD COLUMN routing_optimism REAL DEFAULT 0.33');
-      console.log('[DB] Repaired missing trips.routing_optimism column');
-    }
+      if (!columnExists(db, 'trips', 'routing_optimism')) {
+        db.exec('ALTER TABLE trips ADD COLUMN routing_optimism REAL DEFAULT 0.33');
+        console.log('[DB] Repaired missing trips.routing_optimism column');
+      }
 
-    for (const column of ['routing_avoid_tolls', 'routing_avoid_highways', 'routing_avoid_ferries']) {
-      if (!columnExists(db, 'trips', column)) {
-        db.exec(`ALTER TABLE trips ADD COLUMN ${column} INTEGER DEFAULT 0`);
-        console.log(`[DB] Repaired missing trips.${column} column`);
+      for (const column of ['routing_avoid_tolls', 'routing_avoid_highways', 'routing_avoid_ferries']) {
+        if (!columnExists(db, 'trips', column)) {
+          db.exec(`ALTER TABLE trips ADD COLUMN ${column} INTEGER DEFAULT 0`);
+          console.log(`[DB] Repaired missing trips.${column} column`);
+        }
       }
     }
 
-    if (!columnExists(db, 'day_assignments', 'duration_minutes')) {
-      db.exec('ALTER TABLE day_assignments ADD COLUMN duration_minutes INTEGER DEFAULT 60');
-      addedDurationColumn = true;
-      console.log('[DB] Repaired missing day_assignments.duration_minutes column');
+    if (tableExists(db, 'day_assignments')) {
+      if (!columnExists(db, 'day_assignments', 'duration_minutes')) {
+        db.exec('ALTER TABLE day_assignments ADD COLUMN duration_minutes INTEGER DEFAULT 60');
+        addedDurationColumn = true;
+        console.log('[DB] Repaired missing day_assignments.duration_minutes column');
+      }
+
+      if (!columnExists(db, 'day_assignments', 'margin_before_minutes')) {
+        db.exec('ALTER TABLE day_assignments ADD COLUMN margin_before_minutes INTEGER DEFAULT 0');
+        console.log('[DB] Repaired missing day_assignments.margin_before_minutes column');
+      }
+
+      if (!columnExists(db, 'day_assignments', 'margin_after_minutes')) {
+        db.exec('ALTER TABLE day_assignments ADD COLUMN margin_after_minutes INTEGER DEFAULT 0');
+        console.log('[DB] Repaired missing day_assignments.margin_after_minutes column');
+      }
     }
 
-    if (!columnExists(db, 'day_assignments', 'margin_before_minutes')) {
-      db.exec('ALTER TABLE day_assignments ADD COLUMN margin_before_minutes INTEGER DEFAULT 0');
-      console.log('[DB] Repaired missing day_assignments.margin_before_minutes column');
-    }
-
-    if (!columnExists(db, 'day_assignments', 'margin_after_minutes')) {
-      db.exec('ALTER TABLE day_assignments ADD COLUMN margin_after_minutes INTEGER DEFAULT 0');
-      console.log('[DB] Repaired missing day_assignments.margin_after_minutes column');
-    }
-
-    if (addedDurationColumn) {
+    if (addedDurationColumn && tableExists(db, 'places')) {
       db.exec(`
         UPDATE day_assignments
         SET duration_minutes = COALESCE(

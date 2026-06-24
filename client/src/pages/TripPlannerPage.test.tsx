@@ -863,9 +863,10 @@ describe('TripPlannerPage', () => {
     it('calls onEditPlace then onSave on PlaceFormModal to exercise the edit-place handler', async () => {
       vi.useFakeTimers();
 
-      const place = buildPlace({ id: 1, trip_id: 42, lat: 48.8566, lng: 2.3522 });
+      const place = buildPlace({ id: 1, trip_id: 42, lat: 48.8566, lng: 2.3522, duration_minutes: 60 });
+      const updatePlace = vi.fn().mockResolvedValue({ ...place, duration_minutes: 120 });
       seedTripStore({ id: 42 });
-      seedStore(useTripStore, { places: [place] } as any);
+      seedStore(useTripStore, { places: [place], updatePlace } as any);
 
       renderPlannerPage(42);
 
@@ -884,8 +885,10 @@ describe('TripPlannerPage', () => {
 
       // Now onSave uses the edit path (editingPlace is set)
       await act(async () => {
-        await capturedPlaceFormModalProps.current.onSave?.({ name: 'Updated', lat: 1, lng: 2 });
+        await capturedPlaceFormModalProps.current.onSave?.({ name: 'Updated', lat: 1, lng: 2, duration_minutes: '120' });
       });
+
+      expect(updatePlace).toHaveBeenCalledWith(42, 1, expect.objectContaining({ duration_minutes: 120 }));
     });
   });
 

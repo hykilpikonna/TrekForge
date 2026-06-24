@@ -477,13 +477,17 @@ export function useTripPlanner() {
     const pendingFiles = data._pendingFiles
     delete data._pendingFiles
     if (editingPlace) {
-      // Activity duration is per-assignment; start/end timestamps are calculated.
+      // Assignment edits store duration on the assignment; pool-place edits store
+      // the default duration on the place itself.
       const { duration_minutes, ...placeData } = data
-      const parsedDuration = editingAssignmentId ? parseDurationMinutes(duration_minutes) : null
+      const parsedDuration = parseDurationMinutes(duration_minutes)
       if (editingAssignmentId && parsedDuration == null) {
         throw new Error(t('places.durationInvalid'))
       }
-      await tripActions.updatePlace(tripId, editingPlace.id, placeData)
+      const nextPlaceData = editingAssignmentId
+        ? placeData
+        : { ...placeData, duration_minutes: parsedDuration ?? 60 }
+      await tripActions.updatePlace(tripId, editingPlace.id, nextPlaceData)
       // If editing from assignment context, save duration per-assignment.
       if (editingAssignmentId) {
         await assignmentsApi.updateTime(tripId, editingAssignmentId, {
