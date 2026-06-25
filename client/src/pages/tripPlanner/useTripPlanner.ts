@@ -34,7 +34,9 @@ import {
   toggleConnectionId, toggleAllConnections as flipAllConnectionsMode,
   type StoredConnections,
 } from '../../utils/connectionsVisibility'
-import type { RoutingProvider } from '../../components/Map/RouteCalculator'
+import type { RouteProfile, RoutingProvider } from '../../components/Map/RouteCalculator'
+
+type PlannerRouteProfile = Extract<RouteProfile, 'driving' | 'walking' | 'transit'>
 
 function readRouteShownPreference(tripId: number): boolean {
   if (typeof window === 'undefined' || !Number.isFinite(tripId)) return false
@@ -45,10 +47,11 @@ function readRouteShownPreference(tripId: number): boolean {
   }
 }
 
-function readRouteProfilePreference(tripId: number): 'driving' | 'walking' {
+function readRouteProfilePreference(tripId: number): PlannerRouteProfile {
   if (typeof window === 'undefined' || !Number.isFinite(tripId)) return 'driving'
   try {
-    return window.localStorage.getItem(`trek:route-profile:${tripId}`) === 'walking' ? 'walking' : 'driving'
+    const stored = window.localStorage.getItem(`trek:route-profile:${tripId}`)
+    return stored === 'walking' || stored === 'transit' ? stored : 'driving'
   } catch {
     return 'driving'
   }
@@ -264,9 +267,9 @@ export function useTripPlanner() {
   // The files this import was parsed from, so each reviewed booking can attach its source doc.
   const importSourceFilesRef = useRef<File[]>([])
   // Manual route planning: off by default, toggled from the day-plan footer. Mode
-  // (driving/walking) is trip-scoped and selects which travel time the connectors show.
+  // is trip-scoped and selects which travel time the connectors show.
   const [routeShown, setRouteShown] = useState(() => readRouteShownPreference(tripId))
-  const [routeProfile, setRouteProfile] = useState<'driving' | 'walking'>(() => readRouteProfilePreference(tripId))
+  const [routeProfile, setRouteProfile] = useState<PlannerRouteProfile>(() => readRouteProfilePreference(tripId))
   const [fitKey, setFitKey] = useState<number>(0)
   const initialFitTripId = useRef<number | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<'left' | 'right' | null>(null)

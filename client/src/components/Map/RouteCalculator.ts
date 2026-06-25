@@ -8,7 +8,10 @@ const OSRM_BASE = 'https://router.project-osrm.org/route/v1'
 // FOSSGIS hosts OSRM with real per-profile routing (car/foot/bike) — the
 // project-osrm.org demo is car-only (it ignores the profile in the URL). Use
 // the matching profile so walking routes follow footpaths, not the road network.
-const OSRM_PROFILE_BASE: Record<'driving' | 'walking' | 'cycling', string> = {
+export type RouteProfile = 'driving' | 'walking' | 'cycling' | 'transit'
+type OsrmRouteProfile = Exclude<RouteProfile, 'transit'>
+
+const OSRM_PROFILE_BASE: Record<OsrmRouteProfile, string> = {
   driving: 'https://routing.openstreetmap.de/routed-car/route/v1/driving',
   walking: 'https://routing.openstreetmap.de/routed-foot/route/v1/foot',
   cycling: 'https://routing.openstreetmap.de/routed-bike/route/v1/bike',
@@ -376,7 +379,7 @@ export async function calculateRouteWithLegs(
     google = {},
   }: {
     signal?: AbortSignal
-    profile?: 'driving' | 'walking' | 'cycling'
+    profile?: RouteProfile
     provider?: RoutingProvider
     optimism?: number
     departureLocalDateTime?: string | null
@@ -388,20 +391,21 @@ export async function calculateRouteWithLegs(
   }
 
   const coords = waypoints.map((p) => `${p.lng},${p.lat}`).join(';')
+  const effectiveProvider: RoutingProvider = profile === 'transit' && provider === 'osrm' ? 'google_maps' : provider
   // The cached result carries formatted leg distances, so the active distance unit is
   // part of the key — otherwise switching km↔mi would return stale text (#1300).
   const distanceUnit = getDistanceUnit()
   const boundedOptimism = normalizeOptimism(optimism)
   const googleOptionsKey = googleOptionsCacheKey(google)
-  const cacheKey = provider === 'google_maps' || provider === 'google_maps_mobile'
-    ? `${provider}:${profile}:${distanceUnit}:${boundedOptimism.toFixed(2)}:${googleOptionsKey}:${departureLocalDateTime || 'now'}:${coords}`
-    : `${provider}:${profile}:${distanceUnit}:${coords}`
+  const cacheKey = effectiveProvider === 'google_maps' || effectiveProvider === 'google_maps_mobile'
+    ? `${effectiveProvider}:${profile}:${distanceUnit}:${boundedOptimism.toFixed(2)}:${googleOptionsKey}:${departureLocalDateTime || 'now'}:${coords}`
+    : `${effectiveProvider}:${profile}:${distanceUnit}:${coords}`
   const cached = routeCache.get(cacheKey)
   if (cached) return cached
   const persisted = getPersistedRoute(cacheKey)
   if (persisted) return persisted
 
-  if (provider === 'google_maps') {
+  if (effectiveProvider === 'google_maps') {
     const result = await calculateGoogleRouteWithLegs(waypoints, {
       signal,
       profile,
@@ -413,9 +417,10 @@ export async function calculateRouteWithLegs(
     return result
   }
 
-  if (provider === 'google_maps_mobile') {
+  if (effectiveProvider === 'google_maps_mobile') {
     const result = await calculateGoogleMobileRouteWithLegs(waypoints, {
       signal,
+      profile,
       optimism: boundedOptimism,
       departureLocalDateTime,
       google,
@@ -424,7 +429,8 @@ export async function calculateRouteWithLegs(
     return result
   }
 
-  const url = `${OSRM_PROFILE_BASE[profile]}/${coords}?overview=full&geometries=geojson&annotations=distance,duration`
+  const osrmProfile: OsrmRouteProfile = profile === 'transit' ? 'driving' : profile
+  const url = `${OSRM_PROFILE_BASE[osrmProfile]}/${coords}?overview=full&geometries=geojson&annotations=distance,duration`
   const response = await fetch(url, { signal })
   if (!response.ok) throw new Error('Route could not be calculated')
 
@@ -475,7 +481,7 @@ function googleOptionsCacheKey(options: GoogleRoutingOptions = {}): string {
   ].join(',')
 }
 
-function googleMode(profile: 'driving' | 'walking' | 'cycling'): 'driving' | 'walking' | 'bicycling' {
+function googleMode(profile: RouteProfile): 'driving' | 'walking' | 'bicycling' | 'transit' {
   return profile === 'cycling' ? 'bicycling' : profile
 }
 
@@ -556,7 +562,7 @@ async function calculateGoogleRouteWithLegs(
     google,
   }: {
     signal?: AbortSignal
-    profile: 'driving' | 'walking' | 'cycling'
+    profile: RouteProfile
     optimism: number
     departureLocalDateTime?: string | null
     google?: GoogleRoutingOptions
@@ -620,11 +626,13 @@ async function calculateGoogleMobileRouteWithLegs(
   waypoints: Waypoint[],
   {
     signal,
+    profile,
     optimism,
     departureLocalDateTime,
     google,
   }: {
     signal?: AbortSignal
+    profile: RouteProfile
     optimism: number
     departureLocalDateTime?: string | null
     google?: GoogleRoutingOptions
@@ -644,6 +652,7 @@ async function calculateGoogleMobileRouteWithLegs(
       to: { lat: to.lat, lng: to.lng },
       ...(currentDeparture ? { departureTime: { kind: 'departAtLocal' as const, localDateTime: currentDeparture } } : {}),
       options: {
+        mode: googleMode(profile),
         avoidTolls: google?.avoidTolls === true,
         avoidHighways: google?.avoidHighways === true,
         avoidFerries: google?.avoidFerries === true,
