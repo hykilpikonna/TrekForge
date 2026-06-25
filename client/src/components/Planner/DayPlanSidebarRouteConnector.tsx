@@ -1,4 +1,5 @@
 import { Car, Coins, Footprints, Hotel, Train } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import type { RouteSegment } from '../../types'
 
 type PlannerRouteProfile = 'driving' | 'walking' | 'transit'
@@ -14,12 +15,24 @@ function routeDurationText(seg: RouteSegment, profile: PlannerRouteProfile): str
 }
 
 /** Slim travel-time connector shown between two consecutive located stops in a day. */
-export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: PlannerRouteProfile }) {
+export function RouteConnector({
+  seg,
+  profile,
+  selected = false,
+  onClick,
+  ariaLabel = 'Show route details',
+}: {
+  seg: RouteSegment
+  profile: PlannerRouteProfile
+  selected?: boolean
+  onClick?: () => void
+  ariaLabel?: string
+}) {
   const Icon = routeProfileIcon(profile)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 14px', fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', lineHeight: 1.2 }}>
+  const content = (
+    <>
       <div style={line} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         <Icon size={11} strokeWidth={2} />
@@ -35,7 +48,37 @@ export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: P
         )}
       </div>
       <div style={line} />
-    </div>
+    </>
+  )
+  const style: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '3px 14px',
+    fontSize: 10.5,
+    color: selected ? 'var(--accent)' : 'var(--text-faint)',
+    lineHeight: 1.2,
+    width: '100%',
+    background: selected ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
+  }
+  if (!onClick) {
+    return <div style={style}>{content}</div>
+  }
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      style={{
+        ...style,
+        appearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      {content}
+    </button>
   )
 }
 
@@ -50,11 +93,17 @@ export function HotelRouteConnector({
   profile,
   name,
   placement,
+  selected = false,
+  onClick,
+  ariaLabel = 'Show route details',
 }: {
   seg: RouteSegment
   profile: PlannerRouteProfile
   name: string
   placement: 'top' | 'bottom'
+  selected?: boolean
+  onClick?: () => void
+  ariaLabel?: string
 }) {
   const Icon = routeProfileIcon(profile)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
@@ -86,8 +135,8 @@ export function HotelRouteConnector({
       <div style={line} />
     </div>
   )
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: placement === 'top' ? '2px 0 6px' : '6px 0 2px' }}>
+  const content = (
+    <>
       {placement === 'top' ? (
         <>
           {hotelRow}
@@ -99,6 +148,34 @@ export function HotelRouteConnector({
           {hotelRow}
         </>
       )}
-    </div>
+    </>
+  )
+  const style: CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 3,
+    padding: placement === 'top' ? '2px 0 6px' : '6px 0 2px',
+    width: '100%',
+    color: selected ? 'var(--accent)' : undefined,
+    background: selected ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
+  }
+  if (!onClick) {
+    return <div style={style}>{content}</div>
+  }
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      style={{
+        ...style,
+        appearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      {content}
+    </button>
   )
 }

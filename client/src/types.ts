@@ -159,6 +159,47 @@ export interface RouteSegment {
   distanceText: string
   durationText?: string
   tollText?: string
+  steps?: RouteStep[]
+}
+
+export type RouteStepMode = 'driving' | 'walking' | 'cycling' | 'transit' | 'unknown'
+
+export interface RouteTransitStop {
+  name: string
+  platform?: string | null
+  lat?: number | null
+  lng?: number | null
+  arrivalTimeText?: string | null
+  departureTimeText?: string | null
+}
+
+export interface RouteTransitLine {
+  name?: string | null
+  shortName?: string | null
+  serviceName?: string | null
+  headsign?: string | null
+  vehicleType?: string | null
+  color?: string | null
+  textColor?: string | null
+  agencies?: string[]
+}
+
+export interface RouteTransitDetails {
+  line: RouteTransitLine
+  departureStop?: RouteTransitStop | null
+  arrivalStop?: RouteTransitStop | null
+  intermediateStops?: RouteTransitStop[]
+  stopCount?: number | null
+}
+
+export interface RouteStep {
+  mode: RouteStepMode
+  instruction?: string | null
+  distance?: number | null
+  duration?: number | null
+  distanceText?: string | null
+  durationText?: string | null
+  transit?: RouteTransitDetails | null
 }
 
 export interface RouteWithLegs {

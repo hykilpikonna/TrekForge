@@ -325,6 +325,7 @@ describe('calculateRouteWithLegs persistent cache', () => {
         previewCalls += 1
         const body = await request.json() as any
         expect(body.mode).toBe('transit')
+        expect(body.includeOverviewGeometry).toBe(false)
         return HttpResponse.json({
           routes: [
             {
@@ -354,23 +355,46 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
   })
 
-  it('FE-COMP-ROUTECALCULATOR-025: transit routing preserves the mobile Google provider when selected', async () => {
+  it('FE-COMP-ROUTECALCULATOR-025: transit routing preserves mobile geometry and falls back to untimed preview details', async () => {
     let mobileCalls = 0
-    let previewCalls = 0
+    const previewBodies: any[] = []
     let osrmCalls = 0
     server.use(
       http.get(`${OSRM_DRIVING_BASE}/:coords`, () => {
         osrmCalls += 1
         return HttpResponse.json(buildOsrmRouteResponse())
       }),
-      http.post('/api/maps/directions-preview', () => {
-        previewCalls += 1
-        return HttpResponse.json({ routes: [] })
+      http.post('/api/maps/directions-preview', async ({ request }) => {
+        const body = await request.json() as any
+        previewBodies.push(body)
+        expect(body.mode).toBe('transit')
+        if (body.time) return HttpResponse.json({ routes: [] })
+        return HttpResponse.json({
+          routes: [
+            {
+              legs: [
+                {
+                  distance: { meters: 1200, text: '1.2 km' },
+                  duration: { seconds: 600, text: '10 min' },
+                  transit: {
+                    lineName: 'Metro 2',
+                    serviceShortName: 'M2',
+                    color: '#2563eb',
+                    departureStop: { name: 'Opera' },
+                    arrivalStop: { name: 'Nation' },
+                    stopCount: 5,
+                  },
+                },
+              ],
+            },
+          ],
+        })
       }),
       http.post('/api/maps/directions-mobile', async ({ request }) => {
         mobileCalls += 1
         const body = await request.json() as any
         expect(body.options.mode).toBe('transit')
+        expect(body.departureTime).toEqual({ kind: 'departAtLocal', localDateTime: '2026-12-01T09:00' })
         return HttpResponse.json({
           routes: [
             {
@@ -390,16 +414,22 @@ describe('calculateRouteWithLegs persistent cache', () => {
     const result = await calculateRouteWithLegs([wp1, wp2], {
       profile: 'transit',
       provider: 'google_maps_mobile',
+      departureLocalDateTime: '2026-12-01T09:00',
     })
 
     expect(mobileCalls).toBe(1)
-    expect(previewCalls).toBe(0)
+    expect(previewBodies).toHaveLength(2)
+    expect(previewBodies[0].time).toEqual({ kind: 'departAtLocal', localDateTime: '2026-12-01T09:00' })
+    expect(previewBodies[1].time).toBeUndefined()
     expect(osrmCalls).toBe(0)
     expect(result.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
     expect(result.legs[0]).toMatchObject({
-      durationText: '16 min',
-      distanceText: '2.3 km',
+      duration: 600,
+      durationText: '10 min',
+      distance: 1200,
+      distanceText: '1.2 km',
     })
+    expect(result.legs[0].steps?.[0].transit?.line.shortName).toBe('M2')
   })
 })
 

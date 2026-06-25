@@ -1,5 +1,5 @@
 import { useSettingsStore } from '../../store/settingsStore'
-import type { DistanceUnit, RouteResult, RouteSegment, RouteWithLegs, Waypoint, RouteAnchors } from '../../types'
+import type { DistanceUnit, RouteResult, RouteSegment, RouteStep, RouteTransitStop, RouteWithLegs, Waypoint, RouteAnchors } from '../../types'
 import { formatDistance } from '../../utils/units'
 import { apiClient } from '../../api/client'
 
@@ -22,7 +22,7 @@ const OSRM_PROFILE_BASE: Record<OsrmRouteProfile, string> = {
 const routeCache = new Map<string, RouteWithLegs>()
 const ROUTE_CACHE_MAX = 200
 const ROUTE_CACHE_STORAGE_KEY = 'trek:route-cache:v1'
-const ROUTE_CACHE_VERSION = 3
+const ROUTE_CACHE_VERSION = 5
 const ROUTE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 export type RoutingProvider = 'osrm' | 'google_maps' | 'google_maps_mobile'
 
@@ -37,6 +37,47 @@ interface GoogleDirectionsDuration {
   text: string | null
 }
 
+interface GoogleDirectionsTime {
+  text?: string | null
+}
+
+interface GoogleDirectionsStep {
+  instructionText?: string | null
+  distance?: { meters: number | null; text: string | null }
+  duration?: GoogleDirectionsDuration
+}
+
+interface GoogleDirectionsTransitStop {
+  name: string
+  platform?: string | null
+  lat?: number | null
+  lng?: number | null
+  arrivalTime?: GoogleDirectionsTime | null
+  departureTime?: GoogleDirectionsTime | null
+}
+
+interface GoogleDirectionsTransitDetails {
+  lineName?: string | null
+  serviceName?: string | null
+  serviceShortName?: string | null
+  headsign?: string | null
+  vehicleType?: string | null
+  color?: string | null
+  textColor?: string | null
+  stopCount?: number | null
+  agencies?: Array<{ name?: string | null }> | null
+  departureStop?: GoogleDirectionsTransitStop | null
+  arrivalStop?: GoogleDirectionsTransitStop | null
+  intermediateStops?: GoogleDirectionsTransitStop[]
+}
+
+interface GoogleDirectionsLeg {
+  distance?: { meters: number | null; text: string | null }
+  duration?: GoogleDirectionsDuration
+  transit?: GoogleDirectionsTransitDetails | null
+  steps?: GoogleDirectionsStep[]
+}
+
 interface GoogleDirectionsRoute {
   distance?: { meters: number | null; text: string | null }
   duration?: GoogleDirectionsDuration
@@ -45,6 +86,7 @@ interface GoogleDirectionsRoute {
     range?: { minSeconds: number | null; maxSeconds: number | null; text: string | null } | null
   } | null
   overviewGeometry?: Array<{ lat: number; lng: number }>
+  legs?: GoogleDirectionsLeg[]
 }
 
 interface GoogleDirectionsResponse {
@@ -516,6 +558,28 @@ function pickGoogleDurationSeconds(route: GoogleDirectionsRoute, optimism: numbe
   return Number.isFinite(duration) ? Math.max(0, Number(duration)) : 0
 }
 
+function googleRouteDurationSeconds(route: GoogleDirectionsRoute, optimism: number): number {
+  const hasRouteDuration =
+    Number.isFinite(route.traffic?.range?.minSeconds) ||
+    Number.isFinite(route.traffic?.range?.maxSeconds) ||
+    Number.isFinite(route.traffic?.duration?.seconds) ||
+    Number.isFinite(route.duration?.seconds)
+  if (hasRouteDuration) return pickGoogleDurationSeconds(route, optimism)
+
+  const legSeconds = (route.legs ?? [])
+    .map(leg => leg.duration?.seconds)
+    .filter((seconds): seconds is number => Number.isFinite(seconds))
+  return legSeconds.length ? legSeconds.reduce((sum, seconds) => sum + Math.max(0, Number(seconds)), 0) : 0
+}
+
+function googleRouteDistanceMeters(route: GoogleDirectionsRoute): number {
+  if (Number.isFinite(route.distance?.meters)) return Math.max(0, Number(route.distance?.meters))
+  const legMeters = (route.legs ?? [])
+    .map(leg => leg.distance?.meters)
+    .filter((meters): meters is number => Number.isFinite(meters))
+  return legMeters.length ? legMeters.reduce((sum, meters) => sum + Math.max(0, Number(meters)), 0) : 0
+}
+
 function pickGoogleMobileDurationSeconds(
   response: GoogleMobileDirectionsResponse,
   route: GoogleMobileDirectionsRoute,
@@ -552,6 +616,163 @@ function appendOverviewGeometry(
   coordinates.push([to.lat, to.lng])
 }
 
+function googleTransitStopToRouteStop(stop?: GoogleDirectionsTransitStop | null): RouteTransitStop | null {
+  if (!stop?.name) return null
+  return {
+    name: stop.name,
+    platform: stop.platform ?? null,
+    lat: stop.lat ?? null,
+    lng: stop.lng ?? null,
+    arrivalTimeText: stop.arrivalTime?.text ?? null,
+    departureTimeText: stop.departureTime?.text ?? null,
+  }
+}
+
+function googleStepToRouteStep(step: GoogleDirectionsStep, mode: RouteStep['mode']): RouteStep {
+  return {
+    mode,
+    instruction: step.instructionText ?? null,
+    distance: step.distance?.meters ?? null,
+    duration: step.duration?.seconds ?? null,
+    distanceText: step.distance?.text ?? null,
+    durationText: step.duration?.text ?? null,
+  }
+}
+
+function googleRouteTransitSteps(route: GoogleDirectionsRoute, profile: RouteProfile): RouteStep[] {
+  const steps: RouteStep[] = []
+  const nonTransitMode: RouteStep['mode'] =
+    profile === 'transit' ? 'walking' : profile === 'driving' || profile === 'walking' || profile === 'cycling' ? profile : 'unknown'
+  for (const leg of route.legs ?? []) {
+    const transit = leg.transit
+    if (transit) {
+      const lineLabel = transit.serviceShortName ?? transit.lineName ?? transit.serviceName ?? transit.vehicleType ?? null
+      steps.push({
+        mode: 'transit',
+        instruction: lineLabel ? `Take ${lineLabel}` : null,
+        distance: leg.distance?.meters ?? null,
+        duration: leg.duration?.seconds ?? null,
+        distanceText: leg.distance?.text ?? null,
+        durationText: leg.duration?.text ?? null,
+        transit: {
+          line: {
+            name: transit.lineName ?? null,
+            shortName: transit.serviceShortName ?? null,
+            serviceName: transit.serviceName ?? null,
+            headsign: transit.headsign ?? null,
+            vehicleType: transit.vehicleType ?? null,
+            color: transit.color ?? null,
+            textColor: transit.textColor ?? null,
+            agencies: (transit.agencies ?? []).map(agency => agency.name).filter((name): name is string => Boolean(name)),
+          },
+          departureStop: googleTransitStopToRouteStop(transit.departureStop),
+          arrivalStop: googleTransitStopToRouteStop(transit.arrivalStop),
+          intermediateStops: (transit.intermediateStops ?? []).map(stop => googleTransitStopToRouteStop(stop)).filter(Boolean),
+          stopCount: transit.stopCount ?? null,
+        },
+      })
+      continue
+    }
+
+    const nestedSteps = leg.steps ?? []
+    if (nestedSteps.length > 0) {
+      nestedSteps.forEach(step => steps.push(googleStepToRouteStep(step, nonTransitMode)))
+    } else if (leg.distance || leg.duration) {
+      steps.push({
+        mode: nonTransitMode,
+        distance: leg.distance?.meters ?? null,
+        duration: leg.duration?.seconds ?? null,
+        distanceText: leg.distance?.text ?? null,
+        durationText: leg.duration?.text ?? null,
+      })
+    }
+  }
+  return steps
+}
+
+async function fetchGoogleTransitPreviewRoute(
+  from: Waypoint,
+  to: Waypoint,
+  departureLocalDateTime: string | null,
+  google: GoogleRoutingOptions | undefined,
+  signal?: AbortSignal,
+): Promise<GoogleDirectionsRoute | null> {
+  const baseBody = {
+    origin: { lat: from.lat, lng: from.lng },
+    destination: { lat: to.lat, lng: to.lng },
+    mode: 'transit',
+    includeOverviewGeometry: false,
+    includeSteps: true,
+    avoidTolls: google?.avoidTolls === true,
+    avoidHighways: google?.avoidHighways === true,
+    avoidFerries: google?.avoidFerries === true,
+  }
+
+  const fetchRoute = async (withDeparture: boolean): Promise<GoogleDirectionsRoute | null> => {
+    const body = {
+      ...baseBody,
+      ...(withDeparture && departureLocalDateTime ? { time: { kind: 'departAtLocal' as const, localDateTime: departureLocalDateTime } } : {}),
+    }
+    const response = await apiClient.post('/maps/directions-preview', body, { signal }).then(r => r.data as GoogleDirectionsResponse)
+    return response.routes?.[0] ?? null
+  }
+
+  const hasUsefulSteps = (route: GoogleDirectionsRoute | null): route is GoogleDirectionsRoute =>
+    Boolean(route && googleRouteTransitSteps(route, 'transit').length > 0)
+
+  let timedRoute: GoogleDirectionsRoute | null = null
+  if (departureLocalDateTime) {
+    try {
+      timedRoute = await fetchRoute(true)
+      if (hasUsefulSteps(timedRoute)) return timedRoute
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') throw err
+    }
+  }
+
+  try {
+    const untimedRoute = await fetchRoute(false)
+    return untimedRoute ?? timedRoute
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw err
+    return timedRoute
+  }
+}
+
+async function fetchGooglePreviewRoute(
+  from: Waypoint,
+  to: Waypoint,
+  {
+    profile,
+    departureLocalDateTime,
+    google,
+    signal,
+  }: {
+    profile: RouteProfile
+    departureLocalDateTime: string | null
+    google?: GoogleRoutingOptions
+    signal?: AbortSignal
+  },
+): Promise<GoogleDirectionsRoute | null> {
+  if (profile === 'transit') {
+    return fetchGoogleTransitPreviewRoute(from, to, departureLocalDateTime, google, signal)
+  }
+
+  const body = {
+    origin: { lat: from.lat, lng: from.lng },
+    destination: { lat: to.lat, lng: to.lng },
+    mode: googleMode(profile),
+    includeOverviewGeometry: true,
+    includeSteps: true,
+    avoidTolls: google?.avoidTolls === true,
+    avoidHighways: google?.avoidHighways === true,
+    avoidFerries: google?.avoidFerries === true,
+    ...(departureLocalDateTime ? { time: { kind: 'departAtLocal' as const, localDateTime: departureLocalDateTime } } : {}),
+  }
+  const response = await apiClient.post('/maps/directions-preview', body, { signal }).then(r => r.data as GoogleDirectionsResponse)
+  return response.routes?.[0] ?? null
+}
+
 async function calculateGoogleRouteWithLegs(
   waypoints: Waypoint[],
   {
@@ -577,23 +798,17 @@ async function calculateGoogleRouteWithLegs(
   for (let i = 0; i < waypoints.length - 1; i++) {
     const from = waypoints[i]
     const to = waypoints[i + 1]
-    const body = {
-      origin: { lat: from.lat, lng: from.lng },
-      destination: { lat: to.lat, lng: to.lng },
-      mode: googleMode(profile),
-      includeOverviewGeometry: true,
-      includeSteps: false,
-      avoidTolls: google?.avoidTolls === true,
-      avoidHighways: google?.avoidHighways === true,
-      avoidFerries: google?.avoidFerries === true,
-      ...(currentDeparture ? { time: { kind: 'departAtLocal' as const, localDateTime: currentDeparture } } : {}),
-    }
-    const response = await apiClient.post('/maps/directions-preview', body, { signal }).then(r => r.data as GoogleDirectionsResponse)
-    const route = response.routes?.[0]
+    const route = await fetchGooglePreviewRoute(from, to, {
+      profile,
+      departureLocalDateTime: currentDeparture,
+      google,
+      signal,
+    })
     if (!route) throw new Error('No route found')
 
-    const legDuration = pickGoogleDurationSeconds(route, optimism)
-    const legDistance = Number(route.distance?.meters) || 0
+    const legDuration = googleRouteDurationSeconds(route, optimism)
+    const legDistance = googleRouteDistanceMeters(route)
+    const steps = googleRouteTransitSteps(route, profile)
     appendOverviewGeometry(coordinates, route.overviewGeometry, from, to)
 
     const mid: [number, number] = [(from.lat + to.lat) / 2, (from.lng + to.lng) / 2]
@@ -608,6 +823,7 @@ async function calculateGoogleRouteWithLegs(
       drivingText: durationText,
       distanceText: route.distance?.text ?? formatDistance(legDistance),
       durationText,
+      ...(steps.length ? { steps } : {}),
     })
     distance += legDistance
     duration += legDuration
@@ -647,10 +863,11 @@ async function calculateGoogleMobileRouteWithLegs(
   for (let i = 0; i < waypoints.length - 1; i++) {
     const from = waypoints[i]
     const to = waypoints[i + 1]
+    const legDeparture = currentDeparture
     const body = {
       from: { lat: from.lat, lng: from.lng },
       to: { lat: to.lat, lng: to.lng },
-      ...(currentDeparture ? { departureTime: { kind: 'departAtLocal' as const, localDateTime: currentDeparture } } : {}),
+      ...(legDeparture ? { departureTime: { kind: 'departAtLocal' as const, localDateTime: legDeparture } } : {}),
       options: {
         mode: googleMode(profile),
         avoidTolls: google?.avoidTolls === true,
@@ -662,13 +879,19 @@ async function calculateGoogleMobileRouteWithLegs(
     const route = response.routes?.[0]
     if (!route) throw new Error('No route found')
 
-    const legDuration = pickGoogleMobileDurationSeconds(response, route, optimism)
-    const legDistance = Number(route.distance?.meters) || 0
-    const tollText = formatGoogleMobileTollText(route.tollFee)
+    const previewRoute = profile === 'transit'
+      ? await fetchGoogleTransitPreviewRoute(from, to, legDeparture, google, signal)
+      : null
+    const legDuration = previewRoute
+      ? googleRouteDurationSeconds(previewRoute, optimism)
+      : pickGoogleMobileDurationSeconds(response, route, optimism)
+    const legDistance = previewRoute ? googleRouteDistanceMeters(previewRoute) : Number(route.distance?.meters) || 0
+    const tollText = profile === 'transit' ? undefined : formatGoogleMobileTollText(route.tollFee)
+    const steps = previewRoute ? googleRouteTransitSteps(previewRoute, 'transit') : []
     appendOverviewGeometry(coordinates, route.overviewGeometry, from, to)
 
     const mid: [number, number] = [(from.lat + to.lat) / 2, (from.lng + to.lng) / 2]
-    const durationText = formatDuration(legDuration)
+    const durationText = previewRoute?.duration?.text ?? formatDuration(legDuration)
     legs.push({
       mid,
       from: [from.lat, from.lng],
@@ -680,6 +903,7 @@ async function calculateGoogleMobileRouteWithLegs(
       distanceText: formatRouteDistance(legDistance),
       durationText,
       ...(tollText ? { tollText } : {}),
+      ...(steps.length ? { steps } : {}),
     })
     distance += legDistance
     duration += legDuration

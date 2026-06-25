@@ -8,6 +8,7 @@ import { MapViewAuto as MapView } from '../components/Map/MapViewAuto'
 import { MapCompassPill, type CompassMap } from '../components/Map/MapCompassPill'
 import { getCached, fetchPhoto } from '../services/photoService'
 import DayPlanSidebar from '../components/Planner/DayPlanSidebar'
+import RouteDetailsPanel, { type PlannerRouteDetailsSelection } from '../components/Planner/RouteDetailsPanel'
 import PlacesSidebar from '../components/Planner/PlacesSidebar'
 import PlaceInspector from '../components/Planner/PlaceInspector'
 import DayDetailPanel from '../components/Planner/DayDetailPanel'
@@ -218,7 +219,16 @@ export default function TripPlannerPage(): React.ReactElement | null {
 
   const poi = usePoiExplore()
   const [glMap, setGlMap] = useState<CompassMap | null>(null)
+  const [selectedRouteDetails, setSelectedRouteDetails] = useState<PlannerRouteDetailsSelection | null>(null)
   const poiPillEnabled = useSettingsStore(s => s.settings.map_poi_pill_enabled) !== false
+
+  useEffect(() => {
+    if (!routeShown || activeTab !== 'plan') setSelectedRouteDetails(null)
+  }, [routeShown, activeTab])
+
+  useEffect(() => {
+    setSelectedRouteDetails(null)
+  }, [routeProfile])
 
   // Costs expense editor opened from a booking modal (save-then-open). Lives at the
   // page level so it has tripMembers / base currency / current user available.
@@ -438,6 +448,8 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   routeProfile={routeProfile}
                   onToggleRoute={() => setRouteShown(v => !v)}
                   onSetRouteProfile={setRouteProfile}
+                  selectedRouteKey={selectedRouteDetails?.key ?? null}
+                  onRouteDetailsSelect={setSelectedRouteDetails}
                   onNavigateToFiles={() => handleTabChange('dateien')}
                   onExpandedDaysChange={setExpandedDayIds}
                   pushUndo={pushUndo}
@@ -457,6 +469,25 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   />
                 )}
               </div>
+              {selectedRouteDetails && routeShown && !leftCollapsed && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: leftWidth + 12,
+                    top: 0,
+                    bottom: 0,
+                    width: 340,
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                    background: 'var(--sidebar-bg)',
+                    boxShadow: 'var(--sidebar-shadow)',
+                    backdropFilter: 'blur(24px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                  }}
+                >
+                  <RouteDetailsPanel selection={selectedRouteDetails} onClose={() => setSelectedRouteDetails(null)} />
+                </div>
+              )}
             </div>
 
             <div className="hidden md:block" style={{ position: 'absolute', right: 10, top: 10, bottom: 10, zIndex: 20 }}>
@@ -689,6 +720,8 @@ export default function TripPlannerPage(): React.ReactElement | null {
                           routeProfile={routeProfile}
                           onToggleRoute={() => setRouteShown(v => !v)}
                           onSetRouteProfile={setRouteProfile}
+                          selectedRouteKey={selectedRouteDetails?.key ?? null}
+                          onRouteDetailsSelect={setSelectedRouteDetails}
                           onNavigateToFiles={() => { setMobileSidebarOpen(null); handleTabChange('dateien') }}
                           onExpandedDaysChange={setExpandedDayIds}
                           pushUndo={pushUndo}
@@ -731,6 +764,27 @@ export default function TripPlannerPage(): React.ReactElement | null {
                       )
                     }
                   </div>
+                </div>
+              </div>,
+              document.body
+            )}
+
+            {selectedRouteDetails && routeShown && ReactDOM.createPortal(
+              <div className="md:hidden" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.28)' }} onClick={() => setSelectedRouteDetails(null)}>
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 10,
+                    right: 10,
+                    bottom: 10,
+                    height: 'min(70vh, 560px)',
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                    boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+                  }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <RouteDetailsPanel selection={selectedRouteDetails} onClose={() => setSelectedRouteDetails(null)} />
                 </div>
               </div>,
               document.body
