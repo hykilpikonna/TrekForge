@@ -348,6 +348,38 @@ describe('DayPlanSidebar', () => {
     expect(parseFloat(lunchTile.style.height)).toBeGreaterThan(parseFloat(museumTile.style.height))
   })
 
+  it('FE-PLANNER-DAYPLAN-012d2: calendar tile keeps its category edge after selection changes', async () => {
+    const user = userEvent.setup()
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
+    const category = buildCategory({ id: 5, name: 'Museums', color: '#10b981' })
+    const museum = buildPlace({ id: 1, name: 'Museum', category_id: 5 })
+    const assignment = buildAssignment({ id: 11, day_id: 10, order_index: 0, place: museum, duration_minutes: 60 })
+    const props = makeDefaultProps({
+      days: [day],
+      places: [museum],
+      categories: [category],
+      assignments: { '10': [assignment] },
+    })
+
+    const { rerender } = render(<DayPlanSidebar {...props} />)
+    await user.click(screen.getByRole('button', { name: 'Calendar' }))
+
+    const tile = screen.getByTestId('calendar-activity-11') as HTMLElement
+    const expectCategoryEdge = () => {
+      expect(tile).toHaveStyle({
+        borderLeftWidth: '4px',
+        borderLeftStyle: 'solid',
+        borderLeftColor: '#10b981',
+      })
+    }
+
+    expectCategoryEdge()
+    rerender(<DayPlanSidebar {...props} selectedPlaceId={1} selectedAssignmentId={11} />)
+    expectCategoryEdge()
+    rerender(<DayPlanSidebar {...props} selectedPlaceId={null} selectedAssignmentId={null} />)
+    expectCategoryEdge()
+  })
+
   it('FE-PLANNER-DAYPLAN-012e: dragging a calendar tile reorders assignments', async () => {
     const user = userEvent.setup()
     const onReorder = vi.fn().mockResolvedValue(undefined)
