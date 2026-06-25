@@ -4,9 +4,9 @@ declare global { interface Window { __dragData: DragDataPayload | null } }
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { avatarSrc } from '../../utils/avatarSrc'
-import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List, Train } from 'lucide-react'
 import { reservationsApi } from '../../api/client'
-import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl, type RoutingProvider } from '../Map/RouteCalculator'
+import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl, type RouteProfile, type RoutingProvider } from '../Map/RouteCalculator'
 import PlaceAvatar from '../shared/PlaceAvatar'
 import ConfirmDialog from '../shared/ConfirmDialog'
 import { useContextMenu, ContextMenu } from '../shared/ContextMenu'
@@ -48,10 +48,24 @@ function routeSecondsToMinutes(seconds?: number | null): number {
 }
 
 type DayPlanView = 'list' | 'calendar'
+type PlannerRouteProfile = Extract<RouteProfile, 'driving' | 'walking' | 'transit'>
 
 const DAY_MINUTES = 24 * 60
 const CALENDAR_MINUTE_HEIGHT = 1.15
 const CALENDAR_MIN_TILE_HEIGHT = 30
+const ROUTE_PROFILES: readonly PlannerRouteProfile[] = ['driving', 'walking', 'transit']
+
+function routeProfileIcon(profile: PlannerRouteProfile) {
+  if (profile === 'driving') return Car
+  if (profile === 'transit') return Train
+  return Footprints
+}
+
+function routeProfileLabel(profile: PlannerRouteProfile): string {
+  if (profile === 'driving') return 'Driving'
+  if (profile === 'transit') return 'Transit'
+  return 'Walking'
+}
 
 function readDayPlanViewPreference(tripId: number): DayPlanView {
   if (typeof window === 'undefined') return 'list'
@@ -124,9 +138,9 @@ interface DayPlanSidebarProps {
   onAddReservation: (dayId: number) => void
   onNavigateToFiles?: () => void
   routeShown?: boolean
-  routeProfile?: 'driving' | 'walking'
+  routeProfile?: PlannerRouteProfile
   onToggleRoute?: () => void
-  onSetRouteProfile?: (profile: 'driving' | 'walking') => void
+  onSetRouteProfile?: (profile: PlannerRouteProfile) => void
   onAddPlace?: () => void
   onAddPlaceToDay?: (placeId: number, dayId: number) => void
   onExpandedDaysChange?: (expandedDayIds: Set<number>) => void
@@ -589,7 +603,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
         const dayLegs: Record<number, RouteSegment> = {}
         const hotel: DayHotelRouteLegs = {}
 
-        if ((routeProvider === 'google_maps' || routeProvider === 'google_maps_mobile') && day) {
+        if ((routeProfile === 'transit' || routeProvider === 'google_maps' || routeProvider === 'google_maps_mobile') && day) {
           let cursor = parseTimeToMinutes(day.wake_up_time || DEFAULT_WAKE_UP_TIME) ?? parseTimeToMinutes(DEFAULT_WAKE_UP_TIME)!
           const timedLeg = async (
             a: { lat: number; lng: number },
@@ -2035,7 +2049,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             />
                           )}
                           {calendarRouteBlocks.map(block => {
-                            const RouteModeIcon = routeProfile === 'driving' ? Car : Footprints
+                            const RouteModeIcon = routeProfileIcon(routeProfile)
                             return (
                               <div
                                 key={block.key}
@@ -2971,14 +2985,14 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                           {t('dayplan.optimize')}
                         </button>
                         <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-faint)', flexShrink: 0 }}>
-                          {(['driving', 'walking'] as const).map(p => {
-                            const ModeIcon = p === 'driving' ? Car : Footprints
+                          {ROUTE_PROFILES.map(p => {
+                            const ModeIcon = routeProfileIcon(p)
                             const active = routeProfile === p
                             return (
                               <button
                                 key={p}
                                 onClick={() => onSetRouteProfile?.(p)}
-                                aria-label={p === 'driving' ? 'Driving' : 'Walking'}
+                                aria-label={routeProfileLabel(p)}
                                 className={active ? 'bg-accent text-accent-text' : 'bg-transparent text-content-secondary'}
                                 style={{
                                   display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -158,6 +158,43 @@ describe('useRouteCalculation', () => {
     }));
   });
 
+  it('FE-HOOK-ROUTE-004c: passes scheduled departure times for transit legs with the default provider', async () => {
+    const p1 = buildPlace({ lat: 10, lng: 10, duration_minutes: 60 });
+    const p2 = buildPlace({ lat: 20, lng: 20, duration_minutes: 30 });
+    const p3 = buildPlace({ lat: 30, lng: 30, duration_minutes: 45 });
+    const a1 = buildAssignment({ day_id: 5, order_index: 0, place: p1 });
+    const a2 = buildAssignment({ day_id: 5, order_index: 1, place: p2 });
+    const a3 = buildAssignment({ day_id: 5, order_index: 2, place: p3 });
+    const store = buildMockStore({ '5': [a1, a2, a3] });
+    useTripStore.setState({
+      assignments: { '5': [a1, a2, a3] },
+      reservations: [],
+      days: [buildDay({ id: 5, date: '2026-06-01', wake_up_time: '08:00' })],
+    } as any);
+    (calculateRouteWithLegs as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...MOCK_ROUTE_WITH_LEGS, duration: 900 })
+      .mockResolvedValueOnce({ ...MOCK_ROUTE_WITH_LEGS, duration: 1200 });
+    const accommodations = [];
+
+    renderHook(() =>
+      useRouteCalculation(store as TripStoreState, 5, true, 'transit', accommodations, 'osrm', 0.33, 10)
+    );
+
+    await act(async () => {});
+
+    expect(calculateRouteWithLegs).toHaveBeenCalledTimes(2);
+    expect(calculateRouteWithLegs).toHaveBeenNthCalledWith(1, [expect.objectContaining({ lat: 10 }), expect.objectContaining({ lat: 20 })], expect.objectContaining({
+      profile: 'transit',
+      provider: 'osrm',
+      departureLocalDateTime: '2026-06-01T09:10',
+    }));
+    expect(calculateRouteWithLegs).toHaveBeenNthCalledWith(2, [expect.objectContaining({ lat: 20 }), expect.objectContaining({ lat: 30 })], expect.objectContaining({
+      profile: 'transit',
+      provider: 'osrm',
+      departureLocalDateTime: '2026-06-01T10:15',
+    }));
+  });
+
   it('FE-HOOK-ROUTE-006: assignments are sorted by order_index before extracting waypoints', async () => {
     const p1 = buildPlace({ lat: 10, lng: 10 });
     const p2 = buildPlace({ lat: 20, lng: 20 });

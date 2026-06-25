@@ -7,7 +7,7 @@ import { getDayBookendHotels } from '../utils/dayOrder'
 import { DEFAULT_WAKE_UP_TIME, normalizeDurationMinutes, normalizeScheduleMarginMinutes } from '../utils/daySchedule'
 import type { TripStoreState } from '../store/tripStore'
 import type { RouteSegment, RouteResult, Accommodation } from '../types'
-import type { GoogleRoutingOptions, RoutingProvider } from '../components/Map/RouteCalculator'
+import type { GoogleRoutingOptions, RouteProfile, RoutingProvider } from '../components/Map/RouteCalculator'
 
 const TRANSPORT_TYPES = ['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transit', 'transport_other']
 
@@ -46,7 +46,7 @@ export function useRouteCalculation(
   tripStore: TripStoreState,
   selectedDayId: number | null,
   enabled: boolean = true,
-  profile: 'driving' | 'walking' | 'cycling' = 'driving',
+  profile: RouteProfile = 'driving',
   accommodations: Accommodation[] = NO_ACCOMMODATIONS,
   provider: RoutingProvider = 'osrm',
   optimism: number = 0.33,
@@ -262,7 +262,7 @@ export function useRouteCalculation(
     try {
       const polylines: [number, number][][] = []
       const allLegs: RouteSegment[] = []
-      if ((provider === 'google_maps' || provider === 'google_maps_mobile') && selectedDay?.date) {
+      if ((profile === 'transit' || provider === 'google_maps' || provider === 'google_maps_mobile') && selectedDay?.date) {
         let cursor = wakeMinutes
         let currentPoint: { lat: number; lng: number } | null = startHotelPoint
         for (const entry of entries) {

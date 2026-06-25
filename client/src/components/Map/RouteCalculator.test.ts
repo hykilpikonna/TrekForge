@@ -291,6 +291,7 @@ describe('calculateRouteWithLegs persistent cache', () => {
     expect(second.legs[0].duration).toBe(1050)
     expect(calls).toBe(1)
     expect(bodies[0].options).toMatchObject({
+      mode: 'driving',
       avoidTolls: true,
       avoidHighways: false,
       avoidFerries: true,
@@ -305,9 +306,99 @@ describe('calculateRouteWithLegs persistent cache', () => {
 
     expect(calls).toBe(2)
     expect(bodies[1].options).toMatchObject({
+      mode: 'driving',
       avoidTolls: false,
       avoidHighways: true,
       avoidFerries: false,
+    })
+  })
+
+  it('FE-COMP-ROUTECALCULATOR-024: transit routing uses Google preview directions even with the default provider', async () => {
+    let previewCalls = 0
+    let osrmCalls = 0
+    server.use(
+      http.get(`${OSRM_DRIVING_BASE}/:coords`, () => {
+        osrmCalls += 1
+        return HttpResponse.json(buildOsrmRouteResponse())
+      }),
+      http.post('/api/maps/directions-preview', async ({ request }) => {
+        previewCalls += 1
+        const body = await request.json() as any
+        expect(body.mode).toBe('transit')
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 2300, text: '2.3 km' },
+              duration: { seconds: 960, text: '16 min' },
+              overviewGeometry: [
+                { lat: body.origin.lat, lng: body.origin.lng },
+                { lat: body.destination.lat, lng: body.destination.lng },
+              ],
+            },
+          ],
+        })
+      })
+    )
+
+    const result = await calculateRouteWithLegs([wp1, wp2], {
+      profile: 'transit',
+      provider: 'osrm',
+    })
+
+    expect(previewCalls).toBe(1)
+    expect(osrmCalls).toBe(0)
+    expect(result.duration).toBe(960)
+    expect(result.legs[0]).toMatchObject({
+      durationText: '16 min',
+      distanceText: '2.3 km',
+    })
+  })
+
+  it('FE-COMP-ROUTECALCULATOR-025: transit routing preserves the mobile Google provider when selected', async () => {
+    let mobileCalls = 0
+    let previewCalls = 0
+    let osrmCalls = 0
+    server.use(
+      http.get(`${OSRM_DRIVING_BASE}/:coords`, () => {
+        osrmCalls += 1
+        return HttpResponse.json(buildOsrmRouteResponse())
+      }),
+      http.post('/api/maps/directions-preview', () => {
+        previewCalls += 1
+        return HttpResponse.json({ routes: [] })
+      }),
+      http.post('/api/maps/directions-mobile', async ({ request }) => {
+        mobileCalls += 1
+        const body = await request.json() as any
+        expect(body.options.mode).toBe('transit')
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 2300, text: '2.3 km' },
+              duration: { seconds: 960, text: '16 min' },
+              overviewGeometry: [
+                { lat: body.from.lat, lng: body.from.lng },
+                { lat: 48.858, lng: 2.356 },
+                { lat: body.to.lat, lng: body.to.lng },
+              ],
+            },
+          ],
+        })
+      })
+    )
+
+    const result = await calculateRouteWithLegs([wp1, wp2], {
+      profile: 'transit',
+      provider: 'google_maps_mobile',
+    })
+
+    expect(mobileCalls).toBe(1)
+    expect(previewCalls).toBe(0)
+    expect(osrmCalls).toBe(0)
+    expect(result.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
+    expect(result.legs[0]).toMatchObject({
+      durationText: '16 min',
+      distanceText: '2.3 km',
     })
   })
 })

@@ -1,10 +1,21 @@
-import { Car, Coins, Footprints, Hotel } from 'lucide-react'
+import { Car, Coins, Footprints, Hotel, Train } from 'lucide-react'
 import type { RouteSegment } from '../../types'
 
+type PlannerRouteProfile = 'driving' | 'walking' | 'transit'
+
+function routeProfileIcon(profile: PlannerRouteProfile) {
+  if (profile === 'driving') return Car
+  if (profile === 'transit') return Train
+  return Footprints
+}
+
+function routeDurationText(seg: RouteSegment, profile: PlannerRouteProfile): string {
+  return seg.durationText ?? (profile === 'walking' ? seg.walkingText : seg.drivingText)
+}
+
 /** Slim travel-time connector shown between two consecutive located stops in a day. */
-export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: 'driving' | 'walking' }) {
-  const driving = profile === 'driving'
-  const Icon = driving ? Car : Footprints
+export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: PlannerRouteProfile }) {
+  const Icon = routeProfileIcon(profile)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
   return (
@@ -12,7 +23,7 @@ export function RouteConnector({ seg, profile }: { seg: RouteSegment; profile: '
       <div style={line} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         <Icon size={11} strokeWidth={2} />
-        <span>{seg.durationText ?? (driving ? seg.drivingText : seg.walkingText)}</span>
+        <span>{routeDurationText(seg, profile)}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>{seg.distanceText}</span>
         {tollText && (
@@ -41,12 +52,11 @@ export function HotelRouteConnector({
   placement,
 }: {
   seg: RouteSegment
-  profile: 'driving' | 'walking'
+  profile: PlannerRouteProfile
   name: string
   placement: 'top' | 'bottom'
 }) {
-  const driving = profile === 'driving'
-  const Icon = driving ? Car : Footprints
+  const Icon = routeProfileIcon(profile)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
   const hotelRow = (
@@ -62,7 +72,7 @@ export function HotelRouteConnector({
       <div style={line} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         <Icon size={11} strokeWidth={2} />
-        <span>{seg.durationText ?? (driving ? seg.drivingText : seg.walkingText)}</span>
+        <span>{routeDurationText(seg, profile)}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>{seg.distanceText}</span>
         {tollText && (
