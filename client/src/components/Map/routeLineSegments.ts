@@ -208,13 +208,14 @@ function isWalkingOnlySegment(segment: RouteSegment): boolean {
 
 function buildRouteLinePartsBySegment(
   route: [number, number][][] | null | undefined,
-  routeSegments: RouteSegment[] = [],
+  routeSegments: RouteSegment[] | null | undefined = [],
 ): RouteLinePart[][] {
-  const transitBySegment = routeSegments.map((segment, index) => transitPartsForSegment(segment, route?.[index]))
+  const safeRouteSegments = routeSegments ?? []
+  const transitBySegment = safeRouteSegments.map((segment, index) => transitPartsForSegment(segment, route?.[index]))
   const hasTransitParts = transitBySegment.some(parts => parts.length > 0)
 
   if (!hasTransitParts) {
-    return (route ?? [])
+    const routeParts: RouteLinePart[][] = (route ?? [])
       .filter(coordinates => coordinates.length > 1)
       .map(coordinates => [{
         coordinates,
@@ -223,10 +224,24 @@ function buildRouteLinePartsBySegment(
         mode: 'route',
         transferKey: 'route',
       }])
+    if (routeParts.length > 0) return routeParts
+    return safeRouteSegments.map((segment): RouteLinePart[] => {
+      const coordinates = segment.coordinates?.length && segment.coordinates.length > 1
+        ? segment.coordinates
+        : [segment.from, segment.to]
+      const walkingOnly = isWalkingOnlySegment(segment)
+      return [{
+        coordinates,
+        color: walkingOnly ? WALK_ROUTE_COLOR : DEFAULT_ROUTE_COLOR,
+        casingColor: walkingOnly ? WALK_ROUTE_CASING_COLOR : DEFAULT_ROUTE_CASING_COLOR,
+        mode: walkingOnly ? 'walking' : 'route',
+        transferKey: walkingOnly ? 'walking' : 'route',
+      }]
+    }).filter(parts => parts[0]?.coordinates.length > 1)
   }
 
   const partsBySegment: RouteLinePart[][] = []
-  routeSegments.forEach((segment, index) => {
+  safeRouteSegments.forEach((segment, index) => {
     const transitParts = transitBySegment[index]
     if (transitParts.length > 0) {
       partsBySegment.push(transitParts)
@@ -251,7 +266,7 @@ function buildRouteLinePartsBySegment(
 
 export function buildDisplayRouteLineSegments(
   route: [number, number][][] | null | undefined,
-  routeSegments: RouteSegment[] = [],
+  routeSegments: RouteSegment[] | null | undefined = [],
 ): RouteLineSegment[] {
   return buildRouteLinePartsBySegment(route, routeSegments).flat()
 }
@@ -263,7 +278,7 @@ function partEndpoint(part: RouteLinePart, end: 'start' | 'end'): [number, numbe
 
 export function buildRouteTransferPoints(
   route: [number, number][][] | null | undefined,
-  routeSegments: RouteSegment[] = [],
+  routeSegments: RouteSegment[] | null | undefined = [],
 ): RouteTransferPoint[] {
   const points: RouteTransferPoint[] = []
   for (const parts of buildRouteLinePartsBySegment(route, routeSegments)) {

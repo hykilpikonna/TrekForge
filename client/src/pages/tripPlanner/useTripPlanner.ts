@@ -386,12 +386,11 @@ export function useTripPlanner() {
   )
 
   const handleSelectDay = useCallback((dayId: number | null, skipFit?: boolean) => {
-    const changed = dayId !== selectedDayId
     tripActions.setSelectedDay(dayId)
-    if (changed && !skipFit) setFitKey(k => k + 1)
+    if (!skipFit) setFitKey(k => k + 1)
     setMobileSidebarOpen(null)
     updateRouteForDay(dayId)
-  }, [updateRouteForDay, selectedDayId])
+  }, [updateRouteForDay])
 
   const handlePlaceClick = useCallback((placeId: number | null, assignmentId?: number | null) => {
     if (assignmentId) {

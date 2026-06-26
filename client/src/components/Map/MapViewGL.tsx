@@ -66,11 +66,19 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function isValidCoordinate(coord: [number, number] | null | undefined): coord is [number, number] {
+  return !!coord && Number.isFinite(coord[0]) && Number.isFinite(coord[1])
+}
+
+function routeLineBoundsPoints(segments: Array<{ coordinates: [number, number][] }>): [number, number][] {
+  return segments.flatMap(segment => segment.coordinates.filter(isValidCoordinate))
+}
+
 interface Props {
   places: Place[]
   dayPlaces?: Place[]
   route?: [number, number][][] | null
-  routeSegments?: RouteSegment[]
+  routeSegments?: RouteSegment[] | null
   selectedPlaceId?: number | null
   onMarkerClick?: (id: number) => void
   hoverDisabled?: boolean
@@ -279,6 +287,15 @@ export function MapViewGL({
   onClickRefs.current.context = onMapContextMenu
   const hoverDisabledRef = useRef(hoverDisabled)
   hoverDisabledRef.current = hoverDisabled
+  const displayRouteLineSegments = useMemo(
+    () => buildDisplayRouteLineSegments(route, routeSegments),
+    [route, routeSegments],
+  )
+  const routeFitPoints = useMemo(() => routeLineBoundsPoints(displayRouteLineSegments), [displayRouteLineSegments])
+  const routeFitKey = useMemo(
+    () => routeFitPoints.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|'),
+    [routeFitPoints],
+  )
 
   // Build/rebuild the map on provider/style/token/3d change
   useEffect(() => {
@@ -875,7 +892,7 @@ export function MapViewGL({
     if (!map) return
     const src = map.getSource('trip-route') as mapboxgl.GeoJSONSource | undefined
     const transferSrc = map.getSource('trip-route-transfers') as mapboxgl.GeoJSONSource | undefined
-    const features = buildDisplayRouteLineSegments(route, routeSegments).map(seg => ({
+    const features = displayRouteLineSegments.map(seg => ({
       type: 'Feature' as const,
       properties: { color: seg.color, casingColor: seg.casingColor },
       geometry: { type: 'LineString' as const, coordinates: seg.coordinates.map(([lat, lng]) => [lng, lat]) },
@@ -887,7 +904,7 @@ export function MapViewGL({
       geometry: { type: 'Point' as const, coordinates: [point.position[1], point.position[0]] },
     }))
     transferSrc?.setData({ type: 'FeatureCollection', features: transferFeatures })
-  }, [route, routeSegments, mapReady])
+  }, [displayRouteLineSegments, route, routeSegments, mapReady])
 
   // Travel times now live in the day sidebar (per-segment connectors), not on the map.
 
@@ -960,16 +977,30 @@ export function MapViewGL({
   }, [leftWidth, rightWidth, hasInspector, hasDayDetail])
 
   const prevFitKey = useRef(-1)
+  const pendingRouteFitRef = useRef<{ fitKey: number | null; routeKey: string } | null>(null)
   useEffect(() => {
-    if (fitKey === prevFitKey.current) return
-    prevFitKey.current = fitKey
+    const fitKeyChanged = fitKey !== prevFitKey.current
+    const routeArrivedForPendingFit =
+      !fitKeyChanged
+      && pendingRouteFitRef.current?.fitKey === fitKey
+      && !!routeFitKey
+      && routeFitKey !== pendingRouteFitRef.current.routeKey
+    if (!fitKeyChanged && !routeArrivedForPendingFit) return
     const map = mapRef.current
     if (!map) return
+    if (fitKeyChanged) {
+      prevFitKey.current = fitKey
+      pendingRouteFitRef.current = { fitKey, routeKey: routeFitKey }
+    }
     const target = dayPlaces.length > 0 ? dayPlaces : places
-    const valid = target.filter(p => p.lat && p.lng)
-    if (valid.length === 0) return
+    const markerPoints = target
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+      .map(p => [p.lat!, p.lng!] as [number, number])
+    const fitPoints = routeFitPoints.length > 0 ? [...routeFitPoints, ...markerPoints] : markerPoints
+    if (fitPoints.length === 0) return
     const bounds = new gl.LngLatBounds()
-    valid.forEach(p => bounds.extend([p.lng, p.lat]))
+    fitPoints.forEach(([lat, lng]) => bounds.extend([lng, lat]))
+    let fitted = false
     const run = () => {
       try {
         map.fitBounds(bounds, {
@@ -978,11 +1009,13 @@ export function MapViewGL({
           pitch: enableMapbox3d ? 45 : 0,
           duration: 400,
         })
+        fitted = true
       } catch { /* noop */ }
     }
-    if (map.loaded()) run()
-    else map.once('load', run)
-  }, [fitKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    run()
+    if (!fitted && typeof map.once === 'function') map.once('load', run)
+    if (routeArrivedForPendingFit) pendingRouteFitRef.current = null
+  }, [fitKey, routeFitKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // flyTo selected place
   useEffect(() => {

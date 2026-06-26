@@ -37,6 +37,18 @@ const glMap = vi.hoisted(() => ({
   easeTo: vi.fn(),
 }))
 
+const glBounds = vi.hoisted(() => ({
+  instances: [] as Array<{ extend: ReturnType<typeof vi.fn> }>,
+}))
+
+function createBoundsMock() {
+  const bounds = {
+    extend: vi.fn(() => bounds),
+  }
+  glBounds.instances.push(bounds)
+  return bounds
+}
+
 vi.mock('mapbox-gl', () => ({
   default: {
     accessToken: '',
@@ -51,9 +63,7 @@ vi.mock('mapbox-gl', () => ({
         getElement: vi.fn(() => document.createElement('div')),
       }
     }),
-    LngLatBounds: vi.fn(function () {
-      return { extend: vi.fn().mockReturnThis() }
-    }),
+    LngLatBounds: vi.fn(createBoundsMock),
     NavigationControl: vi.fn(),
     Popup: vi.fn(function () {
       return {
@@ -80,9 +90,7 @@ vi.mock('maplibre-gl', () => ({
         getElement: vi.fn(() => document.createElement('div')),
       }
     }),
-    LngLatBounds: vi.fn(function () {
-      return { extend: vi.fn().mockReturnThis() }
-    }),
+    LngLatBounds: vi.fn(createBoundsMock),
     NavigationControl: vi.fn(),
     Popup: vi.fn(function () {
       return {
@@ -152,6 +160,7 @@ beforeEach(() => {
   glMap.getLayer.mockReturnValue(null)
   glMap.queryRenderedFeatures.mockReturnValue([])
   glMap.querySourceFeatures.mockReturnValue([])
+  glMap.loaded.mockReturnValue(true)
   useSettingsStore.setState({
     settings: {
       ...useSettingsStore.getState().settings,
@@ -165,6 +174,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks()
+  glBounds.instances = []
   resetAllStores()
 })
 
@@ -438,5 +448,99 @@ describe('MapViewGL', () => {
     act(() => { moveEnds.forEach(fn => fn()) })
     act(() => { el.dispatchEvent(new MouseEvent('mouseenter', { clientX: 10, clientY: 10 })) })
     expect(queryByTestId('tooltip')).toBeTruthy()
+  })
+
+  it('fits bounds immediately even when MapLibre loaded() is false', async () => {
+    glMap.loaded.mockReturnValue(false)
+    const places = [
+      buildMapPlace({ id: 1, lat: 35.38, lng: 136.94 }),
+      buildMapPlace({ id: 2, lat: 35.42, lng: 136.76 }),
+    ]
+
+    render(<MapViewGL places={places} dayPlaces={places} fitKey={1} glProvider="maplibre-gl" />)
+    await act(async () => {})
+
+    expect(glMap.fitBounds).toHaveBeenCalled()
+  })
+
+  it('fits MapLibre bounds to route geometry when it arrives after a day fit', async () => {
+    const dayPlaces = [
+      buildMapPlace({ id: 1, lat: 35.38, lng: 136.94 }),
+      buildMapPlace({ id: 2, lat: 35.42, lng: 136.76 }),
+    ]
+
+    const { rerender } = render(
+      <MapViewGL
+        places={dayPlaces}
+        dayPlaces={dayPlaces}
+        route={null}
+        fitKey={1}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+    const after_day_fit = glMap.fitBounds.mock.calls.length
+
+    rerender(
+      <MapViewGL
+        places={dayPlaces}
+        dayPlaces={dayPlaces}
+        route={[[[35.38, 136.94], [35.72, 137.51], [35.42, 136.76]]]}
+        fitKey={1}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+
+    expect(glMap.fitBounds.mock.calls.length).toBeGreaterThan(after_day_fit)
+    const latestBounds = glBounds.instances[glBounds.instances.length - 1]
+    expect(latestBounds.extend).toHaveBeenCalledWith([137.51, 35.72])
+  })
+
+  it('fits MapLibre bounds to route segment geometry when it arrives after a day fit', async () => {
+    const dayPlaces = [
+      buildMapPlace({ id: 1, lat: 35.38, lng: 136.94 }),
+      buildMapPlace({ id: 2, lat: 35.42, lng: 136.76 }),
+    ]
+
+    const { rerender } = render(
+      <MapViewGL
+        places={dayPlaces}
+        dayPlaces={dayPlaces}
+        route={null}
+        routeSegments={[]}
+        fitKey={1}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+    const after_day_fit = glMap.fitBounds.mock.calls.length
+
+    rerender(
+      <MapViewGL
+        places={dayPlaces}
+        dayPlaces={dayPlaces}
+        route={null}
+        routeSegments={[{
+          mid: [35.55, 137.2],
+          from: [35.38, 136.94],
+          to: [35.42, 136.76],
+          distance: 1200,
+          duration: 600,
+          walkingText: '10 min',
+          drivingText: '10 min',
+          distanceText: '1.2 km',
+          durationText: '10 min',
+          coordinates: [[35.38, 136.94], [35.72, 137.51], [35.42, 136.76]],
+        }]}
+        fitKey={1}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+
+    expect(glMap.fitBounds.mock.calls.length).toBeGreaterThan(after_day_fit)
+    const latestBounds = glBounds.instances[glBounds.instances.length - 1]
+    expect(latestBounds.extend).toHaveBeenCalledWith([137.51, 35.72])
   })
 })
