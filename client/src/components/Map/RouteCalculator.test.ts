@@ -355,6 +355,55 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
   })
 
+  it('FE-COMP-ROUTECALCULATOR-024b: transit routing includes wait time from route departure and arrival timestamps', async () => {
+    server.use(
+      http.post('/api/maps/directions-preview', async ({ request }) => {
+        const body = await request.json() as any
+        expect(body.mode).toBe('transit')
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 1800, text: '1.8 km' },
+              duration: { seconds: 600, text: '10 min' },
+              departureTime: { epochSeconds: 1000, text: '10:00 AM' },
+              arrivalTime: { epochSeconds: 1900, text: '10:15 AM' },
+              legs: [
+                {
+                  distance: { meters: 400, text: '400 m' },
+                  duration: { seconds: 240, text: '4 min' },
+                  steps: [{ duration: { seconds: 240, text: '4 min' }, distance: { meters: 400, text: '400 m' } }],
+                },
+                {
+                  distance: { meters: 1400, text: '1.4 km' },
+                  duration: { seconds: 360, text: '6 min' },
+                  departureTime: { epochSeconds: 1540, text: '10:09 AM' },
+                  arrivalTime: { epochSeconds: 1900, text: '10:15 AM' },
+                  transit: {
+                    lineName: 'Metro 2',
+                    serviceShortName: 'M2',
+                    departureStop: { name: 'Opera', departureTime: { epochSeconds: 1540, text: '10:09 AM' } },
+                    arrivalStop: { name: 'Nation', arrivalTime: { epochSeconds: 1900, text: '10:15 AM' } },
+                  },
+                },
+              ],
+            },
+          ],
+        })
+      })
+    )
+
+    const result = await calculateRouteWithLegs([wp1, wp2], {
+      profile: 'transit',
+      provider: 'google_maps',
+    })
+
+    expect(result.duration).toBe(900)
+    expect(result.legs[0]).toMatchObject({
+      duration: 900,
+      durationText: '15 min',
+    })
+  })
+
   it('FE-COMP-ROUTECALCULATOR-025: transit routing preserves mobile geometry and falls back to untimed preview details', async () => {
     let mobileCalls = 0
     const previewBodies: any[] = []

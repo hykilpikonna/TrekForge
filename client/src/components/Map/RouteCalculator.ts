@@ -38,7 +38,9 @@ interface GoogleDirectionsDuration {
 }
 
 interface GoogleDirectionsTime {
+  epochSeconds?: number | null
   text?: string | null
+  roundedEpochSeconds?: number | null
 }
 
 interface GoogleDirectionsStep {
@@ -74,6 +76,8 @@ interface GoogleDirectionsTransitDetails {
 interface GoogleDirectionsLeg {
   distance?: { meters: number | null; text: string | null }
   duration?: GoogleDirectionsDuration
+  departureTime?: GoogleDirectionsTime | null
+  arrivalTime?: GoogleDirectionsTime | null
   transit?: GoogleDirectionsTransitDetails | null
   steps?: GoogleDirectionsStep[]
 }
@@ -85,6 +89,8 @@ interface GoogleDirectionsRoute {
     duration?: GoogleDirectionsDuration | null
     range?: { minSeconds: number | null; maxSeconds: number | null; text: string | null } | null
   } | null
+  departureTime?: GoogleDirectionsTime | null
+  arrivalTime?: GoogleDirectionsTime | null
   overviewGeometry?: Array<{ lat: number; lng: number }>
   legs?: GoogleDirectionsLeg[]
 }
@@ -558,18 +564,69 @@ function pickGoogleDurationSeconds(route: GoogleDirectionsRoute, optimism: numbe
   return Number.isFinite(duration) ? Math.max(0, Number(duration)) : 0
 }
 
+function googleTimeEpochSeconds(time?: GoogleDirectionsTime | null): number | null {
+  const seconds = time?.epochSeconds ?? time?.roundedEpochSeconds
+  return Number.isFinite(seconds) ? Number(seconds) : null
+}
+
+function elapsedSeconds(start?: GoogleDirectionsTime | null, end?: GoogleDirectionsTime | null): number | null {
+  const startSeconds = googleTimeEpochSeconds(start)
+  const endSeconds = googleTimeEpochSeconds(end)
+  if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds)) return null
+  return endSeconds! >= startSeconds! ? endSeconds! - startSeconds! : null
+}
+
+function googleLegDurationSeconds(leg: GoogleDirectionsLeg): number | null {
+  const duration = leg.duration?.seconds
+  return Number.isFinite(duration) ? Math.max(0, Number(duration)) : null
+}
+
+function googleLegStartTime(leg: GoogleDirectionsLeg): GoogleDirectionsTime | null | undefined {
+  return leg.departureTime ?? leg.transit?.departureStop?.departureTime
+}
+
+function googleLegEndTime(leg: GoogleDirectionsLeg): GoogleDirectionsTime | null | undefined {
+  return leg.arrivalTime ?? leg.transit?.arrivalStop?.arrivalTime
+}
+
+function sumGoogleLegDurations(legs: GoogleDirectionsLeg[]): number | null {
+  const durations = legs.map(googleLegDurationSeconds).filter((seconds): seconds is number => Number.isFinite(seconds))
+  return durations.length ? durations.reduce((sum, seconds) => sum + seconds, 0) : null
+}
+
+function googleRouteElapsedDurationSeconds(route: GoogleDirectionsRoute): number | null {
+  const routeElapsed = elapsedSeconds(route.departureTime, route.arrivalTime)
+  if (routeElapsed !== null) return routeElapsed
+
+  const legs = route.legs ?? []
+  const firstTimedIndex = legs.findIndex(leg => googleTimeEpochSeconds(googleLegStartTime(leg)) !== null)
+  const lastTimedIndexFromEnd = [...legs].reverse().findIndex(leg => googleTimeEpochSeconds(googleLegEndTime(leg)) !== null)
+  if (firstTimedIndex < 0 || lastTimedIndexFromEnd < 0) return null
+
+  const lastTimedIndex = legs.length - 1 - lastTimedIndexFromEnd
+  if (lastTimedIndex < firstTimedIndex) return null
+
+  const timedElapsed = elapsedSeconds(googleLegStartTime(legs[firstTimedIndex]), googleLegEndTime(legs[lastTimedIndex]))
+  if (timedElapsed === null) return null
+
+  const before = sumGoogleLegDurations(legs.slice(0, firstTimedIndex)) ?? 0
+  const after = sumGoogleLegDurations(legs.slice(lastTimedIndex + 1)) ?? 0
+  return before + timedElapsed + after
+}
+
 function googleRouteDurationSeconds(route: GoogleDirectionsRoute, optimism: number): number {
   const hasRouteDuration =
     Number.isFinite(route.traffic?.range?.minSeconds) ||
     Number.isFinite(route.traffic?.range?.maxSeconds) ||
     Number.isFinite(route.traffic?.duration?.seconds) ||
     Number.isFinite(route.duration?.seconds)
-  if (hasRouteDuration) return pickGoogleDurationSeconds(route, optimism)
+  const candidates = [
+    hasRouteDuration ? pickGoogleDurationSeconds(route, optimism) : null,
+    sumGoogleLegDurations(route.legs ?? []),
+    googleRouteElapsedDurationSeconds(route),
+  ].filter((seconds): seconds is number => Number.isFinite(seconds))
 
-  const legSeconds = (route.legs ?? [])
-    .map(leg => leg.duration?.seconds)
-    .filter((seconds): seconds is number => Number.isFinite(seconds))
-  return legSeconds.length ? legSeconds.reduce((sum, seconds) => sum + Math.max(0, Number(seconds)), 0) : 0
+  return candidates.length ? Math.max(...candidates) : 0
 }
 
 function googleRouteDistanceMeters(route: GoogleDirectionsRoute): number {
@@ -891,7 +948,7 @@ async function calculateGoogleMobileRouteWithLegs(
     appendOverviewGeometry(coordinates, route.overviewGeometry, from, to)
 
     const mid: [number, number] = [(from.lat + to.lat) / 2, (from.lng + to.lng) / 2]
-    const durationText = previewRoute?.duration?.text ?? formatDuration(legDuration)
+    const durationText = formatDuration(legDuration)
     legs.push({
       mid,
       from: [from.lat, from.lng],
