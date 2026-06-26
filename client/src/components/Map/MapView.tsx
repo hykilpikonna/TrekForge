@@ -341,7 +341,7 @@ import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs } from '..
 import { useAuthStore } from '../../store/authStore'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import LocationButton from './LocationButton'
-import { buildDisplayRouteLineSegments } from './routeLineSegments'
+import { buildDisplayRouteLineSegments, buildRouteTransferPoints } from './routeLineSegments'
 
 // Live-location rendering inside the Leaflet map. Subscribes via the
 // shared useGeolocation hook so the Leaflet and Mapbox variants behave
@@ -677,6 +677,10 @@ export const MapView = memo(function MapView({
     () => buildDisplayRouteLineSegments(route, routeSegments),
     [route, routeSegments],
   )
+  const routeTransferPoints = useMemo(
+    () => buildRouteTransferPoints(route, routeSegments),
+    [route, routeSegments],
+  )
 
   const TooltipOverlay = !hoverDisabled && hoveredPlace && tooltipPos && !isTouchDevice
   const CatIcon = TooltipOverlay ? getCategoryIcon(hoveredPlace.category_icon) : null
@@ -750,6 +754,15 @@ export const MapView = memo(function MapView({
           pathOptions={{ color: seg.color || '#0a84ff', weight: 5, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
         />,
       ] : [])}
+      {routeTransferPoints.map((point, index) => (
+        <CircleMarker
+          key={`route-transfer-${index}`}
+          center={point.position}
+          radius={5}
+          pathOptions={{ color: '#ffffff', weight: 2.5, opacity: 1, fillColor: point.color || '#0a84ff', fillOpacity: 1 }}
+          interactive={false}
+        />
+      ))}
 
       {/* GPX imported route geometries */}
       {gpxPolylines}

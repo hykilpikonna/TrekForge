@@ -21,7 +21,7 @@ import { POI_CATEGORY_BY_KEY, type Poi } from './poiCategories'
 import { buildPoiPopupHtml } from './placePopup'
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '../../constants/mapDefaults'
 import { computeMapViewport, TILE_SIZE_GL } from '../../utils/mapViewport'
-import { buildDisplayRouteLineSegments } from './routeLineSegments'
+import { buildDisplayRouteLineSegments, buildRouteTransferPoints } from './routeLineSegments'
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
   if (isEmojiCategoryIcon(iconName)) {
@@ -382,6 +382,20 @@ export function MapViewGL({
           source: 'trip-route',
           paint: { 'line-color': ['coalesce', ['get', 'color'], '#0a84ff'], 'line-width': 5 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
+        })
+      }
+      if (!map.getSource('trip-route-transfers')) {
+        map.addSource('trip-route-transfers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+        map.addLayer({
+          id: 'trip-route-transfer-dots',
+          type: 'circle',
+          source: 'trip-route-transfers',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': ['coalesce', ['get', 'color'], '#0a84ff'],
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2.5,
+          },
         })
       }
       // gpx geometries source (place.route_geometry)
@@ -891,13 +905,19 @@ export function MapViewGL({
     const map = mapRef.current
     if (!map) return
     const src = map.getSource('trip-route') as mapboxgl.GeoJSONSource | undefined
-    if (!src) return
+    const transferSrc = map.getSource('trip-route-transfers') as mapboxgl.GeoJSONSource | undefined
     const features = buildDisplayRouteLineSegments(route, routeSegments).map(seg => ({
       type: 'Feature' as const,
       properties: { color: seg.color, casingColor: seg.casingColor },
       geometry: { type: 'LineString' as const, coordinates: seg.coordinates.map(([lat, lng]) => [lng, lat]) },
     }))
-    src.setData({ type: 'FeatureCollection', features })
+    src?.setData({ type: 'FeatureCollection', features })
+    const transferFeatures = buildRouteTransferPoints(route, routeSegments).map(point => ({
+      type: 'Feature' as const,
+      properties: { color: point.color },
+      geometry: { type: 'Point' as const, coordinates: [point.position[1], point.position[0]] },
+    }))
+    transferSrc?.setData({ type: 'FeatureCollection', features: transferFeatures })
   }, [route, routeSegments, mapReady])
 
   // Travel times now live in the day sidebar (per-segment connectors), not on the map.

@@ -43,7 +43,9 @@ vi.mock('react-leaflet', () => ({
   Polyline: ({ positions, pathOptions }: any) => (
     <div data-testid="polyline" data-points={JSON.stringify(positions)} data-color={pathOptions?.color} />
   ),
-  CircleMarker: () => <div data-testid="circle-marker" />,
+  CircleMarker: ({ center, pathOptions }: any) => (
+    <div data-testid="circle-marker" data-center={JSON.stringify(center)} data-color={pathOptions?.fillColor || pathOptions?.color} />
+  ),
   Circle: () => <div data-testid="circle" />,
   Tooltip: ({ children }: any) => <>{children}</>,
   useMap: () => mapMock,
@@ -203,6 +205,82 @@ describe('MapView', () => {
     const colors = screen.getAllByTestId('polyline').map(line => line.getAttribute('data-color'))
     expect(colors).toContain('#f25210')
     expect(colors).toContain('#64748b')
+  })
+
+  it('FE-COMP-MAPVIEW-011c: colors transit route geometry from step details when stop coordinates are unavailable', () => {
+    render(
+      <MapView
+        route={[[[48.0, 2.0], [48.1, 2.1], [48.2, 2.2], [48.3, 2.3]]]}
+        routeSegments={[{
+          mid: [48.15, 2.15],
+          from: [48.0, 2.0],
+          to: [48.3, 2.3],
+          distance: 1800,
+          duration: 900,
+          walkingText: '15 min',
+          drivingText: '15 min',
+          distanceText: '1.8 km',
+          durationText: '15 min',
+          steps: [
+            { mode: 'walking', duration: 120, distance: 200 },
+            {
+              mode: 'transit',
+              duration: 600,
+              distance: 1400,
+              transit: {
+                line: { shortName: 'B42', vehicleType: 'Bus', color: '#16a34a' },
+                departureStop: { name: 'Opera' },
+                arrivalStop: { name: 'Nation' },
+              },
+            },
+            { mode: 'walking', duration: 180, distance: 200 },
+          ],
+        }]}
+      />
+    )
+
+    const colors = screen.getAllByTestId('polyline').map(line => line.getAttribute('data-color'))
+    expect(colors).toContain('#16a34a')
+    expect(colors).toContain('#64748b')
+  })
+
+  it('FE-COMP-MAPVIEW-011d: draws map transfer dots where route switches mode or transit line', () => {
+    render(
+      <MapView
+        route={[[[48.0, 2.0], [48.1, 2.1], [48.2, 2.2], [48.3, 2.3], [48.4, 2.4]]]}
+        routeSegments={[{
+          mid: [48.2, 2.2],
+          from: [48.0, 2.0],
+          to: [48.4, 2.4],
+          distance: 2400,
+          duration: 1200,
+          walkingText: '20 min',
+          drivingText: '20 min',
+          distanceText: '2.4 km',
+          durationText: '20 min',
+          steps: [
+            { mode: 'walking', duration: 120, distance: 200 },
+            {
+              mode: 'transit',
+              duration: 420,
+              distance: 900,
+              transit: { line: { shortName: 'B42', vehicleType: 'Bus', color: '#16a34a' } },
+            },
+            {
+              mode: 'transit',
+              duration: 480,
+              distance: 1100,
+              transit: { line: { shortName: 'M2', vehicleType: 'Train', color: '#2563eb' } },
+            },
+            { mode: 'walking', duration: 180, distance: 200 },
+          ],
+        }]}
+      />
+    )
+
+    const transferDots = screen.getAllByTestId('circle-marker')
+    expect(transferDots).toHaveLength(3)
+    expect(transferDots.map(dot => dot.getAttribute('data-color'))).toEqual(['#16a34a', '#2563eb', '#64748b'])
   })
 
   it('FE-COMP-MAPVIEW-012: invalid route_geometry JSON triggers catch and skips polyline', () => {
