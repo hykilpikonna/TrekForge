@@ -36,7 +36,9 @@ vi.mock('react-leaflet', () => ({
       {children}
     </div>
   ),
-  Polyline: ({ positions }: any) => <div data-testid="polyline" data-points={JSON.stringify(positions)} />,
+  Polyline: ({ positions, pathOptions }: any) => (
+    <div data-testid="polyline" data-points={JSON.stringify(positions)} data-color={pathOptions?.color} />
+  ),
   CircleMarker: () => <div data-testid="circle-marker" />,
   Circle: () => <div data-testid="circle" />,
   useMap: () => mapMock,
@@ -163,6 +165,39 @@ describe('MapView', () => {
     render(<MapView route={route} />)
     // The route is drawn; per-segment times now live in the day sidebar, not on the map.
     expect(screen.getAllByTestId('polyline').length).toBeGreaterThan(0)
+  })
+
+  it('FE-COMP-MAPVIEW-011b: colors transit route line parts from route segment details', () => {
+    render(
+      <MapView
+        route={[[[48.0, 2.0], [48.3, 2.3]]]}
+        routeSegments={[{
+          mid: [48.15, 2.15],
+          from: [48.0, 2.0],
+          to: [48.3, 2.3],
+          distance: 1200,
+          duration: 600,
+          walkingText: '10 min',
+          drivingText: '10 min',
+          distanceText: '1.2 km',
+          durationText: '10 min',
+          steps: [
+            {
+              mode: 'transit',
+              transit: {
+                line: { shortName: 'M2', color: '#f25210' },
+                departureStop: { name: 'Opera', lat: 48.1, lng: 2.1 },
+                arrivalStop: { name: 'Nation', lat: 48.2, lng: 2.2 },
+              },
+            },
+          ],
+        }]}
+      />
+    )
+
+    const colors = screen.getAllByTestId('polyline').map(line => line.getAttribute('data-color'))
+    expect(colors).toContain('#f25210')
+    expect(colors).toContain('#64748b')
   })
 
   it('FE-COMP-MAPVIEW-012: invalid route_geometry JSON triggers catch and skips polyline', () => {

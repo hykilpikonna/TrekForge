@@ -203,6 +203,13 @@ export interface RouteStep {
   transit?: RouteTransitDetails | null
 }
 
+export interface RouteLineSegment {
+  coordinates: [number, number][]
+  color?: string | null
+  casingColor?: string | null
+  mode?: RouteStepMode | 'route'
+}
+
 export interface RouteWithLegs {
   coordinates: [number, number][]
   distance: number
