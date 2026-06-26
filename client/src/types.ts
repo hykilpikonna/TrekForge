@@ -149,6 +149,20 @@ export interface DayNotesMap {
   [dayId: string]: DayNote[]
 }
 
+export interface RouteAlternative {
+  index: number
+  distance: number
+  duration: number
+  walkingText: string
+  drivingText: string
+  distanceText: string
+  durationText?: string
+  tollText?: string
+  fareText?: string
+  steps?: RouteStep[]
+  coordinates?: [number, number][]
+}
+
 export interface RouteSegment {
   mid: [number, number]
   from: [number, number]
@@ -160,7 +174,12 @@ export interface RouteSegment {
   distanceText: string
   durationText?: string
   tollText?: string
+  fareText?: string
   steps?: RouteStep[]
+  coordinates?: [number, number][]
+  routeChoiceKey?: string
+  routeAlternativeIndex?: number
+  alternatives?: RouteAlternative[]
 }
 
 export type RouteStepMode = 'driving' | 'walking' | 'cycling' | 'transit' | 'unknown'

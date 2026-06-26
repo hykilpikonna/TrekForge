@@ -51,23 +51,28 @@ vi.mock('../PDF/TripPDF', () => ({ downloadTripPDF: vi.fn().mockResolvedValue(un
 
 vi.mock('../Map/RouteCalculator', () => ({
   calculateRoute: vi.fn().mockResolvedValue({ distanceText: '5 km', durationText: '1h', coordinates: [] }),
-  calculateRouteWithLegs: vi.fn().mockResolvedValue({
-    coordinates: [],
-    distance: 0,
-    duration: 0,
-    legs: [
-      { distance: 1000, duration: 900, distanceText: '1 km', walkingText: '12m', drivingText: '15m', from: [0, 0], to: [0, 0], mid: [0, 0] },
-    ],
-  }),
   generateGoogleMapsUrl: vi.fn().mockReturnValue('https://maps.google.com/...'),
   optimizeRoute: vi.fn().mockImplementation((places) => places),
   // One leg per waypoint gap; the connector between two stops reads distanceText.
   calculateRouteWithLegs: vi.fn().mockImplementation((waypoints) => Promise.resolve({
-    distanceText: '2 km', durationText: '10 min',
+    coordinates: [],
+    distance: 0,
+    duration: 0,
+    distanceText: '2 km',
+    durationText: '10 min',
     legs: Array.from({ length: Math.max(0, (waypoints?.length ?? 0) - 1) }, () => ({
-      distanceText: '2 km', durationText: '10 min', drivingText: '10 min', walkingText: '25 min',
+      distance: 1000,
+      duration: 900,
+      distanceText: '2 km',
+      durationText: '10 min',
+      drivingText: '10 min',
+      walkingText: '25 min',
+      from: [0, 0],
+      to: [0, 0],
+      mid: [0, 0],
     })),
   })),
+  setRouteAlternativeChoice: vi.fn(),
 }))
 
 // PlaceAvatar needs IntersectionObserver

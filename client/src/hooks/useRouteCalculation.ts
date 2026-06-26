@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTripStore } from '../store/tripStore'
 import { useSettingsStore } from '../store/settingsStore'
-import { calculateRouteWithLegs, withHotelBookends } from '../components/Map/RouteCalculator'
+import { ROUTE_ALTERNATIVE_CHOICE_EVENT, calculateRouteWithLegs, withHotelBookends } from '../components/Map/RouteCalculator'
 import { getTransportRouteEndpoints, parseTimeToMinutes } from '../utils/dayMerge'
 import { getDayBookendHotels } from '../utils/dayOrder'
 import { DEFAULT_WAKE_UP_TIME, normalizeDurationMinutes, normalizeScheduleMarginMinutes } from '../utils/daySchedule'
@@ -56,6 +56,7 @@ export function useRouteCalculation(
   const [route, setRoute] = useState<[number, number][][] | null>(null)
   const [routeInfo, setRouteInfo] = useState<RouteResult | null>(null)
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([])
+  const [routeChoiceVersion, setRouteChoiceVersion] = useState(0)
   const routeAbortRef = useRef<AbortController | null>(null)
   const reservationsForSignature = useTripStore((s) => s.reservations)
   const optimizeFromAccommodation = useSettingsStore((s) => s.settings.optimize_from_accommodation)
@@ -65,6 +66,13 @@ export function useRouteCalculation(
   const avoidTolls = googleRoutingOptions.avoidTolls === true
   const avoidHighways = googleRoutingOptions.avoidHighways === true
   const avoidFerries = googleRoutingOptions.avoidFerries === true
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const refresh = () => setRouteChoiceVersion(v => v + 1)
+    window.addEventListener(ROUTE_ALTERNATIVE_CHOICE_EVENT, refresh)
+    return () => window.removeEventListener(ROUTE_ALTERNATIVE_CHOICE_EVENT, refresh)
+  }, [])
 
   const updateRouteForDay = useCallback(async (dayId: number | null) => {
     if (routeAbortRef.current) routeAbortRef.current.abort()
@@ -336,7 +344,7 @@ export function useRouteCalculation(
     if (!selectedDayId) { setRoute(null); setRouteSegments([]); return }
     updateRouteForDay(selectedDayId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDayId, selectedDayAssignments, transportSignature, enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes, avoidTolls, avoidHighways, avoidFerries])
+  }, [selectedDayId, selectedDayAssignments, transportSignature, enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes, avoidTolls, avoidHighways, avoidFerries, routeChoiceVersion])
 
   return { route, routeSegments, routeInfo, setRoute, setRouteInfo, updateRouteForDay }
 }
