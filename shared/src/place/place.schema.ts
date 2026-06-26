@@ -74,7 +74,7 @@ export type Place = z.infer<typeof placeSchema>;
 /**
  * Trimmed place projection embedded inside a day-assignment response
  * (server/src/services/queryHelpers.ts -> formatAssignmentWithPlace). This is a
- * SUBSET of the full place: no trip_id / osm_id / route_geometry / created_at /
+ * SUBSET of the full place: no trip_id / route_geometry / created_at /
  * reservation_* — only the fields the planner needs to render the itinerary card.
  */
 export const assignmentPlaceSchema = z.object({
@@ -95,6 +95,7 @@ export const assignmentPlaceSchema = z.object({
   transport_mode: z.string().nullable().optional(),
   google_place_id: z.string().nullable().optional(),
   google_ftid: z.string().nullable().optional(),
+  osm_id: z.string().nullable().optional(),
   website: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   category: placeCategorySchema.optional(),

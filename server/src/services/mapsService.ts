@@ -2,6 +2,8 @@ import { db } from '../db/database';
 import { decrypt_api_key } from './apiKeyCrypto';
 import { safeFetchFollow, SsrfBlockedError } from '../utils/ssrfGuard';
 import { getAppUrl } from './notifications';
+import { fetchGoogleMapsPreviewPlaceDetails, GOOGLE_MAPS_FTID_RE } from './googleMapsPreviewPlaceDetails';
+import { fetchGoogleMapsMobilePlaceDetails } from './googleMapsMobilePlaceDetails';
 
 // ── Google API call counter ───────────────────────────────────────────────────
 
@@ -58,10 +60,31 @@ interface GoogleAutocompleteSuggestion {
   };
 }
 
+interface GoogleOpeningPoint {
+  day?: number;
+  hour?: number;
+  minute?: number;
+}
+
+interface GoogleOpeningPeriod {
+  open?: GoogleOpeningPoint;
+  close?: GoogleOpeningPoint;
+}
+
+interface NormalizedGoogleOpeningPeriod {
+  open: { day: number; hour?: number; minute?: number };
+  close?: { day: number; hour?: number; minute?: number };
+}
+
 interface GooglePlaceDetails extends GooglePlaceResult {
   userRatingCount?: number;
-  regularOpeningHours?: { weekdayDescriptions?: string[]; openNow?: boolean };
-  editorialSummary?: { text: string };
+  regularOpeningHours?: {
+    weekdayDescriptions?: string[];
+    openNow?: boolean;
+    periods?: GoogleOpeningPeriod[];
+  };
+  businessStatus?: string;
+  editorialSummary?: { text?: string };
   reviews?: { authorAttribution?: { displayName?: string; photoUri?: string }; rating?: number; text?: { text?: string }; relativePublishTimeDescription?: string }[];
   photos?: { name: string; authorAttributions?: { displayName?: string }[] }[];
 }
@@ -98,7 +121,9 @@ function toApiLang(lang: string | undefined, fallback = 'en'): string {
   return API_LANG_OVERRIDES[code] ?? code;
 }
 
-const GOOGLE_FTID_RE = /^0x[0-9a-f]+:0x[0-9a-f]+$/i;
+const GOOGLE_FTID_RE = GOOGLE_MAPS_FTID_RE;
+const DETAILS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DETAILS_CACHE_SCHEMA_VERSION = 3;
 
 // Extracts a Google Maps feature id (ftid, 0x..:0x..) from a URL's ?ftid= param.
 // The Places API (New) googleMapsUri is usually a cid-style URL (https://maps.google.com/?cid=NNN)
@@ -112,6 +137,192 @@ export function googleFtidFromMapsUrl(url?: string | null): string | null {
     return ftid && GOOGLE_FTID_RE.test(ftid) ? ftid.toLowerCase() : null;
   } catch {
     return null;
+  }
+}
+
+function freshCachedPlace(row?: { payload_json: string; fetched_at: number }): Record<string, unknown> | null {
+  if (!row || Date.now() - row.fetched_at >= DETAILS_CACHE_TTL_MS) return null;
+  try {
+    const place = JSON.parse(row.payload_json) as Record<string, unknown>;
+    return place.cache_schema_version === DETAILS_CACHE_SCHEMA_VERSION ? place : null;
+  } catch {
+    return null;
+  }
+}
+
+function isOsmPlaceId(placeId: string): boolean {
+  return /^(node|way|relation):\d+$/i.test(placeId.trim());
+}
+
+function resolveGoogleFtid(placeId: string): string | null {
+  const trimmed = placeId.trim();
+  if (GOOGLE_FTID_RE.test(trimmed)) return trimmed.toLowerCase();
+  try {
+    const row = db.prepare(`
+      SELECT google_ftid
+      FROM places
+      WHERE google_place_id = ?
+        AND google_ftid IS NOT NULL
+        AND google_ftid != ''
+      LIMIT 1
+    `).get(trimmed) as { google_ftid?: string | null } | undefined;
+    const ftid = row?.google_ftid?.trim();
+    return ftid && GOOGLE_FTID_RE.test(ftid) ? ftid.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGoogleOpeningPoint(
+  point?: GoogleOpeningPoint,
+): { day: number; hour?: number; minute?: number } | null {
+  if (!point || !Number.isInteger(point.day) || point.day! < 0 || point.day! > 6) return null;
+  const normalized: { day: number; hour?: number; minute?: number } = { day: point.day! };
+  if (Number.isInteger(point.hour)) normalized.hour = point.hour;
+  if (Number.isInteger(point.minute)) normalized.minute = point.minute;
+  return normalized;
+}
+
+function normalizeGoogleOpeningPeriods(periods?: GoogleOpeningPeriod[]): NormalizedGoogleOpeningPeriod[] | null {
+  if (!Array.isArray(periods)) return null;
+  const normalized = periods
+    .map((period) => {
+      const open = normalizeGoogleOpeningPoint(period?.open);
+      if (!open) return null;
+      const close = normalizeGoogleOpeningPoint(period?.close);
+      return { open, ...(close ? { close } : {}) };
+    })
+    .filter((period): period is NormalizedGoogleOpeningPeriod => Boolean(period));
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeGooglePlacesApiDetails(
+  data: GooglePlaceDetails,
+  includeExpandedFields: boolean,
+): Record<string, unknown> {
+  return {
+    google_place_id: data.id,
+    google_ftid: googleFtidFromMapsUrl(data.googleMapsUri),
+    name: data.displayName?.text || '',
+    address: data.formattedAddress || '',
+    lat: data.location?.latitude || null,
+    lng: data.location?.longitude || null,
+    rating: data.rating || null,
+    rating_count: data.userRatingCount || null,
+    website: data.websiteUri || null,
+    phone: data.nationalPhoneNumber || null,
+    opening_hours: data.regularOpeningHours?.weekdayDescriptions || null,
+    opening_periods: normalizeGoogleOpeningPeriods(data.regularOpeningHours?.periods),
+    open_now: data.regularOpeningHours?.openNow ?? null,
+    business_status: data.businessStatus || null,
+    google_maps_url: data.googleMapsUri || null,
+    summary: includeExpandedFields ? data.editorialSummary?.text || null : null,
+    reviews: includeExpandedFields
+      ? (data.reviews || []).slice(0, 5).map((r: NonNullable<GooglePlaceDetails['reviews']>[number]) => ({
+        author: r.authorAttribution?.displayName || null,
+        rating: r.rating || null,
+        text: r.text?.text || null,
+        time: r.relativePublishTimeDescription || null,
+        photo: r.authorAttribution?.photoUri || null,
+      }))
+      : [],
+    source: 'google' as const,
+    cached_at: Date.now(),
+    cache_schema_version: DETAILS_CACHE_SCHEMA_VERSION,
+  };
+}
+
+async function fetchGooglePlacesApiDetails(
+  userId: number,
+  placeId: string,
+  langKey: string,
+  includeExpandedFields: boolean,
+): Promise<Record<string, unknown>> {
+  const apiKey = getMapsKey(userId);
+  if (!apiKey) {
+    throw Object.assign(new Error('Google Maps API key not configured'), { status: 400 });
+  }
+
+  const expandedFields = includeExpandedFields ? ',reviews,editorialSummary' : '';
+  const response = await googleFetch(`https://places.googleapis.com/v1/places/${placeId}?languageCode=${langKey}`, `getPlaceDetailsFallback(${placeId})`, {
+    method: 'GET',
+    headers: {
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': `id,displayName,formattedAddress,location,rating,userRatingCount,websiteUri,nationalPhoneNumber,regularOpeningHours,businessStatus,googleMapsUri${expandedFields}`,
+    },
+  });
+
+  const data = await response.json() as GooglePlaceDetails & { error?: { message?: string } };
+
+  if (!response.ok) {
+    const err = new Error(data.error?.message || 'Google Places API error') as Error & { status: number };
+    err.status = response.status;
+    throw err;
+  }
+
+  return normalizeGooglePlacesApiDetails(data, includeExpandedFields);
+}
+
+async function fetchGooglePreviewDetailsPlace(
+  userId: number,
+  placeId: string,
+  langKey: string,
+  includeExpandedFields: boolean,
+): Promise<Record<string, unknown>> {
+  const ftid = resolveGoogleFtid(placeId);
+  if (!ftid && /^ChIJ/i.test(placeId)) {
+    return fetchGooglePlacesApiDetails(userId, placeId, langKey, includeExpandedFields);
+  }
+
+  const place = await fetchGoogleMapsPreviewPlaceDetails({
+    ftid,
+    placeId: /^ChIJ/i.test(placeId) ? placeId : undefined,
+    query: ftid ? undefined : placeId,
+    language: langKey,
+    region: 'ca',
+  });
+  const mobileFtid = typeof place.google_ftid === 'string' && GOOGLE_FTID_RE.test(place.google_ftid)
+    ? place.google_ftid
+    : ftid;
+
+  if (!Array.isArray(place.opening_periods) && mobileFtid) {
+    try {
+      const mobilePlace = await fetchGoogleMapsMobilePlaceDetails({
+        ftid: mobileFtid,
+        language: `${langKey},en;q=0.9`,
+      });
+      if (Array.isArray(mobilePlace.opening_hours) && mobilePlace.opening_hours.length > 0) {
+        place.opening_hours = mobilePlace.opening_hours;
+      }
+      if (Array.isArray(mobilePlace.opening_periods) && mobilePlace.opening_periods.length > 0) {
+        place.opening_periods = mobilePlace.opening_periods;
+      }
+      if (Array.isArray(mobilePlace.opening_hours) || Array.isArray(mobilePlace.opening_periods)) {
+        place.open_now = mobilePlace.open_now ?? place.open_now;
+      }
+    } catch (err) {
+      console.warn(
+        `Google Maps mobile place details failed for ${mobileFtid}: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    }
+  }
+
+  return {
+    ...place,
+    summary: includeExpandedFields ? place.summary : null,
+    reviews: includeExpandedFields ? place.reviews : [],
+    cached_at: Date.now(),
+    cache_schema_version: DETAILS_CACHE_SCHEMA_VERSION,
+  };
+}
+
+function cachePlaceDetails(placeId: string, langKey: string, expanded: 0 | 1, place: Record<string, unknown>): void {
+  try {
+    db.prepare(
+      'INSERT OR REPLACE INTO place_details_cache (place_id, lang, expanded, payload_json, fetched_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(placeId, langKey, expanded, JSON.stringify(place), Date.now());
+  } catch (dbErr) {
+    console.error('Failed to cache place details:', dbErr);
   }
 }
 
@@ -746,7 +957,7 @@ async function autocompleteNominatim(
 
 export async function getPlaceDetails(userId: number, placeId: string, lang?: string): Promise<{ place: Record<string, unknown> }> {
   // OSM details: placeId is "node:123456" or "way:123456" etc.
-  if (placeId.includes(':')) {
+  if (isOsmPlaceId(placeId)) {
     const [osmType, osmId] = placeId.split(':');
     const element = await fetchOverpassDetails(osmType, osmId);
     const details = buildOsmDetails(element?.tags || {}, osmType, osmId);
@@ -768,129 +979,38 @@ export async function getPlaceDetails(userId: number, placeId: string, lang?: st
     };
   }
 
-  // Google details
+  // Google details. This uses Google Maps' internal preview endpoint so place
+  // opening hours do not require the official Places Details API.
   const langKey = toApiLang(lang, 'de');
-  const apiKey = getMapsKey(userId);
-  if (!apiKey) {
-    throw Object.assign(new Error('Google Maps API key not configured'), { status: 400 });
-  }
 
-  // Check DB cache first (lean mask, expanded=0) — 7-day TTL
-  const DETAILS_TTL = 7 * 24 * 60 * 60 * 1000;
+  // Check DB cache first. The payload is schema-versioned
+  // because older cached rows did not include structured opening periods.
   const cached = db.prepare(
     'SELECT payload_json, fetched_at FROM place_details_cache WHERE place_id = ? AND lang = ? AND expanded = 0'
   ).get(placeId, langKey) as { payload_json: string; fetched_at: number } | undefined;
-  if (cached && Date.now() - cached.fetched_at < DETAILS_TTL) return { place: JSON.parse(cached.payload_json) };
+  const cachedPlace = freshCachedPlace(cached);
+  if (cachedPlace) return { place: cachedPlace };
 
-  const response = await googleFetch(`https://places.googleapis.com/v1/places/${placeId}?languageCode=${langKey}`, `getPlaceDetails(${placeId})`, {
-    method: 'GET',
-    headers: {
-      'X-Goog-Api-Key': apiKey,
-      'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,rating,userRatingCount,websiteUri,nationalPhoneNumber,regularOpeningHours,googleMapsUri',
-    },
-  });
-
-  const data = await response.json() as GooglePlaceDetails & { error?: { message?: string } };
-
-  if (!response.ok) {
-    const err = new Error(data.error?.message || 'Google Places API error') as Error & { status: number };
-    err.status = response.status;
-    throw err;
-  }
-
-  const place = {
-    google_place_id: data.id,
-    google_ftid: googleFtidFromMapsUrl(data.googleMapsUri),
-    name: data.displayName?.text || '',
-    address: data.formattedAddress || '',
-    lat: data.location?.latitude || null,
-    lng: data.location?.longitude || null,
-    rating: data.rating || null,
-    rating_count: data.userRatingCount || null,
-    website: data.websiteUri || null,
-    phone: data.nationalPhoneNumber || null,
-    opening_hours: data.regularOpeningHours?.weekdayDescriptions || null,
-    open_now: data.regularOpeningHours?.openNow ?? null,
-    google_maps_url: data.googleMapsUri || null,
-    summary: null,
-    reviews: [],
-    source: 'google' as const,
-    cached_at: Date.now(),
-  };
-
-  try {
-    db.prepare(
-      'INSERT OR REPLACE INTO place_details_cache (place_id, lang, expanded, payload_json, fetched_at) VALUES (?, ?, 0, ?, ?)'
-    ).run(placeId, langKey, JSON.stringify(place), Date.now());
-  } catch (dbErr) {
-    console.error('Failed to cache place details:', dbErr);
-  }
+  const place = await fetchGooglePreviewDetailsPlace(userId, placeId, langKey, false);
+  cachePlaceDetails(placeId, langKey, 0, place);
 
   return { place };
 }
 
 export async function getPlaceDetailsExpanded(userId: number, placeId: string, lang?: string, refresh = false): Promise<{ place: Record<string, unknown> }> {
   const langKey = toApiLang(lang, 'de');
-  const apiKey = getMapsKey(userId);
-  if (!apiKey) throw Object.assign(new Error('Google Maps API key not configured'), { status: 400 });
 
   // Check DB cache for expanded result
   if (!refresh) {
     const cached = db.prepare(
-      'SELECT payload_json FROM place_details_cache WHERE place_id = ? AND lang = ? AND expanded = 1'
-    ).get(placeId, langKey) as { payload_json: string } | undefined;
-    if (cached) return { place: JSON.parse(cached.payload_json) };
+      'SELECT payload_json, fetched_at FROM place_details_cache WHERE place_id = ? AND lang = ? AND expanded = 1'
+    ).get(placeId, langKey) as { payload_json: string; fetched_at: number } | undefined;
+    const cachedPlace = freshCachedPlace(cached);
+    if (cachedPlace) return { place: cachedPlace };
   }
 
-  const response = await googleFetch(`https://places.googleapis.com/v1/places/${placeId}?languageCode=${langKey}`, `getPlaceDetailsExpanded(${placeId})`, {
-    method: 'GET',
-    headers: {
-      'X-Goog-Api-Key': apiKey,
-      'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,rating,userRatingCount,websiteUri,nationalPhoneNumber,regularOpeningHours,googleMapsUri,reviews,editorialSummary',
-    },
-  });
-
-  const data = await response.json() as GooglePlaceDetails & { error?: { message?: string } };
-
-  if (!response.ok) {
-    const err = new Error(data.error?.message || 'Google Places API error') as Error & { status: number };
-    err.status = response.status;
-    throw err;
-  }
-
-  const place = {
-    google_place_id: data.id,
-    google_ftid: googleFtidFromMapsUrl(data.googleMapsUri),
-    name: data.displayName?.text || '',
-    address: data.formattedAddress || '',
-    lat: data.location?.latitude || null,
-    lng: data.location?.longitude || null,
-    rating: data.rating || null,
-    rating_count: data.userRatingCount || null,
-    website: data.websiteUri || null,
-    phone: data.nationalPhoneNumber || null,
-    opening_hours: data.regularOpeningHours?.weekdayDescriptions || null,
-    open_now: data.regularOpeningHours?.openNow ?? null,
-    google_maps_url: data.googleMapsUri || null,
-    summary: data.editorialSummary?.text || null,
-    reviews: (data.reviews || []).slice(0, 5).map((r: NonNullable<GooglePlaceDetails['reviews']>[number]) => ({
-      author: r.authorAttribution?.displayName || null,
-      rating: r.rating || null,
-      text: r.text?.text || null,
-      time: r.relativePublishTimeDescription || null,
-      photo: r.authorAttribution?.photoUri || null,
-    })),
-    source: 'google' as const,
-    cached_at: Date.now(),
-  };
-
-  try {
-    db.prepare(
-      'INSERT OR REPLACE INTO place_details_cache (place_id, lang, expanded, payload_json, fetched_at) VALUES (?, ?, 1, ?, ?)'
-    ).run(placeId, langKey, JSON.stringify(place), Date.now());
-  } catch (dbErr) {
-    console.error('Failed to cache expanded place details:', dbErr);
-  }
+  const place = await fetchGooglePreviewDetailsPlace(userId, placeId, langKey, true);
+  cachePlaceDetails(placeId, langKey, 1, place);
 
   return { place };
 }

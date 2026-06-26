@@ -323,7 +323,7 @@ describe('downloadTripPDF', () => {
     expect(photoCalled).toBe(true)
   })
 
-  it('FE-COMP-TRIPPDF-019b: fetches photos for OSM places via osm_id recovered from the places pool (#1130)', async () => {
+  it('FE-COMP-TRIPPDF-019b: fetches photos for OSM places via osm_id fallback from the places pool (#1130)', async () => {
     let fetchedId: string | null = null
     server.use(
       http.get('/api/maps/place-photo/:placeId', ({ params }) => {
@@ -331,7 +331,7 @@ describe('downloadTripPDF', () => {
         return HttpResponse.json({ photoUrl: 'https://example.com/osm.jpg' })
       }),
     )
-    // The assignment projection drops osm_id; the full place in `places` carries it.
+    // Older assignment payloads omitted osm_id; the full place in `places` carries it.
     const osmPlace = { ...placeWithDetails, id: 101, image_url: null, google_place_id: null, osm_id: 'node/240109189', lat: 41.89, lng: 12.49 }
     const args = {
       ...richArgs,

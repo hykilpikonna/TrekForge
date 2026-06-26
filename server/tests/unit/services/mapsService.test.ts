@@ -8,7 +8,17 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
-const { mockDbGet, mockDbRun, mockCheckSsrf, mockCacheGet, mockCacheGetErrored, mockCachePut, mockCacheGetInFlight, mockCacheSetInFlight } = vi.hoisted(() => ({
+const {
+  mockDbGet,
+  mockDbRun,
+  mockCheckSsrf,
+  mockCacheGet,
+  mockCacheGetErrored,
+  mockCachePut,
+  mockCacheGetInFlight,
+  mockCacheSetInFlight,
+  mockFetchMobilePlaceDetails,
+} = vi.hoisted(() => ({
   mockDbGet: vi.fn(() => undefined as any),
   mockDbRun: vi.fn(),
   mockCheckSsrf: vi.fn(async () => ({ allowed: true })),
@@ -21,6 +31,7 @@ const { mockDbGet, mockDbRun, mockCheckSsrf, mockCacheGet, mockCacheGetErrored, 
   })),
   mockCacheGetInFlight: vi.fn(() => undefined),
   mockCacheSetInFlight: vi.fn(),
+  mockFetchMobilePlaceDetails: vi.fn(),
 }));
 
 vi.mock('../../../src/db/database', () => ({
@@ -69,6 +80,10 @@ vi.mock('../../../src/services/placePhotoCache', () => ({
   serveFilePath: vi.fn(() => null),
 }));
 
+vi.mock('../../../src/services/googleMapsMobilePlaceDetails', () => ({
+  fetchGoogleMapsMobilePlaceDetails: (input: unknown) => mockFetchMobilePlaceDetails(input),
+}));
+
 import {
   parseOpeningHours,
   buildOsmDetails,
@@ -100,6 +115,7 @@ afterEach(() => {
   mockCacheGetInFlight.mockReset();
   mockCacheGetInFlight.mockReturnValue(undefined);
   mockCacheSetInFlight.mockReset();
+  mockFetchMobilePlaceDetails.mockReset();
 });
 
 // ── parseOpeningHours ─────────────────────────────────────────────────────────
@@ -1074,114 +1090,245 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect((result.place as any).website).toBeNull();
   });
 
-  it('MAPS-041: throws 400 when Google placeId given but no API key', async () => {
-    const { getPlaceDetails } = await import('../../../src/services/mapsService');
-    await expect(getPlaceDetails(999, 'ChIJNotAnOsmId')).rejects.toMatchObject({ status: 400 });
-  });
+  const ftid = '0x882bf179e806d471:0x8591dde29c821a93';
+  const placeId = 'ChIJ123';
 
-  it('MAPS-041b: returns full Google place details on happy path', async () => {
-    mockDbGet.mockReturnValueOnce({ maps_api_key: 'gkey' });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  function previewRows(open = 9, close = 17) {
+    return [
+      ['Monday', 1, [2026, 6, 29], [[`${open}:00-${close}:00`, [[open], [close]]]], 0, 1],
+      ['Tuesday', 2, [2026, 6, 30], [[`${open}:00-${close}:00`, [[open], [close]]]], 0, 1],
+      ['Wednesday', 3, [2026, 7, 1], [[`${open}:00-${close}:00`, [[open], [close]]]], 0, 1],
+      ['Thursday', 4, [2026, 7, 2], [[`${open}:00-${close}:00`, [[open], [close]]]], 0, 1],
+      ['Friday', 5, [2026, 7, 3], [[`${open}:00-${close}:00`, [[open], [close]]]], 0, 1],
+      ['Saturday', 6, [2026, 7, 4], [['Closed']], 0, 2],
+      ['Sunday', 7, [2026, 7, 5], [['Closed']], 0, 2],
+    ];
+  }
+
+  function previewPlaceResponse(options: {
+    id?: string;
+    dataId?: string;
+    name?: string;
+    statusText?: string;
+    businessStatus?: string;
+    rows?: unknown[];
+  } = {}) {
+    const tuple: any[] = [];
+    const statusRow: any[] = [];
+    if (options.statusText) statusRow[8] = [options.statusText];
+    tuple[4] = [null, null, null, ['https://reviews.example', '200,000 reviews'], null, null, null, 4.7, 200000];
+    tuple[7] = ['https://www.toureiffel.paris', 'toureiffel.paris'];
+    tuple[9] = [null, null, 48.8584, 2.2945];
+    tuple[10] = options.dataId ?? ftid;
+    tuple[11] = options.name ?? 'Eiffel Tower';
+    tuple[18] = 'Champ de Mars, 5 Av. Anatole France, 75007 Paris';
+    tuple[78] = options.id ?? placeId;
+    tuple[88] = [options.businessStatus ?? 'Iconic iron tower'];
+    tuple[178] = [['+33 892 70 12 39']];
+    tuple[203] = [options.rows ?? previewRows(), statusRow];
+    const data: any[] = [];
+    data[6] = tuple;
+    return `)]}'\n${JSON.stringify(data)}`;
+  }
+
+  it('MAPS-041: Google feature IDs use internal preview details without an API key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        id: 'ChIJ123',
-        displayName: { text: 'Eiffel Tower' },
-        formattedAddress: 'Champ de Mars, 5 Av. Anatole France, 75007 Paris',
-        location: { latitude: 48.8584, longitude: 2.2945 },
-        rating: 4.7,
-        userRatingCount: 200000,
-        websiteUri: 'https://www.toureiffel.paris',
-        nationalPhoneNumber: '+33 892 70 12 39',
-        regularOpeningHours: {
-          weekdayDescriptions: ['Monday: 9:00 AM – 12:00 AM'],
-          openNow: true,
-        },
-        // The Places API returns a cid-style URL with no ftid, so google_ftid stays null
-        // and the precise query_place_id link is used on the client instead.
-        googleMapsUri: 'https://maps.google.com/?cid=10403719659250533155',
-        editorialSummary: { text: 'Iconic iron tower.' },
-        reviews: [
-          {
-            authorAttribution: { displayName: 'John', photoUri: 'https://photo.url' },
-            rating: 5,
-            text: { text: 'Amazing!' },
-            relativePublishTimeDescription: '2 weeks ago',
-          },
-        ],
-        photos: [{ name: 'places/ChIJ123/photos/photo1', authorAttributions: [{ displayName: 'Jane' }] }],
-      }),
-    }));
+      text: async () => previewPlaceResponse({ statusText: 'Open' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
     const { getPlaceDetails } = await import('../../../src/services/mapsService');
-    const result = await getPlaceDetails(1, 'ChIJ123');
+    const result = await getPlaceDetails(999, ftid);
+    const [detailsUrl, detailsInit] = fetchMock.mock.calls[0];
+
+    expect(String(detailsUrl)).toContain('google.com/maps/preview/place');
+    expect(String(detailsUrl)).toContain(encodeURIComponent(ftid));
+    expect(String(detailsUrl)).not.toContain('places.googleapis.com');
+    expect((detailsInit as any).headers['X-Goog-Api-Key']).toBeUndefined();
+
     const place = result.place as any;
-    expect(place.google_place_id).toBe('ChIJ123');
-    expect(place.google_ftid).toBeNull();
+    expect(place.google_place_id).toBe(placeId);
+    expect(place.google_ftid).toBe(ftid);
     expect(place.name).toBe('Eiffel Tower');
     expect(place.rating).toBe(4.7);
     expect(place.rating_count).toBe(200000);
     expect(place.open_now).toBe(true);
+    expect(place.opening_periods).toEqual([
+      { open: { day: 1, hour: 9, minute: 0 }, close: { day: 1, hour: 17, minute: 0 } },
+      { open: { day: 2, hour: 9, minute: 0 }, close: { day: 2, hour: 17, minute: 0 } },
+      { open: { day: 3, hour: 9, minute: 0 }, close: { day: 3, hour: 17, minute: 0 } },
+      { open: { day: 4, hour: 9, minute: 0 }, close: { day: 4, hour: 17, minute: 0 } },
+      { open: { day: 5, hour: 9, minute: 0 }, close: { day: 5, hour: 17, minute: 0 } },
+    ]);
+    expect(place.business_status).toBe('OPERATIONAL');
     expect(place.source).toBe('google');
-    // Lean mask — reviews/summary not fetched in getPlaceDetails; use getPlaceDetailsExpanded for those
+    expect(place.cache_schema_version).toBe(3);
     expect(place.reviews).toHaveLength(0);
     expect(place.summary).toBeNull();
   });
 
-  it('MAPS-041b2: normalises non-standard TREK language codes for Google (br→pt-BR, gr→el)', async () => {
+  it('MAPS-041b: resolves stored Google feature ID when called with a Google place ID', async () => {
+    mockDbGet
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({ google_ftid: ftid });
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ id: 'ChIJ1', displayName: { text: 'X' }, location: { latitude: 0, longitude: 0 } }),
+      text: async () => previewPlaceResponse(),
     });
-    mockDbGet.mockReturnValue({ maps_api_key: 'gkey' });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, placeId);
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain(encodeURIComponent(ftid));
+    expect((result.place as any).google_ftid).toBe(ftid);
+  });
+
+  it('MAPS-041b3: returns fresh schema-v3 Google place details cache without refetching', async () => {
+    const cachedPlace = {
+      google_place_id: 'ChIJCached',
+      name: 'Cached Museum',
+      opening_periods: [
+        { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
+      ],
+      business_status: 'OPERATIONAL',
+      cache_schema_version: 3,
+    };
+    mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, ftid);
+
+    expect(result.place).toEqual(cachedPlace);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('MAPS-041b4: refreshes stale Google place details cache weekly', async () => {
+    mockDbGet.mockReturnValueOnce({
+      payload_json: JSON.stringify({ google_place_id: placeId, name: 'Old details', cache_schema_version: 3 }),
+      fetched_at: Date.now() - (8 * 24 * 60 * 60 * 1000),
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => previewPlaceResponse({ name: 'Fresh details', rows: previewRows(8, 16) }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, ftid);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((result.place as any).name).toBe('Fresh details');
+    expect((result.place as any).opening_periods).toEqual([
+      { open: { day: 1, hour: 8, minute: 0 }, close: { day: 1, hour: 16, minute: 0 } },
+      { open: { day: 2, hour: 8, minute: 0 }, close: { day: 2, hour: 16, minute: 0 } },
+      { open: { day: 3, hour: 8, minute: 0 }, close: { day: 3, hour: 16, minute: 0 } },
+      { open: { day: 4, hour: 8, minute: 0 }, close: { day: 4, hour: 16, minute: 0 } },
+      { open: { day: 5, hour: 8, minute: 0 }, close: { day: 5, hour: 16, minute: 0 } },
+    ]);
+  });
+
+  it('MAPS-041b5: ignores pre-opening-period Google place details cache rows', async () => {
+    mockDbGet.mockReturnValueOnce({
+      payload_json: JSON.stringify({ google_place_id: placeId, name: 'Old schema' }),
+      fetched_at: Date.now(),
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => previewPlaceResponse({ name: 'Schema v2 details', businessStatus: 'CLOSED' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, ftid);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((result.place as any).business_status).toBe('CLOSED_PERMANENTLY');
+    expect((result.place as any).cache_schema_version).toBe(3);
+  });
+
+  it('MAPS-041b6: fills missing preview weekly hours from mobile place details', async () => {
+    const mobilePeriods = [
+      { open: { day: 5, hour: 10, minute: 0 }, close: { day: 5, hour: 19, minute: 0 } },
+      { open: { day: 6, hour: 9, minute: 30 }, close: { day: 6, hour: 20, minute: 0 } },
+      { open: { day: 0, hour: 9, minute: 30 }, close: { day: 0, hour: 20, minute: 0 } },
+    ];
+    const mobileHours = [
+      'Monday: 10 AM-7 PM',
+      'Tuesday: 10 AM-7 PM',
+      'Wednesday: 10 AM-7 PM',
+      'Thursday: 10 AM-7 PM',
+      'Friday: 10 AM-7 PM',
+      'Saturday: 9:30 AM-8 PM',
+      'Sunday: 9:30 AM-8 PM',
+    ];
+    mockFetchMobilePlaceDetails.mockResolvedValue({
+      google_ftid: ftid,
+      opening_hours: mobileHours,
+      opening_periods: mobilePeriods,
+      open_now: false,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => previewPlaceResponse({ rows: [previewRows()[0]] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, ftid);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockFetchMobilePlaceDetails).toHaveBeenCalledWith({ ftid, language: 'de,en;q=0.9' });
+    expect((result.place as any).opening_hours).toEqual(mobileHours);
+    expect((result.place as any).opening_periods).toEqual(mobilePeriods);
+    expect((result.place as any).open_now).toBe(false);
+  });
+
+  it('MAPS-041b2: normalises non-standard TREK language codes for Google (br -> pt-BR, gr -> el)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => previewPlaceResponse(),
+    });
     vi.stubGlobal('fetch', fetchMock);
     const { getPlaceDetails } = await import('../../../src/services/mapsService');
 
-    await getPlaceDetails(1, 'ChIJ-br', 'br');
-    expect(String(fetchMock.mock.calls[0][0])).toContain('languageCode=pt-BR');
+    await getPlaceDetails(1, ftid, 'br');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('hl=pt-BR');
 
-    await getPlaceDetails(1, 'ChIJ-gr', 'gr');
-    expect(String(fetchMock.mock.calls[1][0])).toContain('languageCode=el');
+    await getPlaceDetails(1, ftid, 'gr');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('hl=el');
 
     // A code that is already valid passes through unchanged.
-    await getPlaceDetails(1, 'ChIJ-de', 'de');
-    expect(String(fetchMock.mock.calls[2][0])).toContain('languageCode=de');
+    await getPlaceDetails(1, ftid, 'de');
+    expect(String(fetchMock.mock.calls[2][0])).toContain('hl=de');
   });
 
-  it('MAPS-041c: throws with status when Google API returns non-ok response', async () => {
-    mockDbGet.mockReturnValueOnce({ maps_api_key: 'gkey' });
+  it('MAPS-041c: throws with status when Google preview returns non-ok response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
-      status: 404,
-      json: async () => ({ error: { message: 'Place not found' } }),
+      status: 503,
+      statusText: 'Service Unavailable',
+      text: async () => 'upstream unavailable',
     }));
     const { getPlaceDetails } = await import('../../../src/services/mapsService');
-    await expect(getPlaceDetails(1, 'ChIJMissing')).rejects.toMatchObject({
-      message: 'Place not found',
-      status: 404,
+    await expect(getPlaceDetails(1, ftid)).rejects.toMatchObject({
+      message: 'Google Maps preview place error: 503 Service Unavailable',
+      status: 503,
     });
   });
 
-  it('MAPS-041d: getPlaceDetailsExpanded maps reviews with optional fields absent to null', async () => {
-    mockDbGet.mockReturnValueOnce({ maps_api_key: 'gkey' });
-    // expanded=1 cache miss → return undefined
-    mockDbGet.mockReturnValueOnce(undefined);
+  it('MAPS-041d: getPlaceDetailsExpanded uses preview details and returns an empty reviews array', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        id: 'ChIJ456',
-        reviews: [
-          // All optional fields absent
-          {},
-        ],
-      }),
+      text: async () => previewPlaceResponse(),
     }));
     const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
-    const result = await getPlaceDetailsExpanded(1, 'ChIJ456');
-    const review = (result.place as any).reviews[0];
-    expect(review.author).toBeNull();
-    expect(review.rating).toBeNull();
-    expect(review.text).toBeNull();
-    expect(review.time).toBeNull();
-    expect(review.photo).toBeNull();
+    const result = await getPlaceDetailsExpanded(1, ftid);
+    expect((result.place as any).reviews).toEqual([]);
+    expect((result.place as any).summary).toBeNull();
   });
 
   it('MAPS-040c: OSM path enriches name/address/coords from Nominatim (serial fetch)', async () => {
@@ -1215,58 +1362,76 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect(nominatimUrl).toContain('nominatim');
   });
 
-  it('MAPS-041e: open_now is null when regularOpeningHours.openNow is undefined', async () => {
-    mockDbGet.mockReturnValueOnce({ maps_api_key: 'gkey' });
+  it('MAPS-041e: open_now is null when preview status text is absent', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        id: 'ChIJ789',
-        regularOpeningHours: {
-          weekdayDescriptions: ['Monday: 9:00 AM – 5:00 PM'],
-          // openNow intentionally absent
-        },
-      }),
+      text: async () => previewPlaceResponse(),
     }));
     const { getPlaceDetails } = await import('../../../src/services/mapsService');
-    const result = await getPlaceDetails(1, 'ChIJ789');
+    const result = await getPlaceDetails(1, ftid);
     expect((result.place as any).open_now).toBeNull();
   });
 
-  it('MAPS-041f: open_now is false when regularOpeningHours.openNow is false', async () => {
-    mockDbGet.mockReturnValueOnce({ maps_api_key: 'gkey' });
+  it('MAPS-041f: open_now is false when preview status text says closed', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        id: 'ChIJClosed',
-        regularOpeningHours: {
-          weekdayDescriptions: ['Monday: 9:00 AM – 5:00 PM'],
-          openNow: false,
-        },
-      }),
+      text: async () => previewPlaceResponse({ statusText: 'Closed' }),
     }));
     const { getPlaceDetails } = await import('../../../src/services/mapsService');
-    const result = await getPlaceDetails(1, 'ChIJClosed');
-    // false is preserved (not coerced to null) via the ?? null operator
+    const result = await getPlaceDetails(1, ftid);
     expect((result.place as any).open_now).toBe(false);
   });
 
-  it('MAPS-041g: getPlaceDetailsExpanded truncates reviews to first 5 entries', async () => {
-    mockDbGet.mockReturnValueOnce({ maps_api_key: 'gkey' });
-    // expanded=1 cache miss
-    mockDbGet.mockReturnValueOnce(undefined);
-    const manyReviews = Array.from({ length: 8 }, (_, i) => ({
-      authorAttribution: { displayName: `User${i}` },
-      rating: 4,
-      text: { text: 'Good' },
-      relativePublishTimeDescription: '1 day ago',
-    }));
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  it('MAPS-041g: getPlaceDetails falls back to official Places details for legacy Google place IDs', async () => {
+    mockDbGet
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({ maps_api_key: 'test-key' });
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ id: 'ChIJMany', reviews: manyReviews }),
-    }));
-    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
-    const result = await getPlaceDetailsExpanded(1, 'ChIJMany');
-    expect((result.place as any).reviews).toHaveLength(5);
+      json: async () => ({
+        id: 'ChIJMissingFtid',
+        displayName: { text: 'Legacy Museum' },
+        formattedAddress: '100 Legacy Way',
+        location: { latitude: 43.6532, longitude: -79.3832 },
+        rating: 4.6,
+        userRatingCount: 123,
+        websiteUri: 'https://legacy.example',
+        nationalPhoneNumber: '+1 555 0100',
+        regularOpeningHours: {
+          weekdayDescriptions: [
+            'Monday: 10:00 AM - 6:00 PM',
+            'Tuesday: 10:00 AM - 6:00 PM',
+            'Wednesday: 10:00 AM - 6:00 PM',
+            'Thursday: 10:00 AM - 6:00 PM',
+            'Friday: 10:00 AM - 6:00 PM',
+            'Saturday: Closed',
+            'Sunday: Closed',
+          ],
+          openNow: true,
+          periods: [
+            { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
+          ],
+        },
+        businessStatus: 'OPERATIONAL',
+        googleMapsUri: `https://www.google.com/maps?ftid=${ftid}`,
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, 'ChIJMissingFtid');
+    const [detailsUrl, detailsInit] = fetchMock.mock.calls[0];
+
+    expect(String(detailsUrl)).toContain('places.googleapis.com/v1/places/ChIJMissingFtid');
+    expect((detailsInit as any).headers['X-Goog-Api-Key']).toBe('test-key');
+    expect((result.place as any).google_place_id).toBe('ChIJMissingFtid');
+    expect((result.place as any).google_ftid).toBe(ftid);
+    expect((result.place as any).opening_periods).toEqual([
+      { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
+    ]);
+    expect((result.place as any).business_status).toBe('OPERATIONAL');
+    expect((result.place as any).cache_schema_version).toBe(3);
   });
 });
 

@@ -102,19 +102,16 @@ function dayCost(assignments, dayId, locale) {
 }
 
 // Pre-fetch place photos for all assigned places.
-// Assignment places are a server-side projection that drops osm_id, so we recover
-// the full place from the trip's places pool and key the photo off the same id the
-// app UI uses (google_place_id || osm_id || coords) — otherwise OSM/coords-only
-// places fell back to category icons in the PDF even though they show photos in-app.
+// Assignment places are a server-side projection, so prefer their embedded osm_id
+// when present and keep the full-place pool fallback for older payloads/callers.
 async function fetchPlacePhotos(assignments: AssignmentsMap, places: Place[]) {
   const photoMap = {} // placeId → photoUrl
-  // The assignment projection drops osm_id, so recover it from the full places pool.
   const osmById = new Map((places || []).map(p => [p.id, p.osm_id]))
   const allPlaces = Object.values(assignments).flatMap(a => a.map(x => x.place)).filter(Boolean)
   const unique = [...new Map(allPlaces.map(p => [p.id, p])).values()]
 
   const toFetch = unique
-    .map(p => ({ p, osm_id: osmById.get(p.id) }))
+    .map(p => ({ p, osm_id: p.osm_id || osmById.get(p.id) }))
     .filter(({ p, osm_id }) => !p.image_url && (p.google_place_id || osm_id || (p.lat != null && p.lng != null)))
 
   await Promise.allSettled(

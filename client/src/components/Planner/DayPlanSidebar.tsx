@@ -4,8 +4,8 @@ declare global { interface Window { __dragData: DragDataPayload | null } }
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { avatarSrc } from '../../utils/avatarSrc'
-import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List, Train } from 'lucide-react'
-import { reservationsApi } from '../../api/client'
+import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List, Train } from 'lucide-react'
+import { mapsApi, reservationsApi } from '../../api/client'
 import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl, type RouteProfile, type RoutingProvider } from '../Map/RouteCalculator'
 import PlaceAvatar from '../shared/PlaceAvatar'
 import ConfirmDialog from '../shared/ConfirmDialog'
@@ -30,6 +30,7 @@ import {
 } from '../../utils/dayMerge'
 import { formatDate, formatTime, dayTotalCost, splitReservationDateTime } from '../../utils/formatters'
 import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes, minutesToClock, normalizeDurationMinutes } from '../../utils/daySchedule'
+import { getOpeningHoursWarning, type OpeningHoursWarning, type PlaceOpeningDetails } from '../../utils/openingHours'
 import { useDayNotes } from '../../hooks/useDayNotes'
 import { RES_ICONS, getNoteIcon } from './DayPlanSidebar.constants'
 import { RouteConnector, HotelRouteConnector } from './DayPlanSidebarRouteConnector'
@@ -85,6 +86,173 @@ function minutesAfterClock(clock: string, startMinutes: number): number {
 
 function formatRestHours(totalMinutes: number): string {
   return `${(Math.max(0, Math.round(totalMinutes)) / 60).toFixed(1)}h`
+}
+
+const OPENING_DETAILS_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const openingDetailsCache = new Map<string, { fetchedAt: number; value: PlaceOpeningDetails | null }>()
+type OpeningDetailsByPlaceId = Record<number, { detailId: string; details: PlaceOpeningDetails | null }>
+
+function openingDetailsFetchedAt(value: PlaceOpeningDetails | null): number {
+  return typeof value?.cached_at === 'number' ? value.cached_at : Date.now()
+}
+
+function isOpeningDetailsCacheFresh(fetchedAt?: number): boolean {
+  return typeof fetchedAt === 'number' && Date.now() - fetchedAt < OPENING_DETAILS_SESSION_TTL_MS
+}
+
+function getOpeningDetailsMemoryCache(key: string): PlaceOpeningDetails | null | undefined {
+  const entry = openingDetailsCache.get(key)
+  if (!entry) return undefined
+  if (!isOpeningDetailsCacheFresh(entry.fetchedAt)) {
+    openingDetailsCache.delete(key)
+    return undefined
+  }
+  return entry.value
+}
+
+function setOpeningDetailsMemoryCache(key: string, value: PlaceOpeningDetails | null): void {
+  openingDetailsCache.set(key, { fetchedAt: openingDetailsFetchedAt(value), value })
+}
+
+function getOpeningDetailsSessionCache(key: string): PlaceOpeningDetails | null | undefined {
+  try {
+    const raw = sessionStorage.getItem(key)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as { fetchedAt?: number; value?: PlaceOpeningDetails | null }
+    if (!isOpeningDetailsCacheFresh(parsed.fetchedAt)) {
+      sessionStorage.removeItem(key)
+      return undefined
+    }
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'value')) return undefined
+    return parsed.value ?? null
+  } catch {
+    return undefined
+  }
+}
+
+function setOpeningDetailsSessionCache(key: string, value: PlaceOpeningDetails | null): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ fetchedAt: openingDetailsFetchedAt(value), value }))
+  } catch {}
+}
+
+function openingDetailIdForPlace(place?: Pick<Place, 'google_ftid' | 'google_place_id' | 'osm_id'> | null): string | null {
+  return place?.google_ftid || place?.google_place_id || place?.osm_id || null
+}
+
+function useOpeningDetailsByPlace(assignments: AssignmentsMap, language: string): Record<number, PlaceOpeningDetails | null> {
+  const requests = useMemo(() => {
+    const byPlace = new Map<number, { placeId: number; detailId: string }>()
+    Object.values(assignments || {}).forEach(dayAssignments => {
+      dayAssignments.forEach(assignment => {
+        const place = assignment.place
+        const detailId = openingDetailIdForPlace(place)
+        if (place?.id && detailId) byPlace.set(place.id, { placeId: place.id, detailId })
+      })
+    })
+    return [...byPlace.values()].sort((a, b) => a.placeId - b.placeId)
+  }, [assignments])
+  const requestKey = useMemo(() => requests.map(r => `${r.placeId}:${r.detailId}`).join('|'), [requests])
+  const [detailEntriesByPlaceId, setDetailEntriesByPlaceId] = useState<OpeningDetailsByPlaceId>({})
+
+  useEffect(() => {
+    if (requests.length === 0) {
+      setDetailEntriesByPlaceId({})
+      return
+    }
+
+    let cancelled = false
+    const cachePrefix = `opening_details_${language || 'en'}_`
+    const requestedDetailIdsByPlaceId = new Map(requests.map(request => [request.placeId, request.detailId]))
+
+    setDetailEntriesByPlaceId(prev => {
+      const next: OpeningDetailsByPlaceId = {}
+      let changed = false
+      for (const [placeIdText, entry] of Object.entries(prev)) {
+        const placeId = Number(placeIdText)
+        if (requestedDetailIdsByPlaceId.get(placeId) === entry.detailId) {
+          next[placeId] = entry
+        } else {
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+
+    ;(async () => {
+      for (const request of requests) {
+        const cacheKey = `${cachePrefix}${request.detailId}`
+        let details: PlaceOpeningDetails | null | undefined = getOpeningDetailsMemoryCache(cacheKey)
+        if (details === undefined) details = getOpeningDetailsSessionCache(cacheKey)
+        if (details === undefined) {
+          try {
+            const response = await mapsApi.details(request.detailId, language)
+            details = (response.place || null) as PlaceOpeningDetails | null
+          } catch {
+            details = null
+          }
+          setOpeningDetailsMemoryCache(cacheKey, details)
+          if (details) setOpeningDetailsSessionCache(cacheKey, details)
+        } else {
+          setOpeningDetailsMemoryCache(cacheKey, details)
+        }
+        if (cancelled) return
+        setDetailEntriesByPlaceId(prev => {
+          const nextDetails = details ?? null
+          const existing = prev[request.placeId]
+          if (existing?.detailId === request.detailId && existing.details === nextDetails) return prev
+          return { ...prev, [request.placeId]: { detailId: request.detailId, details: nextDetails } }
+        })
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [requestKey, language, requests])
+
+  return useMemo(() => {
+    const detailsByPlaceId: Record<number, PlaceOpeningDetails | null> = {}
+    for (const request of requests) {
+      const entry = detailEntriesByPlaceId[request.placeId]
+      if (entry?.detailId === request.detailId) detailsByPlaceId[request.placeId] = entry.details
+    }
+    return detailsByPlaceId
+  }, [detailEntriesByPlaceId, requestKey, requests])
+}
+
+function openingWarningMessage(warning: OpeningHoursWarning): string {
+  if (warning.kind === 'closed_permanently') return 'Permanently closed'
+  if (warning.kind === 'closed_temporarily') return 'Temporarily closed'
+  if (warning.kind === 'closed_that_day') return 'Closed on this day'
+  return warning.hoursText ? `Outside opening hours (${warning.hoursText})` : 'Outside opening hours'
+}
+
+function OpeningWarningBadge({ warning, compact = false }: { warning: OpeningHoursWarning; compact?: boolean }) {
+  const message = openingWarningMessage(warning)
+  return (
+    <div
+      title={message}
+      style={{
+        marginTop: compact ? 3 : 4,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        minWidth: 0,
+        width: compact ? '100%' : 'fit-content',
+        maxWidth: '100%',
+        color: '#b45309',
+        background: 'rgba(245, 158, 11, 0.12)',
+        border: '1px solid rgba(245, 158, 11, 0.22)',
+        borderRadius: 5,
+        padding: compact ? '1px 5px' : '2px 6px',
+        fontSize: compact ? 9 : 10,
+        fontWeight: 600,
+        lineHeight: 1.2,
+      }}
+    >
+      <AlertTriangle size={compact ? 9 : 10} strokeWidth={2.4} style={{ flexShrink: 0 }} />
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message}</span>
+    </div>
+  )
 }
 
 function localDateTimeForDayMinute(day: Pick<Day, 'date'>, minutes: number): string | null {
@@ -313,6 +481,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   const can = useCanDo()
   const canEditDays = can('day_edit', trip)
   const [planView, setPlanView] = useState<DayPlanView>(() => readDayPlanViewPreference(tripId))
+  const openingDetailsByPlaceId = useOpeningDetailsByPlace(assignments, language)
 
   useEffect(() => {
     try {
@@ -1352,6 +1521,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     anyGeoPlace,
     expandedRouteDayIds,
     setExpandedRouteDayIds,
+    openingDetailsByPlaceId,
   }
 }
 
@@ -1526,6 +1696,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     anyGeoPlace,
     expandedRouteDayIds,
     setExpandedRouteDayIds,
+    openingDetailsByPlaceId,
   } = S
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', fontFamily: "var(--font-system)" }}>
@@ -2259,6 +2430,14 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             const displayEnd = durationMinutes === slot.durationMinutes
                               ? slot.end
                               : minutesToClock((parseTimeToMinutes(slot.start) ?? 0) + durationMinutes)
+                            const openingWarning = getOpeningHoursWarning(
+                              openingDetailsByPlaceId[place.id],
+                              day.date,
+                              slot.start,
+                              displayEnd,
+                              (clock) => formatTime(clock, locale, timeFormat),
+                            )
+                            const openingWarningText = openingWarning ? openingWarningMessage(openingWarning) : ''
                             return (
                               <div
                                 key={assignment.id}
@@ -2291,11 +2470,13 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   right: 8,
                                   height: heightPx,
                                   borderRadius: 7,
-                                  borderTop: calendarBorder,
-                                  borderRight: calendarBorder,
-                                  borderBottom: calendarBorder,
+                                  borderTop: openingWarning ? '1px solid rgba(245, 158, 11, 0.45)' : calendarBorder,
+                                  borderRight: openingWarning ? '1px solid rgba(245, 158, 11, 0.45)' : calendarBorder,
+                                  borderBottom: openingWarning ? '1px solid rgba(245, 158, 11, 0.45)' : calendarBorder,
                                   borderLeft: `4px solid ${color}`,
-                                  background: isPlaceSelected ? 'color-mix(in srgb, var(--accent) 3%, var(--bg-card))' : 'var(--bg-card)',
+                                  background: openingWarning
+                                    ? 'color-mix(in srgb, #f59e0b 7%, var(--bg-card))'
+                                    : isPlaceSelected ? 'color-mix(in srgb, var(--accent) 3%, var(--bg-card))' : 'var(--bg-card)',
                                   boxShadow: '0 1px 3px rgba(15,23,42,0.08)',
                                   cursor: canEditDays ? 'grab' : 'pointer',
                                   opacity: isDraggingThis ? 0.45 : 1,
@@ -2316,10 +2497,16 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                     {formatTime(slot.start, locale, timeFormat)} ~ {formatTime(displayEnd, locale, timeFormat)}
                                     <span>·</span>
                                     {formatDurationMinutes(durationMinutes)}
+                                    {openingWarning && (
+                                      <span title={openingWarningText} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                                        <AlertTriangle size={10} strokeWidth={2.4} color="#d97706" />
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="text-content" style={{ marginTop: 3, fontSize: 12, fontWeight: 600, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {place.name}
                                   </div>
+                                  {openingWarning && heightPx >= 58 && <OpeningWarningBadge warning={openingWarning} compact />}
                                   {(place.address || cat?.name) && heightPx >= 42 && (
                                     <div className="text-content-faint" style={{ marginTop: 2, fontSize: 10, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                       {place.address || cat?.name}
@@ -2383,6 +2570,13 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         const isDraggingThis = draggingId === assignment.id
                         const placeIdx = placeItems.findIndex(i => i.data.id === assignment.id)
                         const slot = activitySchedule[assignment.id]
+                        const openingWarning = slot ? getOpeningHoursWarning(
+                          openingDetailsByPlaceId[place.id],
+                          day.date,
+                          slot.start,
+                          slot.end,
+                          (clock) => formatTime(clock, locale, timeFormat),
+                        ) : null
 
                         const arrowMove = (direction: 'up' | 'down') => {
                           const m = getMergedItems(day.id)
@@ -2562,6 +2756,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   <Markdown remarkPlugins={[remarkGfm]}>{place.description || place.address || cat?.name || ''}</Markdown>
                                 </div>
                               )}
+                              {openingWarning && <OpeningWarningBadge warning={openingWarning} />}
                               {(() => {
                                 const res = reservations.find(r => r.assignment_id === assignment.id)
                                 if (!res) return null
