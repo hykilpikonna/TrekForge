@@ -34,6 +34,7 @@ function makeRow(overrides: Partial<AssignmentRow> = {}): AssignmentRow {
     transport_mode: 'walk',
     google_place_id: 'ChIJLU7jZClu5kcR4PcOOO6p3I0',
     google_ftid: '0x47e66e2c94e34e2d:0x8ddca9ee380ef7e0',
+    osm_id: 'node:240109189',
     website: 'https://eiffel-tower.com',
     phone: '+33 1 2345 6789',
     ...overrides,
@@ -68,6 +69,7 @@ describe('formatAssignmentWithPlace', () => {
     expect(place.transport_mode).toBe('walk');
     expect(place.google_place_id).toBe('ChIJLU7jZClu5kcR4PcOOO6p3I0');
     expect(place.google_ftid).toBe('0x47e66e2c94e34e2d:0x8ddca9ee380ef7e0');
+    expect(place.osm_id).toBe('node:240109189');
     expect(place.website).toBe('https://eiffel-tower.com');
     expect(place.phone).toBe('+33 1 2345 6789');
   });

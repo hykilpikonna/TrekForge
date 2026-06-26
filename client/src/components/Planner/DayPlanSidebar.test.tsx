@@ -12,6 +12,7 @@ import {
   buildUser, buildTrip, buildDay, buildPlace, buildCategory, buildAssignment, buildDayNote, buildReservation,
 } from '../../../tests/helpers/factories'
 import DayPlanSidebar from './DayPlanSidebar'
+import { mapsApi } from '../../api/client'
 
 // ── Hoisted mock state (accessible in vi.mock factories) ────────────────────
 const mockDayNotesState = vi.hoisted(() => ({
@@ -41,6 +42,10 @@ vi.mock('../../api/client', async (importOriginal) => {
     reservationsApi: {
       list: vi.fn().mockResolvedValue({ reservations: [] }),
       updatePositions: vi.fn().mockResolvedValue({}),
+    },
+    mapsApi: {
+      ...actual.mapsApi,
+      details: vi.fn().mockResolvedValue({ place: null }),
     },
   }
 })
@@ -283,6 +288,29 @@ describe('DayPlanSidebar', () => {
     const assignment = buildAssignment({ id: 99, day_id: 10, order_index: 0, place })
     render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [assignment] } })} />)
     expect(screen.getByText('Louvre Museum')).toBeInTheDocument()
+  })
+
+  it('FE-PLANNER-DAYPLAN-011b: warns when a scheduled place is outside opening hours', async () => {
+    vi.mocked(mapsApi.details).mockResolvedValueOnce({
+      place: {
+        opening_periods: [
+          { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
+        ],
+      },
+    } as any)
+    const place = buildPlace({
+      id: 42,
+      name: 'Late Museum',
+      google_place_id: 'google-place-42',
+      google_ftid: '0x882bf179e806d471:0x8591dde29c821a93',
+    })
+    const day = buildDay({ id: 10, date: '2025-06-02', title: 'Monday' })
+    const assignment = buildAssignment({ id: 99, day_id: 10, order_index: 0, place, duration_minutes: 60 })
+
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [assignment] } })} />)
+
+    await waitFor(() => expect(mapsApi.details).toHaveBeenCalledWith('0x882bf179e806d471:0x8591dde29c821a93', expect.any(String)))
+    await waitFor(() => expect(screen.getByText(/Outside opening hours/i)).toBeInTheDocument())
   })
 
   it('FE-PLANNER-DAYPLAN-012: assigned place uses calculated time and ignores legacy place_time', () => {

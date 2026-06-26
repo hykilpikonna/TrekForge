@@ -107,6 +107,7 @@ describe('getAssignmentsForDay', () => {
     const trip = createTrip(testDb, user.id);
     const day = createDay(testDb, trip.id) as any;
     const place = createPlace(testDb, trip.id, { name: 'Eiffel Tower', lat: 48.8, lng: 2.3 }) as any;
+    testDb.prepare('UPDATE places SET osm_id = ? WHERE id = ?').run('node:240109189', place.id);
     createDayAssignment(testDb, day.id, place.id, { order_index: 0 });
 
     const assignments = getAssignmentsForDay(day.id) as any[];
@@ -114,6 +115,7 @@ describe('getAssignmentsForDay', () => {
     expect(assignments[0].place).toBeDefined();
     expect(assignments[0].place.name).toBe('Eiffel Tower');
     expect(assignments[0].place.lat).toBe(48.8);
+    expect(assignments[0].place.osm_id).toBe('node:240109189');
   });
 
   it('DAY-SVC-005 — assignment includes tags array (empty when place has none)', () => {
