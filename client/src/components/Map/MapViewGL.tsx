@@ -73,11 +73,15 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function routeLineBoundsPoints(segments: Array<{ coordinates: [number, number][] }>): [number, number][] {
+  return segments.flatMap(segment => segment.coordinates.filter(isValidCoordinate))
+}
+
 interface Props {
   places: Place[]
   dayPlaces?: Place[]
   route?: [number, number][][] | null
-  routeSegments?: RouteSegment[]
+  routeSegments?: RouteSegment[] | null
   selectedPlaceId?: number | null
   onMarkerClick?: (id: number) => void
   hoverDisabled?: boolean
@@ -286,10 +290,14 @@ export function MapViewGL({
   onClickRefs.current.context = onMapContextMenu
   const hoverDisabledRef = useRef(hoverDisabled)
   hoverDisabledRef.current = hoverDisabled
-  const routeCoords = useMemo<[number, number][]>(() => (route || []).flat().filter(isValidCoordinate), [route])
+  const displayRouteLineSegments = useMemo(
+    () => buildDisplayRouteLineSegments(route, routeSegments),
+    [route, routeSegments],
+  )
+  const routeFitPoints = useMemo(() => routeLineBoundsPoints(displayRouteLineSegments), [displayRouteLineSegments])
   const routeFitKey = useMemo(
-    () => routeCoords.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|'),
-    [routeCoords],
+    () => routeFitPoints.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|'),
+    [routeFitPoints],
   )
   // Set when the map was built already framed on its places, so the fit below knows there is
   // nothing left to do on mount.
@@ -906,7 +914,7 @@ export function MapViewGL({
     if (!map) return
     const src = map.getSource('trip-route') as mapboxgl.GeoJSONSource | undefined
     const transferSrc = map.getSource('trip-route-transfers') as mapboxgl.GeoJSONSource | undefined
-    const features = buildDisplayRouteLineSegments(route, routeSegments).map(seg => ({
+    const features = displayRouteLineSegments.map(seg => ({
       type: 'Feature' as const,
       properties: { color: seg.color, casingColor: seg.casingColor },
       geometry: { type: 'LineString' as const, coordinates: seg.coordinates.map(([lat, lng]) => [lng, lat]) },
@@ -918,7 +926,7 @@ export function MapViewGL({
       geometry: { type: 'Point' as const, coordinates: [point.position[1], point.position[0]] },
     }))
     transferSrc?.setData({ type: 'FeatureCollection', features: transferFeatures })
-  }, [route, routeSegments, mapReady])
+  }, [displayRouteLineSegments, route, routeSegments, mapReady])
 
   // Travel times now live in the day sidebar (per-segment connectors), not on the map.
 
@@ -1000,7 +1008,6 @@ export function MapViewGL({
     if (!fitKeyChanged && !routeArrivedForPendingFit) return
     const map = mapRef.current
     if (!map) return
-
     // The map was built framed on these very places, so fitting now would only re-do that —
     // and its maxZoom would overrule the gentler zoom a single place opens at. Adopt the
     // current fitKey and stand down; every later fit (picking a day) still runs.
@@ -1022,7 +1029,7 @@ export function MapViewGL({
     }
     const target = dayPlaces.length > 0 ? dayPlaces : places
     const markerPoints = target.filter(hasValidCoords).map(p => [p.lat, p.lng] as [number, number])
-    const fitPoints = routeCoords.length > 0 ? [...routeCoords, ...markerPoints] : markerPoints
+    const fitPoints = routeFitPoints.length > 0 ? [...routeFitPoints, ...markerPoints] : markerPoints
     if (fitPoints.length === 0) return
     const bounds = new gl.LngLatBounds()
     fitPoints.forEach(([lat, lng]) => bounds.extend([lng, lat]))

@@ -148,6 +148,11 @@ describe('MapView', () => {
     expect(screen.queryByTestId('polyline')).toBeNull()
   })
 
+  it('FE-COMP-MAPVIEW-007b: handles null routeSegments from map previews', () => {
+    render(<MapView route={null} routeSegments={null as any} />)
+    expect(screen.queryByTestId('polyline')).toBeNull()
+  })
+
   it('FE-COMP-MAPVIEW-008: does not render polyline for single-point route', () => {
     render(<MapView route={[[[48.0, 2.0]]]} />)
     expect(screen.queryByTestId('polyline')).toBeNull()
@@ -205,6 +210,30 @@ describe('MapView', () => {
     const colors = screen.getAllByTestId('polyline').map(line => line.getAttribute('data-color'))
     expect(colors).toContain('#f25210')
     expect(colors).toContain('#64748b')
+  })
+
+  it('FE-COMP-MAPVIEW-011bb: falls back to route segment coordinates when route geometry is absent', () => {
+    render(
+      <MapView
+        route={null}
+        routeSegments={[{
+          mid: [48.15, 2.15],
+          from: [48.0, 2.0],
+          to: [48.3, 2.3],
+          distance: 1200,
+          duration: 600,
+          walkingText: '10 min',
+          drivingText: '10 min',
+          distanceText: '1.2 km',
+          durationText: '10 min',
+          coordinates: [[48.0, 2.0], [48.2, 2.4], [48.3, 2.3]],
+        }]}
+      />
+    )
+
+    const routeLines = screen.getAllByTestId('polyline')
+    expect(routeLines.length).toBeGreaterThan(0)
+    expect(routeLines[0].getAttribute('data-points')).toContain('[48.2,2.4]')
   })
 
   it('FE-COMP-MAPVIEW-011c: colors transit route geometry from step details when stop coordinates are unavailable', () => {
