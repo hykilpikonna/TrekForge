@@ -341,6 +341,7 @@ import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs } from '..
 import { useAuthStore } from '../../store/authStore'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import LocationButton from './LocationButton'
+import { buildDisplayRouteLineSegments } from './routeLineSegments'
 
 // Live-location rendering inside the Leaflet map. Subscribes via the
 // shared useGeolocation hook so the Leaflet and Mapbox variants behave
@@ -672,6 +673,11 @@ export const MapView = memo(function MapView({
     } catch { return [] }
   }), [places])
 
+  const routeLineSegments = useMemo(
+    () => buildDisplayRouteLineSegments(route, routeSegments),
+    [route, routeSegments],
+  )
+
   const TooltipOverlay = !hoverDisabled && hoveredPlace && tooltipPos && !isTouchDevice
   const CatIcon = TooltipOverlay ? getCategoryIcon(hoveredPlace.category_icon) : null
   const catEmoji = TooltipOverlay && isEmojiCategoryIcon(hoveredPlace.category_icon) ? hoveredPlace.category_icon : null
@@ -731,17 +737,17 @@ export const MapView = memo(function MapView({
         {markers}
       </MarkerClusterGroup>
 
-      {/* Apple-Maps style: darker-blue casing under a bright-blue core, rounded. */}
-      {route && route.length > 0 && route.flatMap((seg, i) => seg.length > 1 ? [
+      {/* Apple-Maps style: darker casing under a bright core, rounded. */}
+      {routeLineSegments.flatMap((seg, i) => seg.coordinates.length > 1 ? [
         <Polyline
           key={`${i}-casing`}
-          positions={seg}
-          pathOptions={{ color: '#0a5cc2', weight: 8, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
+          positions={seg.coordinates}
+          pathOptions={{ color: seg.casingColor || '#0a5cc2', weight: 8, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
         />,
         <Polyline
           key={`${i}-core`}
-          positions={seg}
-          pathOptions={{ color: '#0a84ff', weight: 5, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
+          positions={seg.coordinates}
+          pathOptions={{ color: seg.color || '#0a84ff', weight: 5, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
         />,
       ] : [])}
 

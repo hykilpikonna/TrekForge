@@ -51,6 +51,61 @@ function stopText(step: RouteStep): string | null {
   return departure || arrival || null
 }
 
+function isMergeableWalkStep(step: RouteStep): boolean {
+  return step.mode === 'walking' && !step.transit
+}
+
+function sumFinite(values: Array<number | null | undefined>): number | null {
+  const finite = values.filter((value): value is number => Number.isFinite(value))
+  return finite.length ? finite.reduce((sum, value) => sum + value, 0) : null
+}
+
+function formatStepDistance(meters: number): string {
+  return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`
+}
+
+function formatStepDuration(seconds: number): string {
+  const roundedMinutes = Math.max(1, Math.round(seconds / 60))
+  if (roundedMinutes < 60) return `${roundedMinutes} min`
+  const hours = Math.floor(roundedMinutes / 60)
+  const minutes = roundedMinutes % 60
+  return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`
+}
+
+function mergeWalkingRun(run: RouteStep[]): RouteStep {
+  if (run.length === 1) return run[0]
+  const distance = sumFinite(run.map(step => step.distance))
+  const duration = sumFinite(run.map(step => step.duration))
+  return {
+    mode: 'walking',
+    instruction: 'Walk',
+    distance,
+    duration,
+    distanceText: distance !== null ? formatStepDistance(distance) : run.find(step => step.distanceText)?.distanceText ?? null,
+    durationText: duration !== null ? formatStepDuration(duration) : run.find(step => step.durationText)?.durationText ?? null,
+  }
+}
+
+function mergeConsecutiveWalkingSteps(steps: RouteStep[]): RouteStep[] {
+  const merged: RouteStep[] = []
+  let walkRun: RouteStep[] = []
+
+  for (const step of steps) {
+    if (isMergeableWalkStep(step)) {
+      walkRun.push(step)
+      continue
+    }
+    if (walkRun.length) {
+      merged.push(mergeWalkingRun(walkRun))
+      walkRun = []
+    }
+    merged.push(step)
+  }
+
+  if (walkRun.length) merged.push(mergeWalkingRun(walkRun))
+  return merged
+}
+
 export default function RouteDetailsPanel({
   selection,
   onClose,
@@ -59,7 +114,7 @@ export default function RouteDetailsPanel({
   onClose: () => void
 }) {
   const { segment, profile } = selection
-  const steps = segment.steps ?? []
+  const steps = mergeConsecutiveWalkingSteps(segment.steps ?? [])
   const tollText = segment.tollText?.trim()
 
   return (

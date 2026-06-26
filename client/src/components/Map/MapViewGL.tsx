@@ -16,11 +16,12 @@ import { visibleRouteReservations } from '../../utils/reservationRoutes'
 import { MAPBOX_DEFAULT_STYLE, styleForActiveProvider, basemapLanguage, type GlMapProvider } from './glProviders'
 import LocationButton from './LocationButton'
 import { useGeolocation } from '../../hooks/useGeolocation'
-import type { Place, Reservation } from '../../types'
+import type { Place, Reservation, RouteSegment } from '../../types'
 import { POI_CATEGORY_BY_KEY, type Poi } from './poiCategories'
 import { buildPoiPopupHtml } from './placePopup'
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '../../constants/mapDefaults'
 import { computeMapViewport, TILE_SIZE_GL } from '../../utils/mapViewport'
+import { buildDisplayRouteLineSegments } from './routeLineSegments'
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
   if (isEmojiCategoryIcon(iconName)) {
@@ -70,14 +71,6 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-interface RouteSegment {
-  mid: [number, number]
-  from: [number, number]
-  to: [number, number]
-  walkingText?: string
-  drivingText?: string
 }
 
 interface Props {
@@ -380,14 +373,14 @@ export function MapViewGL({
           id: 'trip-route-casing',
           type: 'line',
           source: 'trip-route',
-          paint: { 'line-color': '#0a5cc2', 'line-width': 8 },
+          paint: { 'line-color': ['coalesce', ['get', 'casingColor'], '#0a5cc2'], 'line-width': 8 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         })
         map.addLayer({
           id: 'trip-route-line',
           type: 'line',
           source: 'trip-route',
-          paint: { 'line-color': '#0a84ff', 'line-width': 5 },
+          paint: { 'line-color': ['coalesce', ['get', 'color'], '#0a84ff'], 'line-width': 5 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         })
       }
@@ -899,13 +892,13 @@ export function MapViewGL({
     if (!map) return
     const src = map.getSource('trip-route') as mapboxgl.GeoJSONSource | undefined
     if (!src) return
-    const features = (route || []).filter(seg => seg && seg.length > 1).map(seg => ({
+    const features = buildDisplayRouteLineSegments(route, routeSegments).map(seg => ({
       type: 'Feature' as const,
-      properties: {},
-      geometry: { type: 'LineString' as const, coordinates: seg.map(([lat, lng]) => [lng, lat]) },
+      properties: { color: seg.color, casingColor: seg.casingColor },
+      geometry: { type: 'LineString' as const, coordinates: seg.coordinates.map(([lat, lng]) => [lng, lat]) },
     }))
     src.setData({ type: 'FeatureCollection', features })
-  }, [route, mapReady])
+  }, [route, routeSegments, mapReady])
 
   // Travel times now live in the day sidebar (per-segment connectors), not on the map.
 

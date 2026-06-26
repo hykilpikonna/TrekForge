@@ -61,4 +61,56 @@ describe('RouteDetailsPanel', () => {
     expect(screen.getByText(/5 stops/)).toBeInTheDocument()
     expect(screen.getByText('2.3 km')).toBeInTheDocument()
   })
+
+  it('combines adjacent walking steps into one displayed segment', () => {
+    render(
+      <RouteDetailsPanel
+        selection={{
+          key: 'route-2',
+          profile: 'transit',
+          title: 'Museum to Lunch',
+          subtitle: 'Museum to Lunch',
+          fromLabel: 'Museum',
+          toLabel: 'Lunch',
+          dayTitle: 'Day 1',
+          segment: {
+            ...transitSegment,
+            steps: [
+              {
+                mode: 'walking',
+                instruction: 'Walk north',
+                distance: 100,
+                duration: 60,
+                distanceText: '100 m',
+                durationText: '1 min',
+              },
+              {
+                mode: 'walking',
+                instruction: 'Turn left',
+                distance: 250,
+                duration: 240,
+                distanceText: '250 m',
+                durationText: '4 min',
+              },
+              transitSegment.steps![1],
+              {
+                mode: 'walking',
+                instruction: 'Walk to Lunch',
+                distance: 80,
+                duration: 90,
+                distanceText: '80 m',
+                durationText: '2 min',
+              },
+            ],
+          },
+        }}
+        onClose={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('5 min · 350 m')).toBeInTheDocument()
+    expect(screen.queryByText('Walk north')).not.toBeInTheDocument()
+    expect(screen.queryByText('Turn left')).not.toBeInTheDocument()
+    expect(screen.getByText('Walk to Lunch')).toBeInTheDocument()
+  })
 })
