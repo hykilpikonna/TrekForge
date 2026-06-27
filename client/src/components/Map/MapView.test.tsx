@@ -519,4 +519,26 @@ describe('MapView', () => {
     render(<MapView reservations={[reservation]} visibleConnectionIds={[42]} />)
     expect(screen.getAllByTestId('polyline').length).toBeGreaterThan(0)
   })
+
+  it('fits bounds to the focused route segment', () => {
+    render(
+      <MapView
+        focusedRouteKey="route-1"
+        focusedRouteSegment={{
+          mid: [48.1, 2.1],
+          from: [48.0, 2.0],
+          to: [48.2, 2.2],
+          distance: 1200,
+          duration: 600,
+          walkingText: '10 min',
+          drivingText: '10 min',
+          distanceText: '1.2 km',
+          durationText: '10 min',
+          coordinates: [[48.0, 2.0], [48.15, 2.4], [48.2, 2.2]],
+        }}
+      />,
+    )
+
+    expect(mapMock.fitBounds).toHaveBeenCalled()
+  })
 })

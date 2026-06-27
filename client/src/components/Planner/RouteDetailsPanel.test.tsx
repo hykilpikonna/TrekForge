@@ -44,6 +44,7 @@ describe('RouteDetailsPanel', () => {
       <RouteDetailsPanel
         selection={{
           key: 'route-1',
+          dayId: 10,
           profile: 'transit',
           title: 'Museum to Lunch',
           subtitle: 'Museum to Lunch',
@@ -67,6 +68,7 @@ describe('RouteDetailsPanel', () => {
       <RouteDetailsPanel
         selection={{
           key: 'route-2',
+          dayId: 10,
           profile: 'transit',
           title: 'Museum to Lunch',
           subtitle: 'Museum to Lunch',
@@ -121,6 +123,7 @@ describe('RouteDetailsPanel', () => {
       <RouteDetailsPanel
         selection={{
           key: 'route-3',
+          dayId: 10,
           profile: 'transit',
           title: 'Museum to Lunch',
           subtitle: 'Museum to Lunch',
@@ -200,6 +203,7 @@ describe('RouteDetailsPanel', () => {
       <RouteDetailsPanel
         selection={{
           key: 'route-4',
+          dayId: 10,
           profile: 'driving',
           title: 'Castle to Hotel',
           subtitle: 'Castle to Hotel',

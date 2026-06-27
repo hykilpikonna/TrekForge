@@ -540,6 +540,7 @@ describe('DayPlanSidebar', () => {
     await user.click(routeButton)
 
     expect(onRouteDetailsSelect).toHaveBeenCalledWith(expect.objectContaining({
+      dayId: 10,
       fromLabel: 'Museum',
       toLabel: 'Lunch',
       title: 'Museum to Lunch',
@@ -565,9 +566,47 @@ describe('DayPlanSidebar', () => {
     await user.click(routeBlock)
 
     expect(onRouteDetailsSelect).toHaveBeenCalledWith(expect.objectContaining({
+      dayId: 10,
       fromLabel: 'Museum',
       toLabel: 'Lunch',
     }))
+  })
+
+  it('selects a route day before opening route details when another day is selected', async () => {
+    const user = userEvent.setup()
+    const onSelectDay = vi.fn()
+    const onRouteDetailsSelect = vi.fn()
+    const day1 = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
+    const day2 = buildDay({ id: 20, date: '2025-06-02', title: 'Day 2', wake_up_time: '08:00' })
+    const museum = buildPlace({ id: 1, name: 'Museum', lat: 48.86, lng: 2.34 })
+    const lunch = buildPlace({ id: 2, name: 'Lunch', lat: 48.87, lng: 2.35 })
+    const assignments = {
+      '10': [
+        buildAssignment({ id: 11, day_id: 10, order_index: 0, place: museum, duration_minutes: 60 }),
+        buildAssignment({ id: 22, day_id: 10, order_index: 1, place: lunch, duration_minutes: 60 }),
+      ],
+      '20': [],
+    }
+    render(<DayPlanSidebar {...makeDefaultProps({
+      days: [day1, day2],
+      places: [museum, lunch],
+      assignments,
+      routeShown: true,
+      selectedDayId: 20,
+      onSelectDay,
+      onRouteDetailsSelect,
+    })} />)
+
+    const routeButton = await screen.findByRole('button', { name: 'Show route details' })
+    await user.click(routeButton)
+
+    expect(onSelectDay).toHaveBeenCalledWith(10, true)
+    expect(onRouteDetailsSelect).toHaveBeenCalledWith(expect.objectContaining({
+      dayId: 10,
+      fromLabel: 'Museum',
+      toLabel: 'Lunch',
+    }))
+    expect(onSelectDay.mock.invocationCallOrder[0]).toBeLessThan(onRouteDetailsSelect.mock.invocationCallOrder[0])
   })
 
   it('FE-PLANNER-DAYPLAN-012g2: calendar route blocks respect the trip schedule margin', async () => {

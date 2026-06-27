@@ -676,4 +676,31 @@ describe('MapViewGL', () => {
 
     expect(glMap.fitBounds.mock.calls.length).toBe(afterDayFit)
   })
+
+  it('fits bounds to the focused route segment', async () => {
+    render(
+      <MapViewGL
+        places={[]}
+        focusedRouteKey="route-1"
+        focusedRouteSegment={{
+          mid: [35.55, 137.2],
+          from: [35.38, 136.94],
+          to: [35.42, 136.76],
+          distance: 1200,
+          duration: 600,
+          walkingText: '10 min',
+          drivingText: '10 min',
+          distanceText: '1.2 km',
+          durationText: '10 min',
+          coordinates: [[35.38, 136.94], [35.72, 137.51], [35.42, 136.76]],
+        }}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+
+    expect(glMap.fitBounds).toHaveBeenCalled()
+    const latestBounds = glBounds.instances[glBounds.instances.length - 1]
+    expect(latestBounds.extend).toHaveBeenCalledWith([137.51, 35.72])
+  })
 })

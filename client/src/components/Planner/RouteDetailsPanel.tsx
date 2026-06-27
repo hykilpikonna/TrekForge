@@ -5,6 +5,7 @@ export type PlannerRouteDetailsProfile = 'driving' | 'walking' | 'transit'
 
 export interface PlannerRouteDetailsSelection {
   key: string
+  dayId: number
   profile: PlannerRouteDetailsProfile
   title: string
   subtitle?: string

@@ -1,4 +1,4 @@
-import { Car, Coins, Footprints, Hotel, Train } from 'lucide-react'
+import { Car, Coins, Footprints, Hotel, Ticket, Train } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { RouteSegment } from '../../types'
 
@@ -31,6 +31,7 @@ export function RouteConnector({
   const Icon = routeProfileIcon(profile)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
+  const fareText = seg.fareText?.trim()
   const content = (
     <>
       <div style={line} />
@@ -44,6 +45,13 @@ export function RouteConnector({
             <span style={{ opacity: 0.4 }}>·</span>
             <Coins size={11} strokeWidth={2} />
             <span>{tollText}</span>
+          </>
+        )}
+        {fareText && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <Ticket size={11} strokeWidth={2} />
+            <span>{fareText}</span>
           </>
         )}
       </div>
@@ -108,6 +116,7 @@ export function HotelRouteConnector({
   const Icon = routeProfileIcon(profile)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
+  const fareText = seg.fareText?.trim()
   const hotelRow = (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '0 14px', minWidth: 0 }}>
       <Hotel size={12} strokeWidth={1.8} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
@@ -129,6 +138,13 @@ export function HotelRouteConnector({
             <span style={{ opacity: 0.4 }}>·</span>
             <Coins size={11} strokeWidth={2} />
             <span>{tollText}</span>
+          </>
+        )}
+        {fareText && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <Ticket size={11} strokeWidth={2} />
+            <span>{fareText}</span>
           </>
         )}
       </div>

@@ -379,6 +379,7 @@ function makeRouteDetailsSelection({
 }): PlannerRouteDetailsSelection {
   return {
     key,
+    dayId: day.id,
     profile,
     title: `${labels.fromLabel} to ${labels.toLabel}`,
     subtitle: `${labels.fromLabel} to ${labels.toLabel}`,
@@ -555,6 +556,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   const [localSelectedRouteKey, setLocalSelectedRouteKey] = useState<string | null>(null)
   const activeSelectedRouteKey = selectedRouteKey ?? localSelectedRouteKey
   const selectRouteDetails = (selection: PlannerRouteDetailsSelection | null) => {
+    if (selection && selection.dayId !== selectedDayId) onSelectDay(selection.dayId, true)
     setLocalSelectedRouteKey(selection?.key ?? null)
     onRouteDetailsSelect?.(selection)
   }
@@ -2512,7 +2514,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   </div>
                                   {block.heightPx >= 34 && (
                                     <div style={{ marginTop: 2, fontSize: 10.5, fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                      {[t('dayplan.route'), block.seg.distanceText, block.seg.tollText].filter(Boolean).join(' · ')}
+                                      {[t('dayplan.route'), block.seg.distanceText, block.seg.tollText, block.seg.fareText].filter(Boolean).join(' · ')}
                                     </div>
                                   )}
                                 </div>

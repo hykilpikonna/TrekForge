@@ -384,6 +384,73 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
   })
 
+  it('marks explicit zero Google transit fares as Free and leaves unknown fares empty', async () => {
+    server.use(
+      http.post('/api/maps/directions-preview', async ({ request }) => {
+        const body = await request.json() as any
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 1200, text: '1.2 km' },
+              duration: { seconds: 600, text: '10 min' },
+              fare: { amount: 0, text: 'JPY 0', currency: 'JPY' },
+              overviewGeometry: [
+                { lat: body.origin.lat, lng: body.origin.lng },
+                { lat: body.destination.lat, lng: body.destination.lng },
+              ],
+            },
+            {
+              distance: { meters: 1400, text: '1.4 km' },
+              duration: { seconds: 720, text: '12 min' },
+              overviewGeometry: [
+                { lat: body.origin.lat, lng: body.origin.lng },
+                { lat: body.destination.lat, lng: body.destination.lng },
+              ],
+            },
+          ],
+        })
+      })
+    )
+
+    const result = await calculateRouteWithLegs([wp1, wp2], {
+      provider: 'google_maps',
+      profile: 'transit',
+      departureLocalDateTime: '2026-06-01T10:00',
+    })
+
+    expect(result.legs[0].fareText).toBe('Free')
+    expect(result.legs[0].alternatives?.[0].fareText).toBe('Free')
+    expect(result.legs[0].alternatives?.[1].fareText).toBeUndefined()
+  })
+
+  it('marks explicit zero Google mobile tolls as Free', async () => {
+    server.use(
+      http.post('/api/maps/directions-mobile', async ({ request }) => {
+        const body = await request.json() as any
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 1200, text: '1.2 km' },
+              duration: { seconds: 600, text: '10 min' },
+              tollFee: { amount: 0, text: '\u00a50', currency: 'JPY', label: 'ETC' },
+              overviewGeometry: [
+                { lat: body.from.lat, lng: body.from.lng },
+                { lat: body.to.lat, lng: body.to.lng },
+              ],
+            },
+          ],
+        })
+      })
+    )
+
+    const result = await calculateRouteWithLegs([wp1, wp2], {
+      provider: 'google_maps_mobile',
+      departureLocalDateTime: '2026-06-01T10:05',
+    })
+
+    expect(result.legs[0].tollText).toBe('Free')
+  })
+
   it('FE-COMP-ROUTECALCULATOR-024: transit routing uses Google preview directions even with the default provider', async () => {
     let previewCalls = 0
     let osrmCalls = 0

@@ -22,7 +22,7 @@ const OSRM_PROFILE_BASE: Record<OsrmRouteProfile, string> = {
 const routeCache = new Map<string, RouteWithLegs>()
 const ROUTE_CACHE_MAX = 200
 const ROUTE_CACHE_STORAGE_KEY = 'trek:route-cache:v1'
-const ROUTE_CACHE_VERSION = 9
+const ROUTE_CACHE_VERSION = 10
 const ROUTE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const ROUTE_CHOICE_STORAGE_KEY = 'trek:route-alternative-choices:v1'
 const ROUTE_CHOICE_VERSION = 1
@@ -720,7 +720,21 @@ function googleMode(profile: RouteProfile): 'driving' | 'walking' | 'bicycling' 
   return profile === 'cycling' ? 'bicycling' : profile
 }
 
+const FREE_ROUTE_FEE_TEXT = 'Free'
+
+function isZeroMoneyAmount(amount: number | null | undefined): boolean {
+  return Number.isFinite(amount) && Math.abs(Number(amount)) < 0.000001
+}
+
+function formatGoogleFareText(fare?: GoogleDirectionsFare | null): string | undefined {
+  if (!fare) return undefined
+  if (isZeroMoneyAmount(fare.amount)) return FREE_ROUTE_FEE_TEXT
+  return fare.text?.trim() || undefined
+}
+
 function formatGoogleMobileTollText(tollFee?: GoogleMobileDirectionsMoney | null): string | undefined {
+  if (!tollFee) return undefined
+  if (isZeroMoneyAmount(tollFee.amount)) return FREE_ROUTE_FEE_TEXT
   const text = tollFee?.text?.trim()
   if (!text) return undefined
   const label = tollFee?.label?.trim()
@@ -927,9 +941,9 @@ function routeWalkingDurationSeconds(steps: RouteStep[]): number | null {
 }
 
 function googleRouteFareText(route: GoogleDirectionsRoute): string | undefined {
-  const fareText = route.fare?.text?.trim()
+  const fareText = formatGoogleFareText(route.fare)
   if (fareText) return fareText
-  return (route.legs ?? []).map(leg => leg.fare?.text?.trim()).find(Boolean)
+  return (route.legs ?? []).map(leg => formatGoogleFareText(leg.fare)).find(Boolean)
 }
 
 function googleRouteAlternative(
