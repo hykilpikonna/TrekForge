@@ -10,6 +10,7 @@
    * **Opening/Closing Hours**: It will automatically warn you if your planned location falls outside of the opening hours.
 2. **Transit Routing**: Routing can use public transit now
 3. **Toll/Ticket Fees**: It will display toll/ticket fees for each route, and you can set if you want to avoid tolls.
+4. **Custom Categories & Emojis**: Can add custom categories for places and emojis representing them.
 
 <img width="2035" height="1894" alt="image" src="https://github.com/user-attachments/assets/b58039a3-f988-457a-9a17-0dab73696cee" />
 
