@@ -1,3 +1,22 @@
+# TrekForge
+
+TREK is "A self-hosted, real-time collaborative travel planner — with maps, budgets, packing lists, a journal, and AI built in."
+
+TrekForge is my fork of Trek. It adds:
+
+1. **Automatic Time Scheduling & Calendar Mode**: If you set when you want to wake up each day and how long you want to spend on each location, it will calculate the start and end time for you automatically.
+   * **Time-aware, Traffic-aware Routing**: Route time are vastly different if you depart at different hour, due to traffic. This fork automatically account for that.
+     * **Toll Fees**: It will display toll fees for each route, and you can set if you want to avoid tolls.
+   * **Opening/Closing Hours**: It will automatically warn you if your planned location falls outside of the opening hours.
+2. **Transit Routing**: Routing can use public transit now
+
+## One screenshot to sum up everything
+
+<img width="2035" height="1894" alt="image" src="https://github.com/user-attachments/assets/b58039a3-f988-457a-9a17-0dab73696cee" />
+
+
+## Below is the README of the original TREK:
+
 <div align="center">
 
 <picture>
