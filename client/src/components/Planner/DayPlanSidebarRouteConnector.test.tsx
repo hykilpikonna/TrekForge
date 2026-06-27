@@ -24,6 +24,12 @@ describe('DayPlanSidebarRouteConnector', () => {
     expect(screen.getByText('ETC \u00a58620')).toBeInTheDocument()
   })
 
+  it('renders fare text for route connectors', () => {
+    render(<RouteConnector seg={{ ...segment, tollText: undefined, fareText: 'Free' }} profile="transit" />)
+
+    expect(screen.getByText('Free')).toBeInTheDocument()
+  })
+
   it('renders toll text for hotel route connectors', () => {
     render(<HotelRouteConnector seg={segment} profile="driving" name="Tokyo Hotel" placement="top" />)
 

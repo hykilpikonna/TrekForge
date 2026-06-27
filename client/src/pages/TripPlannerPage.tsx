@@ -216,7 +216,13 @@ export default function TripPlannerPage(): React.ReactElement | null {
   const poi = usePoiExplore()
   const [glMap, setGlMap] = useState<CompassMap | null>(null)
   const [selectedRouteDetails, setSelectedRouteDetails] = useState<PlannerRouteDetailsSelection | null>(null)
+  const [routeFocusVersion, setRouteFocusVersion] = useState(0)
   const poiPillEnabled = useSettingsStore(s => s.settings.map_poi_pill_enabled) !== false
+  const handleRouteDetailsSelect = useCallback((selection: PlannerRouteDetailsSelection | null) => {
+    setSelectedRouteDetails(selection)
+    if (selection) setRouteFocusVersion(v => v + 1)
+  }, [])
+  const routeDetailsMapOffset = selectedRouteDetails && routeShown && !leftCollapsed && !isMobile ? 352 : 0
 
   useEffect(() => {
     if (!routeShown || activeTab !== 'plan') setSelectedRouteDetails(null)
@@ -325,10 +331,12 @@ export default function TripPlannerPage(): React.ReactElement | null {
               tileUrl={mapTileUrl}
               fitKey={fitKey}
               dayOrderMap={dayOrderMap}
-              leftWidth={leftCollapsed ? 0 : leftWidth}
+              leftWidth={leftCollapsed ? 0 : leftWidth + routeDetailsMapOffset}
               rightWidth={rightCollapsed ? 0 : rightWidth}
               hasInspector={!!selectedPlace}
               hasDayDetail={!!showDayDetail && !selectedPlace}
+              focusedRouteSegment={selectedRouteDetails?.segment ?? null}
+              focusedRouteKey={selectedRouteDetails ? `${selectedRouteDetails.key}:${routeFocusVersion}` : null}
               reservations={reservations}
               showReservationStats={true}
               visibleConnectionIds={visibleConnections}
@@ -424,7 +432,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   onToggleRoute={() => setRouteShown(v => !v)}
                   onSetRouteProfile={setRouteProfile}
                   selectedRouteKey={selectedRouteDetails?.key ?? null}
-                  onRouteDetailsSelect={setSelectedRouteDetails}
+                  onRouteDetailsSelect={handleRouteDetailsSelect}
                   onNavigateToFiles={() => handleTabChange('dateien')}
                   onExpandedDaysChange={setExpandedDayIds}
                   pushUndo={pushUndo}
@@ -669,7 +677,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                           selectedDayId={selectedDayId}
                           selectedPlaceId={selectedPlaceId}
                           selectedAssignmentId={selectedAssignmentId}
-                          onSelectDay={(id) => { handleSelectDay(id); setMobileSidebarOpen(null) }}
+                          onSelectDay={(id, skipFit) => { handleSelectDay(id, skipFit); setMobileSidebarOpen(null) }}
                           onPlaceClick={(placeId, assignmentId) => { handlePlaceClick(placeId, assignmentId) }}
                           onReorder={handleReorder}
                           onReorderDays={handleReorderDays}
@@ -695,7 +703,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                           onToggleRoute={() => setRouteShown(v => !v)}
                           onSetRouteProfile={setRouteProfile}
                           selectedRouteKey={selectedRouteDetails?.key ?? null}
-                          onRouteDetailsSelect={setSelectedRouteDetails}
+                          onRouteDetailsSelect={handleRouteDetailsSelect}
                           onNavigateToFiles={() => { setMobileSidebarOpen(null); handleTabChange('dateien') }}
                           onExpandedDaysChange={setExpandedDayIds}
                           pushUndo={pushUndo}

@@ -79,6 +79,8 @@ interface Props {
   dayPlaces?: Place[]
   route?: [number, number][][] | null
   routeSegments?: RouteSegment[] | null
+  focusedRouteSegment?: RouteSegment | null
+  focusedRouteKey?: string | null
   selectedPlaceId?: number | null
   onMarkerClick?: (id: number) => void
   hoverDisabled?: boolean
@@ -198,6 +200,8 @@ export function MapViewGL({
   dayPlaces = [],
   route = null,
   routeSegments = [],
+  focusedRouteSegment = null,
+  focusedRouteKey = null,
   selectedPlaceId = null,
   hoverDisabled = false,
   onMarkerClick,
@@ -291,10 +295,21 @@ export function MapViewGL({
     () => buildDisplayRouteLineSegments(route, routeSegments),
     [route, routeSegments],
   )
+  const focusedRouteLineSegments = useMemo(
+    () => buildDisplayRouteLineSegments(null, focusedRouteSegment ? [focusedRouteSegment] : []),
+    [focusedRouteSegment],
+  )
   const routeFitPoints = useMemo(() => routeLineBoundsPoints(displayRouteLineSegments), [displayRouteLineSegments])
   const routeFitKey = useMemo(
     () => routeFitPoints.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|'),
     [routeFitPoints],
+  )
+  const focusedRouteFitPoints = useMemo(() => routeLineBoundsPoints(focusedRouteLineSegments), [focusedRouteLineSegments])
+  const focusedRouteFitKey = useMemo(
+    () => focusedRouteKey && focusedRouteFitPoints.length > 0
+      ? `${focusedRouteKey}:${focusedRouteFitPoints.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|')}`
+      : '',
+    [focusedRouteKey, focusedRouteFitPoints],
   )
 
   // Build/rebuild the map on provider/style/token/3d change
@@ -1016,6 +1031,28 @@ export function MapViewGL({
     if (!fitted && typeof map.once === 'function') map.once('load', run)
     if (routeArrivedForPendingFit) pendingRouteFitRef.current = null
   }, [fitKey, routeFitKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!focusedRouteFitKey || focusedRouteFitPoints.length < 2) return
+    const map = mapRef.current
+    if (!map) return
+    const bounds = new gl.LngLatBounds()
+    focusedRouteFitPoints.forEach(([lat, lng]) => bounds.extend([lng, lat]))
+    let fitted = false
+    const run = () => {
+      try {
+        map.fitBounds(bounds, {
+          padding: paddingOpts,
+          maxZoom: 16,
+          pitch: enableMapbox3d ? 45 : 0,
+          duration: 400,
+        })
+        fitted = true
+      } catch { /* noop */ }
+    }
+    run()
+    if (!fitted && typeof map.once === 'function') map.once('load', run)
+  }, [focusedRouteFitKey, focusedRouteFitPoints, paddingOpts, enableMapbox3d, gl])
 
   // flyTo selected place
   useEffect(() => {

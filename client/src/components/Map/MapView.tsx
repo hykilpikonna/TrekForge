@@ -10,7 +10,7 @@ import { mapsApi } from '../../api/client'
 import { getCategoryIcon, CATEGORY_ICON_MAP, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import ReservationOverlay from './ReservationOverlay'
 import { useTransportRoutes } from '../../hooks/useTransportRoutes'
-import type { Reservation } from '../../types'
+import type { Reservation, RouteSegment } from '../../types'
 import { POI_CATEGORY_BY_KEY, type Poi } from './poiCategories'
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
@@ -285,6 +285,41 @@ function BoundsController({ places, routeCoords, fitKey, paddingOpts, hasDayDeta
   return null
 }
 
+function routeSegmentFitPoints(segment: RouteSegment | null | undefined): [number, number][] {
+  return buildDisplayRouteLineSegments(null, segment ? [segment] : [])
+    .flatMap(line => line.coordinates)
+    .filter((point): point is [number, number] => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]))
+}
+
+function RouteFocusController({
+  segment,
+  focusKey,
+  paddingOpts,
+}: {
+  segment?: RouteSegment | null
+  focusKey?: string | null
+  paddingOpts: L.FitBoundsOptions
+}) {
+  const map = useMap()
+  const points = useMemo(() => routeSegmentFitPoints(segment), [segment])
+  const pointKey = useMemo(
+    () => points.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|'),
+    [points],
+  )
+  const effectiveFocusKey = focusKey && pointKey ? `${focusKey}:${pointKey}` : null
+
+  useEffect(() => {
+    if (!effectiveFocusKey) return
+    if (points.length < 2) return
+    try {
+      const bounds = L.latLngBounds(points)
+      if (bounds.isValid()) map.fitBounds(bounds, { ...paddingOpts, maxZoom: 16, animate: true })
+    } catch {}
+  }, [effectiveFocusKey, points, paddingOpts, map])
+
+  return null
+}
+
 interface MapClickHandlerProps {
   onClick: ((e: L.LeafletMouseEvent) => void) | null
 }
@@ -433,6 +468,8 @@ export const MapView = memo(function MapView({
   dayPlaces = [],
   route = null,
   routeSegments = [],
+  focusedRouteSegment = null,
+  focusedRouteKey = null,
   selectedPlaceId = null,
   hoverDisabled = false,
   onMarkerClick,
@@ -685,6 +722,7 @@ export const MapView = memo(function MapView({
 
       <MapController center={center} zoom={zoom} />
       <BoundsController places={dayPlaces.length > 0 ? dayPlaces : places} routeCoords={dayPlaces.length > 0 ? routeCoords : []} fitKey={fitKey} paddingOpts={paddingOpts} hasDayDetail={hasDayDetail} />
+      <RouteFocusController segment={focusedRouteSegment} focusKey={focusedRouteKey} paddingOpts={paddingOpts} />
       <SelectionController places={places} selectedPlaceId={selectedPlaceId} dayPlaces={dayPlaces} paddingOpts={paddingOpts} />
       <MapClickHandler onClick={onMapClick} />
       <MapContextMenuHandler onContextMenu={onMapContextMenu} />
