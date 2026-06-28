@@ -28,7 +28,9 @@ import { parseTimeToMinutes } from '../../utils/dayMerge'
 
 const detailsCache = new Map()
 const INFO_BLOCK_CLASS = 'mb-2 break-inside-avoid rounded-[10px] bg-surface-hover px-3 py-2.5'
+const INFO_BLOCK_FLUSH_CLASS = 'mb-2 break-inside-avoid overflow-hidden rounded-[10px] bg-surface-hover'
 const INFO_BLOCK_HEADER_CLASS = 'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-content-secondary'
+const POPULAR_TIME_HIGHLIGHT_COLOR = 'var(--journal-accent)'
 
 function getSessionCache(key) {
   try {
@@ -89,7 +91,7 @@ function isScheduledPopularHour(day: number, hour: number, schedule?: PopularTim
 }
 
 function popularBarBackground(percent: number, peak: number, scheduled: boolean): string {
-  if (scheduled) return 'var(--accent)'
+  if (scheduled) return POPULAR_TIME_HIGHLIGHT_COLOR
   if (percent <= 0) return 'color-mix(in srgb, var(--text-faint) 34%, transparent)'
   if (percent === peak) return 'color-mix(in srgb, var(--accent) 76%, var(--text-primary))'
   return 'color-mix(in srgb, var(--accent) 44%, var(--text-muted))'
@@ -341,6 +343,7 @@ export default function PlaceInspector({
   const popularStatus = cleanText(googleDetails?.popular_status)
   const photoCount = Array.isArray(googleDetails?.photos) ? googleDetails.photos.length : 0
   const phoneLabel = t('inspector.phone') === 'inspector.phone' ? 'Phone' : t('inspector.phone')
+  const summaryText = place.description || googleDetails?.summary || ''
   const selectedDay = days?.find(d => d.id === selectedDayId)
   const weekdayIndex = getWeekdayIndex(selectedDay?.date)
   const normalizedScheduleMargin = Math.max(0, Math.round(Number(scheduleMarginMinutes) || 0))
@@ -440,69 +443,73 @@ export default function PlaceInspector({
 
           <PlacePhotoPreview place={place} details={googleDetails} photoCount={photoCount} t={t} />
 
-          {assignmentInDay && selectedDayId && (
-            <AssignmentDurationControl
-              assignment={assignmentInDay}
-              dayId={selectedDayId}
-              placeDurationMinutes={place.duration_minutes}
-              onUpdateAssignmentDuration={onUpdateAssignmentDuration}
-              t={t}
-            />
-          )}
-
           <div data-testid="inspector-info-scroll" className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
-            <div data-testid="inspector-info-columns" className="columns-1 gap-2 sm:columns-2">
-              {/* Phone */}
-              {(place.phone || googleDetails?.phone) && (
-                <div className={INFO_BLOCK_CLASS}>
-                  <div className={INFO_BLOCK_HEADER_CLASS}>
-                    <Phone size={13} className="text-content-faint" /> {phoneLabel}
+            <div data-testid="inspector-info-columns" className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-start">
+              <div data-testid="inspector-info-left" className="min-w-0">
+                {assignmentInDay && selectedDayId && (
+                  <AssignmentDurationControl
+                    assignment={assignmentInDay}
+                    dayId={selectedDayId}
+                    placeDurationMinutes={place.duration_minutes}
+                    onUpdateAssignmentDuration={onUpdateAssignmentDuration}
+                    t={t}
+                  />
+                )}
+
+                {/* Phone */}
+                {(place.phone || googleDetails?.phone) && (
+                  <div className={INFO_BLOCK_CLASS}>
+                    <div className={INFO_BLOCK_HEADER_CLASS}>
+                      <Phone size={13} className="text-content-faint" /> {phoneLabel}
+                    </div>
+                    <a
+                      href={`tel:${place.phone || googleDetails.phone}`}
+                      className="inline-flex items-center gap-1 text-xs text-content no-underline [word-break:break-word]"
+                    >
+                      {place.phone || googleDetails.phone}
+                    </a>
                   </div>
-                  <a
-                    href={`tel:${place.phone || googleDetails.phone}`}
-                    className="inline-flex items-center gap-1 text-xs text-content no-underline [word-break:break-word]"
-                  >
-                    {place.phone || googleDetails.phone}
-                  </a>
-                </div>
-              )}
+                )}
 
-              {/* Description / Summary */}
-              {(place.description || googleDetails?.summary) && (
-                <div className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
-                  <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.description || googleDetails?.summary || ''}</Markdown>
-                </div>
-              )}
+                {/* Notes */}
+                {place.notes && (
+                  <div className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
+                    <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.notes}</Markdown>
+                  </div>
+                )}
 
-              {/* Notes */}
-              {place.notes && (
-                <div className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
-                  <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.notes}</Markdown>
-                </div>
-              )}
+                {mode === 'trip' && (
+                  <PlaceReservationParticipants selectedAssignmentId={selectedAssignmentId} reservations={reservations}
+                    assignments={assignments} selectedDayId={selectedDayId} tripMembers={tripMembers} locale={locale}
+                    timeFormat={timeFormat} t={t} onSetParticipants={onSetParticipants} />
+                )}
 
-              {mode === 'trip' && (
-                <PlaceReservationParticipants selectedAssignmentId={selectedAssignmentId} reservations={reservations}
-                  assignments={assignments} selectedDayId={selectedDayId} tripMembers={tripMembers} locale={locale}
-                  timeFormat={timeFormat} t={t} onSetParticipants={onSetParticipants} />
-              )}
+                <PlaceExtras openingHours={openingHours} weekdayIndex={weekdayIndex} hoursExpanded={hoursExpanded}
+                  setHoursExpanded={setHoursExpanded} timeFormat={timeFormat} t={t} place={place} placeFiles={placeFiles}
+                  onFileUpload={onFileUpload} filesExpanded={filesExpanded} setFilesExpanded={setFilesExpanded}
+                  fileInputRef={fileInputRef} handleFileUpload={handleFileUpload} isUploading={isUploading}
+                  distanceUnit={distanceUnit} />
+              </div>
 
-              <PlaceExtras openingHours={openingHours} weekdayIndex={weekdayIndex} hoursExpanded={hoursExpanded}
-                setHoursExpanded={setHoursExpanded} timeFormat={timeFormat} t={t} place={place} placeFiles={placeFiles}
-                onFileUpload={onFileUpload} filesExpanded={filesExpanded} setFilesExpanded={setFilesExpanded}
-                fileInputRef={fileInputRef} handleFileUpload={handleFileUpload} isUploading={isUploading}
-                distanceUnit={distanceUnit} />
+              <div data-testid="inspector-info-right" className="min-w-0">
+                {/* Description / Summary */}
+                {summaryText && (
+                  <div data-testid="inspector-summary" className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
+                    <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{summaryText}</Markdown>
+                  </div>
+                )}
 
-              <GoogleDetailsSections
-                accessibility={accessibility}
-                reviews={reviews}
-                popularTimes={popularTimes}
-                popularStatus={popularStatus}
-                popularSchedule={popularSchedule}
-                locale={locale}
-                timeFormat={timeFormat}
-                t={t}
-              />
+                <GoogleDetailsSections
+                  accessibility={accessibility}
+                  reviews={reviews}
+                  popularTimes={popularTimes}
+                  popularStatus={popularStatus}
+                  popularSchedule={popularSchedule}
+                  locale={locale}
+                  timeFormat={timeFormat}
+                  t={t}
+                />
+              </div>
             </div>
           </div>
 
@@ -763,7 +770,7 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
               const isScheduledDay = popularSchedule?.day === day
               return (
                 <div key={day} data-testid={`popular-times-day-${day}`} className="grid grid-cols-[34px_minmax(0,1fr)_34px] items-center gap-1.5">
-                  <span className={`text-[10px] font-semibold ${isScheduledDay ? 'text-accent' : 'text-content-faint'}`}>{weekdayName(day, locale)}</span>
+                  <span className="text-[10px] font-semibold text-content-faint">{weekdayName(day, locale)}</span>
                   <div className="grid h-7 grid-cols-[repeat(24,minmax(2px,1fr))] items-end gap-0.5">
                     {Array.from({ length: 24 }, (_, hour) => {
                       const percent = byHour.get(hour) ?? 0
@@ -778,7 +785,7 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
                           <div
                             data-testid={`popular-time-slot-${day}-${hour}`}
                             aria-label={tooltip}
-                            className={`w-full rounded-sm transition-[height,background] ${scheduled ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface-hover' : ''}`}
+                            className="w-full rounded-sm transition-[height,background]"
                             style={{
                               height: `${barHeight}px`,
                               background: popularBarBackground(percent, peak, scheduled),
@@ -862,35 +869,36 @@ function AssignmentDurationControl({
     value,
   ])
 
+  const scheduledDurationLabel = t('inspector.scheduledDuration') === 'inspector.scheduledDuration'
+    ? 'Scheduled Duration'
+    : t('inspector.scheduledDuration')
+
   return (
-    <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2 rounded-[10px] bg-surface-hover px-2.5 py-2">
-      <Clock size={14} className="mt-[18px] text-content-faint" />
-      <div className="min-w-0">
-        <label htmlFor={inputId} className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.03em] text-content-faint">
-          {t('places.durationMinutes')}
-        </label>
-        <input
-          id={inputId}
-          type="text"
-          inputMode="text"
-          value={value}
-          disabled={!onUpdateAssignmentDuration || isSaving}
-          onChange={e => setValue(e.target.value)}
-          onBlur={() => { void commitDuration() }}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              e.currentTarget.blur()
-            }
-            if (e.key === 'Escape') {
-              setValue(formatDurationInput(currentMinutes))
-              e.currentTarget.blur()
-            }
-          }}
-          placeholder={t('places.durationPlaceholder')}
-          className="form-input w-full"
-        />
-      </div>
+    <div className={INFO_BLOCK_CLASS}>
+      <label htmlFor={inputId} className={INFO_BLOCK_HEADER_CLASS}>
+        <Clock size={13} className="text-content-faint" /> {scheduledDurationLabel}
+      </label>
+      <input
+        id={inputId}
+        type="text"
+        inputMode="text"
+        value={value}
+        disabled={!onUpdateAssignmentDuration || isSaving}
+        onChange={e => setValue(e.target.value)}
+        onBlur={() => { void commitDuration() }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            e.currentTarget.blur()
+          }
+          if (e.key === 'Escape') {
+            setValue(formatDurationInput(currentMinutes))
+            e.currentTarget.blur()
+          }
+        }}
+        placeholder={t('places.durationPlaceholder')}
+        className="form-input w-full text-xs"
+      />
     </div>
   )
 }
@@ -1215,7 +1223,7 @@ function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpand
   return (
           <>
           {openingHours && openingHours.length > 0 && (
-            <div className={`${INFO_BLOCK_CLASS} overflow-hidden px-0 py-0`}>
+            <div className={INFO_BLOCK_FLUSH_CLASS}>
               <button
                 onClick={() => setHoursExpanded(h => !h)}
                 className="flex w-full cursor-pointer items-center justify-between border-0 bg-transparent px-3 py-2 font-[inherit]"
@@ -1333,7 +1341,7 @@ function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpand
 
           {/* Files section */}
           {(placeFiles.length > 0 || onFileUpload) && (
-            <div className={`${INFO_BLOCK_CLASS} overflow-hidden px-0 py-0`}>
+            <div className={INFO_BLOCK_FLUSH_CLASS}>
               <div className="flex items-center gap-1.5 px-3 py-2">
                 <button
                   onClick={() => setFilesExpanded(f => !f)}

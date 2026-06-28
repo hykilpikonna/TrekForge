@@ -280,7 +280,8 @@ describe('PlaceInspector', () => {
       />
     );
 
-    expect(screen.getByLabelText('Duration')).toHaveValue('1h 15m');
+    expect(screen.getByLabelText('Scheduled Duration')).toHaveValue('1h 15m');
+    expect(screen.getByTestId('inspector-info-left').firstElementChild?.textContent).toContain('Scheduled Duration');
     expect(screen.queryByLabelText('Margin before')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Margin after')).not.toBeInTheDocument();
   });
@@ -299,7 +300,7 @@ describe('PlaceInspector', () => {
       />
     );
 
-    const durationInput = screen.getByLabelText('Duration');
+    const durationInput = screen.getByLabelText('Scheduled Duration');
     await user.clear(durationInput);
     await user.type(durationInput, '2h');
     await user.keyboard('{Enter}');
@@ -338,7 +339,7 @@ describe('PlaceInspector', () => {
       />
     );
 
-    const durationInput = screen.getByLabelText('Duration');
+    const durationInput = screen.getByLabelText('Scheduled Duration');
     await user.clear(durationInput);
     await user.type(durationInput, 'two hours');
     fireEvent.blur(durationInput);
@@ -481,13 +482,17 @@ describe('PlaceInspector', () => {
 
     await screen.findByTestId('popular-times-day-2');
     expect(screen.queryByTestId('popular-times-day-3')).toBeNull();
+    expect(screen.getByTestId('popular-times-day-2').firstElementChild?.className).toContain('text-content-faint');
+    expect(screen.getByTestId('popular-times-day-2').firstElementChild?.className).not.toContain('journal-accent');
     const scheduledSlot = screen.getByTestId('popular-time-slot-2-8');
-    expect(scheduledSlot.className).toContain('ring-2');
+    expect(scheduledSlot.className).not.toContain('ring-');
+    expect(scheduledSlot.getAttribute('style')).toContain('var(--journal-accent)');
     expect(scheduledSlot.getAttribute('aria-label')).toContain('08:00');
     expect(scheduledSlot.getAttribute('aria-label')).toContain('35%');
 
     await user.click(screen.getByRole('button', { name: /Popular times/i }));
     expect(await screen.findByTestId('popular-times-day-3')).toBeTruthy();
+    expect(screen.getByTestId('popular-time-slot-3-8').getAttribute('style')).not.toContain('var(--journal-accent)');
   });
 
   it('FE-PLANNER-INSPECTOR-024c: photo preview prefers enriched Google IDs from expanded details', async () => {
@@ -886,8 +891,21 @@ describe('PlaceInspector', () => {
     expect(shell.className).toContain('min-h-0');
     expect(infoScroll.className).toContain('overflow-y-auto');
     expect(infoScroll.className).toContain('flex-1');
-    expect(columns.className).toContain('columns-1');
-    expect(columns.className).toContain('sm:columns-2');
+    expect(columns.className).toContain('grid-cols-1');
+    expect(columns.className).toContain('sm:grid-cols-2');
+  });
+
+  it('FE-PLANNER-INSPECTOR-046b: summary is the first block in the right info column', () => {
+    const p = buildPlace({
+      id: 203,
+      description: 'Official summary text',
+      notes: 'Private notes',
+      phone: '+81 50 0000 0000',
+    } as any);
+    render(<PlaceInspector {...defaultProps} place={p} />);
+    const rightColumn = screen.getByTestId('inspector-info-right') as HTMLElement;
+    expect(rightColumn.firstElementChild).toHaveAttribute('data-testid', 'inspector-summary');
+    expect(rightColumn.firstElementChild?.textContent).toContain('Official summary text');
   });
 
   it('FE-PLANNER-INSPECTOR-047: long unbroken description wraps instead of clipping horizontally', () => {
