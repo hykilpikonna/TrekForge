@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent, act } from '../../../tests/helpers/render';
 import userEvent from '@testing-library/user-event';
-import { buildUser, buildTrip, buildPlace, buildCategory, buildReservation, buildAssignment } from '../../../tests/helpers/factories';
+import { buildUser, buildTrip, buildPlace, buildCategory, buildReservation, buildAssignment, buildDay } from '../../../tests/helpers/factories';
 import { resetAllStores, seedStore } from '../../../tests/helpers/store';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
@@ -451,6 +451,43 @@ describe('PlaceInspector', () => {
     expect(screen.getByText('Popular times')).toBeTruthy();
     expect(screen.getByText('Now: Usually not too busy')).toBeTruthy();
     expect(screen.getByText('50%')).toBeTruthy();
+  });
+
+  it('FE-PLANNER-INSPECTOR-024b2: popular times collapse to scheduled day and highlight scheduled hours', async () => {
+    const user = userEvent.setup();
+    vi.mocked(mapsApi.details).mockResolvedValue({
+      place: {
+        popular_times: [
+          { day: 2, hour: 8, occupancy_percent: 35 },
+          { day: 2, hour: 9, occupancy_percent: 65 },
+          { day: 3, hour: 8, occupancy_percent: 20 },
+        ],
+      },
+    } as any);
+    const p = buildPlace({ id: 208, name: 'Morning Museum', google_place_id: 'ChIJSchedule' });
+    const assignment = buildAssignment({ id: 501, day_id: 12, place: p, duration_minutes: 120, order_index: 0 });
+    const day = buildDay({ id: 12, date: '2026-12-01', wake_up_time: '08:00' });
+
+    render(
+      <PlaceInspector
+        {...defaultProps}
+        place={p}
+        days={[day]}
+        selectedDayId={12}
+        selectedAssignmentId={501}
+        assignments={{ '12': [assignment] }}
+      />
+    );
+
+    await screen.findByTestId('popular-times-day-2');
+    expect(screen.queryByTestId('popular-times-day-3')).toBeNull();
+    const scheduledSlot = screen.getByTestId('popular-time-slot-2-8');
+    expect(scheduledSlot.className).toContain('ring-2');
+    expect(scheduledSlot.getAttribute('aria-label')).toContain('08:00');
+    expect(scheduledSlot.getAttribute('aria-label')).toContain('35%');
+
+    await user.click(screen.getByRole('button', { name: /Popular times/i }));
+    expect(await screen.findByTestId('popular-times-day-3')).toBeTruthy();
   });
 
   it('FE-PLANNER-INSPECTOR-024c: photo preview prefers enriched Google IDs from expanded details', async () => {
