@@ -30,10 +30,24 @@ describe('DayPlanSidebarRouteConnector', () => {
     expect(screen.getByText('Free')).toBeInTheDocument()
   })
 
+  it('renders route errors without duration or distance text', () => {
+    render(<RouteConnector seg={{ ...segment, errorText: 'Failed to calculate route', distanceText: '', durationText: '' }} profile="driving" onClick={vi.fn()} />)
+
+    expect(screen.getByText('Failed to calculate route')).toBeInTheDocument()
+    expect(screen.queryByText('1.2 km')).not.toBeInTheDocument()
+  })
+
   it('renders toll text for hotel route connectors', () => {
     render(<HotelRouteConnector seg={segment} profile="driving" name="Tokyo Hotel" placement="top" />)
 
     expect(screen.getByText('Tokyo Hotel')).toBeInTheDocument()
     expect(screen.getByText('ETC \u00a58620')).toBeInTheDocument()
+  })
+
+  it('renders route errors for hotel route connectors', () => {
+    render(<HotelRouteConnector seg={{ ...segment, errorText: 'Failed to calculate route', distanceText: '', durationText: '' }} profile="driving" name="Tokyo Hotel" placement="bottom" onClick={vi.fn()} />)
+
+    expect(screen.getByText('Tokyo Hotel')).toBeInTheDocument()
+    expect(screen.getByText('Failed to calculate route')).toBeInTheDocument()
   })
 })

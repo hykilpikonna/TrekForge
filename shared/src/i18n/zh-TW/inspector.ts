@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': '編輯預訂',
   'inspector.participants': '參與者',
   'inspector.trackStats': '軌跡資料',
+  'inspector.accessibility': '無障礙設施',
+  'inspector.accessible': '無障礙',
+  'inspector.accessibilityLimited': '無障礙設施有限',
+  'inspector.reviews': '評論',
+  'inspector.popularTimes': '熱門時段',
+  'inspector.photosCount': '{count} 張相片',
 };
 export default inspector;

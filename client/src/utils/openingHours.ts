@@ -16,6 +16,9 @@ export interface PlaceOpeningDetails {
   opening_hours?: string[] | null
   business_status?: string | null
   cached_at?: number | null
+  name?: string | null
+  name_original?: string | null
+  name_translated?: string | null
 }
 
 export type OpeningHoursWarningKind =

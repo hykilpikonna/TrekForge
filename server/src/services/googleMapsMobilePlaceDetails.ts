@@ -4,6 +4,7 @@ import {
   GOOGLE_MAPS_FTID_RE,
   type GoogleMapsPreviewOpeningPeriod,
   type GoogleMapsPreviewOpeningPoint,
+  type GoogleMapsPreviewPopularTime,
   type GoogleMapsPreviewPlaceDetails,
 } from './googleMapsPreviewPlaceDetails';
 
@@ -12,6 +13,22 @@ export interface GoogleMapsMobilePlaceDetailsRequest {
   language?: string;
   timeoutMs?: number;
   includeRaw?: boolean;
+}
+
+export interface GoogleMapsMobilePlacePhoto {
+  url: string;
+  width: number | null;
+  height: number | null;
+  attribution: string | null;
+  source: 'google_maps_mobile';
+}
+
+export interface GoogleMapsMobileRichPlaceDetails {
+  popular_times: GoogleMapsPreviewPopularTime[] | null;
+  popular_status: string | null;
+  reviews: unknown[];
+  photos: GoogleMapsMobilePlacePhoto[];
+  summary: string | null;
 }
 
 interface NormalizedRequest {
@@ -52,6 +69,49 @@ const PLACE_DETAILS_FIELD_MASK = Buffer.from(
   '10011801200128014001480150015801800101880101980101a80101b00101ba01020801',
   'hex',
 );
+const RICH_PLACE_PHOTOS_TEMPLATE_FTID = '0x351545d4efdf5d53:0xd7b655e89ee76487';
+const RICH_PLACE_PHOTOS_REQUEST_BASE64 = [
+  'ABhGn1Se+1h53QAFZW4tVVMADmlvczppUGhvbmUxNiwxABIyNS40Ny4wLjgzMzU0MjkzMDAADGlPUy1BcHBTdG9yZQA+AAAC',
+  'XAoEMTE5MSABKg9jb20uZ29vZ2xlLk1hcHMyAkpQOAFC0AE1MzI9dXJ3dFhqYThWVl91NXdDc0RyQXNRdnlKOVliUEZ0RURl',
+  'ZHp0RkhWY2V3UFh1Y2FuSzFBY2dvSzB4SlR5MW1UYmFWTFFROHViX3R3YW45NmpzRFprNno2VzNrYkFCdlVZeDBjM1hxMWdw',
+  'RFAwbDJmT2tuZFZzRnc2YThzWVAtNWc4S3ZnenA4QkpfakFnTnZQY2JwbjNVSTVpOGw1aWZMelFvMmZFSFhadE83UTZZRnVL',
+  'RWxETWVJd2xHczMtTG83SE5yaUpVTFVJTVdrqAEAsAEEwAEByAEB2gEGMTguNy4ygAIBiAIBmgMCEAPaA+MBrLIM6beoEsnS',
+  'zyKX4PUstIX2LMqV9iyXg/csop33LNee9yzwkvgs16X4LNup+CyjtfgsrvD4LOGR+Sy0lvksp5r5LKma+Sy6pfks/6r5LJKx',
+  '+SyKs/ks/7z5LMe++SzLv/ksrMb5LNbN+SzW2fksn/j5LIb/+Sy3m/osw776LKj4+izHh/ssgZD7LIK6+yyR36Mv7b6nL7j0',
+  'hTCD54cw+vCHMMWliDDl+IgwvYWJMISGiTDin4kw8qeJMKnTiTCK6Ykw6MDjMc+15TGlkLEyvNq/MvH6xjL1+sYy+frGMqO9',
+  'yjLwAwKIBACSBBIyNS40Ny4wLjgzMzU0MjkzMDCgBPQDqgQAwAQCyAQP0gQ4QWRKVkVhdmZFVlgyTWxwN2dJS1VHUjZ3OE1l',
+  'TmFEbko0cjcxcXRVdFA0YmhEbHRsRE1EZWw2OS0AlwAAB/UKJTB4MzUxNTQ1ZDRlZmRmNWQ1MzoweGQ3YjY1NWU4OWVlNzY0',
+  'ODcSN0hhc2hpbWEgQ29hbCBNaW5lIFJ1aW5zCuerr+WztueCremJsei3oQpSZWNlbnRseSB2aWV3ZWQaRwobCTifvyZQc3ZA',
+  'EQEArNedN2BAGc/7rlwnUEBAEg8NAAAAABUAAAAAHQAAAAAaBgiJAxC6BCUBAPBBMgoNAAAAABUAAAAAIAwgDSoOCAEQAVoC',
+  'EAGYAQGgAQEyBAh4EHg6EhIKCJoIENACGAIgDBgDKgIIAUoJGAEiAxD9JjhZUhIRAQCs1503YEAZT1YxQzFQQEBinwsKPyAC',
+  'ahEQARgBIAEwAUABSAFoAcgBAXoCCACSASMQAUABSAFwAYgBAZABAaABAbABAdABAegBAYACAagCAbACAUgBWgwIAAgDCAAI',
+  'AxgBGAGIAQGiAW4SBAgBEAASBAgDEAASBAgEEAASBAgGEAASBAgKEAASBAgLEAASBAgQEAASBAgUEAASBAgBEAASBAgDEAAS',
+  'BAgEEAASBAgGEAASBAgKEAASBAgLEAASBAgQEAASBAgUEAA4AUAAYggIABAAIAAoAKgBArgBAcABAMgBAdABAdgBAegBAfIB',
+  'AhABoAIBqAIByAIB2AIB4AIBoAMBsgMECAEYAcIDCBgBKAE4AVAB6gMQCgIIAQoCCAQKAggBCgIIBPgDAYoEEhoQCgYKBAhu',
+  'EG4KBgoECG4QbqoEBAgBEAHCBD4KNhABKAE4AWIuCAEQASICCAMiAggEIgIIBSICCAYiAggHIgIIAyICCAQiAggFIgIIBiIC',
+  'CAcoASABKAFIAcoEJAgBEgcKBXRyYW1zEgYKBGJhc2USBwoFdHJhbXMSBgoEYmFzZdgEAeIEAggA8AQBggVuCmgIAQgDCAcI',
+  'BQgJCAoICwgPCBIIEAgGCAEIAwgHCAUICQgKCAsIDwgSCBAIBhICCAIYARgCGAkYBxgIGAoYCxgMGA0YFhgXGBoYIBghGAEY',
+  'AhgJGAcYCBgKGAsYDBgNGBYYFxgaGCAYIRICEAOgBQG6BQIQAdIFCAoCCAMKAggD6gWkBgoCCAAKAggOCgIIMQoCCD8KAghN',
+  'CgIIYgoCCGkKAghwCgIIdwoCCAUKAggMCgIIEwoCCBoKAgghCgIIKAoCCDYKAghECgIISwoCCFIKAghnCgIIbgoCCHUKAgh8',
+  'CgMIgwEKAwiKAQoCCAMKAggRCgIIGAoCCDsKAghCCgIISQoCCFAKAghXCgIIXgoCCHoKAwiBAQoDCIgBCgIIAQoCCAgKAggP',
+  'CgIIFgoCCDIKAgg5CgIIQAoCCEcKAghOCgIIVQoCCFwKAghxCgIIeAoDCIYBCgMIjQEKAggGCgIIGwoCCCIKAgg3CgIIPgoC',
+  'CEUKAghMCgIIUwoCCFoKAghhCgIIaAoCCG8KAgh2CgIIfQoDCIQBCgMIiwEKAggECgIICwoCCBkKAggnCgIIPAoCCFEKAghY',
+  'CgIIXwoCCG0KAwiCAQoDCJABCgIIAgoCCB4KAgglCgIILAoCCEEKAghPCgIIVgoCCF0KAghkCgIIawoCCHIKAgh5CgMIhwEK',
+  'AwiOAQoCCAAKAggOCgIIMQoCCD8KAghNCgIIYgoCCGkKAghwCgIIdwoCCAUKAggMCgIIEwoCCBoKAgghCgIIKAoCCDYKAghE',
+  'CgIISwoCCFIKAghnCgIIbgoCCHUKAgh8CgMIgwEKAwiKAQoCCAMKAggRCgIIGAoCCDsKAghCCgIISQoCCFAKAghXCgIIXgoC',
+  'CHoKAwiBAQoDCIgBCgIIAQoCCAgKAggPCgIIFgoCCDIKAgg5CgIIQAoCCEcKAghOCgIIVQoCCFwKAghxCgIIeAoDCIYBCgMI',
+  'jQEKAggGCgIIGwoCCCIKAgg3CgIIPgoCCEUKAghMCgIIUwoCCFoKAghhCgIIaAoCCG8KAgh2CgIIfQoDCIQBCgMIiwEKAggE',
+  'CgIICwoCCBkKAggnCgIIPAoCCFEKAghYCgIIXwoCCG0KAwiCAQoDCJABCgIIAgoCCB4KAgglCgIILAoCCEEKAghPCgIIVgoC',
+  'CF0KAghkCgIIawoCCHIKAgh5CgMIhwEKAwiOARIECAEQARIECAoQARIECAkQARIECAEQARIECAoQARIECAkQAfIFDAgBEAEY',
+  'ASABMAE4AZIGBAgBEAGyBgIIApIHBggBEgIIAbAHAdIHAggB4gcECAEYAfAHAYIIAggBmAgBoggECgIICcgIAdAIAXAAiAEB',
+  'kgEQCgYImwkQkgYKBgj8ExCwA6oBhQEKTAoGCAgQABgDCgYIBBAAGAMKBggCEAAYAwoGCAEQABgDCgYIChAAGAMKBggCEAEY',
+  'AgoGCAoQARgCCgYIChAAGAQKBggNEAAYARABIAESBhABEAMQDhoCGAEgASoCCAFaBAhuEG5qALoBGggBEAEiAggDIgIIBCIC',
+  'CAUiAggGIgIIBygBwAEB4gEWGhIZT1YxQzFQQEAhAQCs1503YEAoAfoBCCABSAFQAWABqgI3SGFzaGltYSBDb2FsIE1pbmUg',
+  'UnVpbnMK56uv5bO254Kt6Ymx6LehClJlY2VudGx5IHZpZXdlZLICKQonCiUweDM1MTU0NWQ0ZWZkZjVkNTM6MHhkN2I2NTVl',
+  'ODllZTc2NDg3yAIA2gIpCiMKIQofIPvTt4Pg/v3hwAEg3KS/9t3/i9xVIPHn49DGnpmAFRICCAI=',
+].join('');
+const richPlaceDetailsResponseCache = new Map<string, GoogleMapsMobileRichPlaceDetails>();
+const richPlaceDetailsInFlight = new Map<string, Promise<GoogleMapsMobileRichPlaceDetails>>();
 
 function makeHttpError(status: number, message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status });
@@ -270,6 +330,43 @@ function buildMobileMmapRequest(request: NormalizedRequest): BuiltMobilePlaceDet
   };
 }
 
+function buildMobileMmapRichPhotosRequest(request: NormalizedRequest): BuiltMobilePlaceDetailsRequest {
+  const templateFtid = Buffer.from(RICH_PLACE_PHOTOS_TEMPLATE_FTID, 'utf8');
+  const targetFtid = Buffer.from(request.ftid, 'utf8');
+  if (targetFtid.length !== templateFtid.length) {
+    throw makeHttpError(400, 'Google Maps mobile place photos require a standard-length feature ID');
+  }
+
+  const body = Buffer.from(RICH_PLACE_PHOTOS_REQUEST_BASE64.replace(/\s+/g, ''), 'base64');
+  let offset = 0;
+  let replacements = 0;
+  while ((offset = body.indexOf(templateFtid, offset)) >= 0) {
+    targetFtid.copy(body, offset);
+    offset += targetFtid.length;
+    replacements += 1;
+  }
+  if (replacements === 0) {
+    throw makeHttpError(500, 'Google Maps mobile photo request template is missing its feature ID');
+  }
+
+  return {
+    endpoint: GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT,
+    body,
+    headers: {
+      'content-type': 'application/binary',
+      accept: '*/*',
+      'accept-encoding': 'gzip, deflate, br',
+      'accept-language': request.language,
+      'user-agent': 'com.google.Maps/25.47.0 iPhone/18.7.2 hw/iPhone16_1 (gzip)',
+      'upload-draft-interop-version': '6',
+      'x-client-time-format': 'CAI=',
+      'upload-complete': '?1',
+      'x-goog-ext-353267353-bin': 'IOTDCA==',
+      'content-length': String(body.length),
+    },
+  };
+}
+
 export function buildGoogleMapsMobilePlaceDetailsRequest(
   input: GoogleMapsMobilePlaceDetailsRequest,
 ): BuiltMobilePlaceDetailsRequest {
@@ -291,6 +388,79 @@ function decodeMmapResponse(responseBody: Buffer): { protobuf: Buffer; gzipOffse
 
 function responseBufferFrom(value: Buffer | ArrayBuffer): Buffer {
   return Buffer.isBuffer(value) ? value : Buffer.from(value);
+}
+
+function isUrlByte(byte: number): boolean {
+  return byte > 0x20 && byte < 0x7f && byte !== 0x22 && byte !== 0x3c && byte !== 0x3e && byte !== 0x5c;
+}
+
+function normalizeRichPhotoUrl(raw: string): GoogleMapsMobilePlacePhoto | null {
+  const cleaned = raw.replace(/[:;),\]]+\d*$/g, '');
+  let parsed: URL;
+  try {
+    parsed = new URL(cleaned);
+  } catch {
+    return null;
+  }
+  if (!parsed.hostname.endsWith('googleusercontent.com')) return null;
+  if (!/(?:^|\/)(?:gps|gpms|grass)-cs-s\//.test(parsed.pathname)) return null;
+  if (/\/a-|photo\.jpg|=mm|manifest|googlevideo/i.test(cleaned)) return null;
+  const variantIndex = cleaned.lastIndexOf('=');
+  if (variantIndex < 0) return null;
+  const base = cleaned.slice(0, variantIndex);
+  if (!base || base.includes('?')) return null;
+  return {
+    url: `${base}=w640-h426-k-no`,
+    width: 640,
+    height: 426,
+    attribution: null,
+    source: 'google_maps_mobile',
+  };
+}
+
+function extractGoogleMapsMobilePhotoUrls(protobuf: Buffer): GoogleMapsMobilePlacePhoto[] {
+  const photos: GoogleMapsMobilePlacePhoto[] = [];
+  const seen = new Set<string>();
+  const marker = Buffer.from('https://', 'ascii');
+  let offset = 0;
+  while ((offset = protobuf.indexOf(marker, offset)) >= 0) {
+    let end = offset;
+    while (end < protobuf.length && isUrlByte(protobuf[end])) end += 1;
+    const photo = normalizeRichPhotoUrl(protobuf.subarray(offset, end).toString('ascii'));
+    if (photo && !seen.has(photo.url)) {
+      seen.add(photo.url);
+      photos.push(photo);
+      if (photos.length >= 24) break;
+    }
+    offset = Math.max(end, offset + marker.length);
+  }
+  return photos;
+}
+
+export function parseGoogleMapsMobilePlacePhotosResponse(responseBody: Buffer | ArrayBuffer): GoogleMapsMobilePlacePhoto[] {
+  const body = responseBufferFrom(responseBody);
+  const decoded = decodeMmapResponse(body);
+  return extractGoogleMapsMobilePhotoUrls(decoded.protobuf);
+}
+
+export function parseGoogleMapsMobileRichPlaceDetailsResponse(
+  responseBody: Buffer | ArrayBuffer,
+): GoogleMapsMobileRichPlaceDetails {
+  const body = responseBufferFrom(responseBody);
+  const decoded = decodeMmapResponse(body);
+  const photos = extractGoogleMapsMobilePhotoUrls(decoded.protobuf);
+  const rootFields = tryParseMessage(decoded.protobuf);
+  const placeMessage = rootFields ? firstMessage(rootFields, 1) : null;
+  const placeFields = placeMessage ? tryParseMessage(placeMessage) : null;
+
+  const popularTimesMessage = placeFields ? firstMessage(placeFields, 57) : null;
+  return {
+    popular_times: parseMobilePopularTimes(popularTimesMessage),
+    popular_status: parseMobilePopularStatus(popularTimesMessage),
+    reviews: placeFields ? parseMobileReviews(firstMessage(placeFields, 81)) : [],
+    photos,
+    summary: null,
+  };
 }
 
 function googleDayFromMobile(value: unknown): number | null {
@@ -435,6 +605,100 @@ function parsePhone(phoneMessage: Buffer | null): string | null {
   return fieldStrings(fields, 1)[0] ?? fieldStrings(fields, 4)[0] ?? null;
 }
 
+function parseMobilePopularTimes(popularTimesMessage: Buffer | null): GoogleMapsPreviewPopularTime[] | null {
+  if (!popularTimesMessage) return null;
+  const fields = tryParseMessage(popularTimesMessage);
+  if (!fields) return null;
+
+  const popularTimes: GoogleMapsPreviewPopularTime[] = [];
+  for (const dayMessage of allMessages(fields, 1)) {
+    const dayFields = tryParseMessage(dayMessage);
+    if (!dayFields) continue;
+    const day = googleDayFromMobile(firstVarint(dayFields, 1));
+    if (day === null) continue;
+
+    for (const hourMessage of allMessages(dayFields, 2)) {
+      const hourFields = tryParseMessage(hourMessage);
+      if (!hourFields) continue;
+      const hour = firstVarint(hourFields, 1);
+      const percent = firstVarint(hourFields, 2);
+      if (
+        hour === null
+        || percent === null
+        || !Number.isInteger(hour)
+        || !Number.isInteger(percent)
+        || hour < 0
+        || hour > 23
+        || percent < 0
+        || percent > 100
+      ) {
+        continue;
+      }
+      popularTimes.push({ day, hour, occupancy_percent: percent });
+    }
+  }
+
+  return popularTimes.length > 0 ? popularTimes : null;
+}
+
+function parseMobilePopularStatus(popularTimesMessage: Buffer | null): string | null {
+  if (!popularTimesMessage) return null;
+  const fields = tryParseMessage(popularTimesMessage);
+  if (!fields) return null;
+  return fieldStrings(fields, 2)[0] ?? null;
+}
+
+function parseMobileReviewAuthor(authorMessage: Buffer | null): {
+  author: string | null;
+  photo: string | null;
+  uri: string | null;
+} {
+  if (!authorMessage) return { author: null, photo: null, uri: null };
+  const fields = tryParseMessage(authorMessage);
+  if (!fields) return { author: null, photo: null, uri: null };
+  return {
+    uri: fieldStrings(fields, 1)[0] ?? null,
+    author: fieldStrings(fields, 2)[0] ?? null,
+    photo: fieldStrings(fields, 3)[0] ?? null,
+  };
+}
+
+function publishedAtFromMillis(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value) || value <= 0) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function parseMobileReviews(reviewsMessage: Buffer | null): unknown[] {
+  if (!reviewsMessage) return [];
+  const fields = tryParseMessage(reviewsMessage);
+  if (!fields) return [];
+
+  const reviews: unknown[] = [];
+  for (const reviewMessage of allMessages(fields, 1)) {
+    const reviewFields = tryParseMessage(reviewMessage);
+    if (!reviewFields) continue;
+    const text = fieldStrings(reviewFields, 4)[0] ?? null;
+    const authorInfo = parseMobileReviewAuthor(firstMessage(reviewFields, 1));
+    const author = authorInfo.author;
+    if (!text && !author) continue;
+
+    reviews.push({
+      author,
+      rating: firstVarint(reviewFields, 5),
+      text,
+      time: fieldStrings(reviewFields, 2)[0] ?? null,
+      published_at: publishedAtFromMillis(firstVarint(reviewFields, 58) ?? firstVarint(reviewFields, 28)),
+      photo: authorInfo.photo,
+      uri: fieldStrings(reviewFields, 19)[0] ?? authorInfo.uri,
+      language: fieldStrings(reviewFields, 33)[0] ?? null,
+    });
+    if (reviews.length >= 5) break;
+  }
+
+  return reviews;
+}
+
 function parseLatLng(coordsMessage: Buffer | null): { lat: number | null; lng: number | null } {
   if (!coordsMessage) return { lat: null, lng: null };
   const fields = tryParseMessage(coordsMessage);
@@ -524,4 +788,62 @@ export async function fetchGoogleMapsMobilePlaceDetails(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function fetchGoogleMapsMobilePlacePhotos(
+  input: GoogleMapsMobilePlaceDetailsRequest,
+): Promise<GoogleMapsMobilePlacePhoto[]> {
+  const details = await fetchGoogleMapsMobileRichPlaceDetails(input);
+  return details.photos;
+}
+
+export async function fetchGoogleMapsMobileRichPlaceDetails(
+  input: GoogleMapsMobilePlaceDetailsRequest,
+): Promise<GoogleMapsMobileRichPlaceDetails> {
+  const request = normalizeRequest(input);
+  const cached = richPlaceDetailsResponseCache.get(`${request.ftid}:${request.language}`);
+  if (cached) return cached;
+
+  const cacheKey = `${request.ftid}:${request.language}`;
+  let inFlight = richPlaceDetailsInFlight.get(cacheKey);
+  if (!inFlight) {
+    inFlight = (async () => {
+      const built = buildMobileMmapRichPhotosRequest(request);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), request.timeoutMs);
+      try {
+        const response = await fetch(built.endpoint, {
+          method: 'POST',
+          headers: built.headers,
+          body: built.body,
+          signal: controller.signal,
+        });
+        const body = Buffer.from(await response.arrayBuffer());
+        if (!response.ok) {
+          throw makeHttpError(
+            response.status,
+            `Google Maps mobile place photos failed with ${response.status} ${response.statusText}`,
+          );
+        }
+        const details = parseGoogleMapsMobileRichPlaceDetailsResponse(body);
+        richPlaceDetailsResponseCache.set(cacheKey, details);
+        if (richPlaceDetailsResponseCache.size > 200) {
+          const oldest = richPlaceDetailsResponseCache.keys().next().value;
+          if (oldest !== undefined) richPlaceDetailsResponseCache.delete(oldest);
+        }
+        return details;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw makeHttpError(504, 'Google Maps mobile place photos request timed out');
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeout);
+        richPlaceDetailsInFlight.delete(cacheKey);
+      }
+    })();
+    richPlaceDetailsInFlight.set(cacheKey, inFlight);
+  }
+
+  return inFlight;
 }

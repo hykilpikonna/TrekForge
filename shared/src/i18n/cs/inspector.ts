@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Upravit rezervaci',
   'inspector.participants': 'Účastníci',
   'inspector.trackStats': 'Data trasy',
+  'inspector.accessibility': 'Přístupnost',
+  'inspector.accessible': 'Přístupné',
+  'inspector.accessibilityLimited': 'Omezená přístupnost',
+  'inspector.reviews': 'Recenze',
+  'inspector.popularTimes': 'Oblíbené časy',
+  'inspector.photosCount': '{count} fotek',
 };
 export default inspector;

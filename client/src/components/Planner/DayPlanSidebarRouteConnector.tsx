@@ -1,4 +1,4 @@
-import { Car, Coins, Footprints, Hotel, Ticket, Train } from 'lucide-react'
+import { AlertTriangle, Car, Coins, Footprints, Hotel, Ticket, Train } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { RouteSegment } from '../../types'
 
@@ -29,17 +29,27 @@ export function RouteConnector({
   ariaLabel?: string
 }) {
   const Icon = routeProfileIcon(profile)
-  const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
+  const isError = Boolean(seg.errorText)
+  const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: isError ? 'rgba(220,38,38,0.35)' : 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
   const fareText = seg.fareText?.trim()
   const content = (
     <>
       <div style={line} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <Icon size={11} strokeWidth={2} />
-        <span>{routeDurationText(seg, profile)}</span>
-        <span style={{ opacity: 0.4 }}>·</span>
-        <span>{seg.distanceText}</span>
+        {isError ? (
+          <>
+            <AlertTriangle size={11} strokeWidth={2} />
+            <span>{seg.errorText}</span>
+          </>
+        ) : (
+          <>
+            <Icon size={11} strokeWidth={2} />
+            <span>{routeDurationText(seg, profile)}</span>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span>{seg.distanceText}</span>
+          </>
+        )}
         {tollText && (
           <>
             <span style={{ opacity: 0.4 }}>·</span>
@@ -64,12 +74,12 @@ export function RouteConnector({
     gap: 8,
     padding: '3px 14px',
     fontSize: 10.5,
-    color: selected ? 'var(--accent)' : 'var(--text-faint)',
+    color: isError ? '#dc2626' : selected ? 'var(--accent)' : 'var(--text-faint)',
     lineHeight: 1.2,
     width: '100%',
     background: selected ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
   }
-  if (!onClick) {
+  if (!onClick || isError) {
     return <div style={style}>{content}</div>
   }
   return (
@@ -114,7 +124,8 @@ export function HotelRouteConnector({
   ariaLabel?: string
 }) {
   const Icon = routeProfileIcon(profile)
-  const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: 'var(--border-primary)' }
+  const isError = Boolean(seg.errorText)
+  const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: isError ? 'rgba(220,38,38,0.35)' : 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
   const fareText = seg.fareText?.trim()
   const hotelRow = (
@@ -126,13 +137,22 @@ export function HotelRouteConnector({
     </div>
   )
   const travelRow = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 14px', fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', lineHeight: 1.2 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 14px', fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', color: isError ? '#dc2626' : 'var(--text-faint)', lineHeight: 1.2 }}>
       <div style={line} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <Icon size={11} strokeWidth={2} />
-        <span>{routeDurationText(seg, profile)}</span>
-        <span style={{ opacity: 0.4 }}>·</span>
-        <span>{seg.distanceText}</span>
+        {isError ? (
+          <>
+            <AlertTriangle size={11} strokeWidth={2} />
+            <span>{seg.errorText}</span>
+          </>
+        ) : (
+          <>
+            <Icon size={11} strokeWidth={2} />
+            <span>{routeDurationText(seg, profile)}</span>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span>{seg.distanceText}</span>
+          </>
+        )}
         {tollText && (
           <>
             <span style={{ opacity: 0.4 }}>·</span>
@@ -175,7 +195,7 @@ export function HotelRouteConnector({
     color: selected ? 'var(--accent)' : undefined,
     background: selected ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
   }
-  if (!onClick) {
+  if (!onClick || isError) {
     return <div style={style}>{content}</div>
   }
   return (

@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': '예약 편집',
   'inspector.participants': '참가자',
   'inspector.trackStats': '트랙 통계',
+  'inspector.accessibility': '접근성',
+  'inspector.accessible': '접근 가능',
+  'inspector.accessibilityLimited': '접근성 제한',
+  'inspector.reviews': '리뷰',
+  'inspector.popularTimes': '인기 시간대',
+  'inspector.photosCount': '사진 {count}장',
 };
 export default inspector;

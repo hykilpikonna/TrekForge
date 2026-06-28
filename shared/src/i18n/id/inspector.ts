@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Edit Reservasi',
   'inspector.participants': 'Peserta',
   'inspector.trackStats': 'Statistik Jalur',
+  'inspector.accessibility': 'Aksesibilitas',
+  'inspector.accessible': 'Dapat diakses',
+  'inspector.accessibilityLimited': 'Aksesibilitas terbatas',
+  'inspector.reviews': 'Ulasan',
+  'inspector.popularTimes': 'Waktu populer',
+  'inspector.photosCount': '{count} foto',
 };
 export default inspector;

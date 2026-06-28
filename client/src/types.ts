@@ -158,6 +158,7 @@ export interface RouteAlternative {
   durationText?: string
   tollText?: string
   fareText?: string
+  errorText?: string
   steps?: RouteStep[]
   coordinates?: [number, number][]
 }
@@ -174,6 +175,7 @@ export interface RouteSegment {
   durationText?: string
   tollText?: string
   fareText?: string
+  errorText?: string
   steps?: RouteStep[]
   coordinates?: [number, number][]
   routeChoiceKey?: string
@@ -248,6 +250,7 @@ export interface RouteResult {
 export interface Waypoint {
   lat: number
   lng: number
+  label?: string | null
 }
 
 // Optional fixed start/end points for route optimization (e.g. the day's accommodation).

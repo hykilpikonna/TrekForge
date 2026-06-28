@@ -21,5 +21,12 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Edit Reservation',
   'inspector.participants': 'Participants',
   'inspector.trackStats': 'Track Stats',
+  'inspector.accessibility': 'Accessibility',
+  'inspector.accessible': 'Accessible',
+  'inspector.accessibilityLimited': 'Limited accessibility',
+  'inspector.phone': 'Phone',
+  'inspector.reviews': 'Reviews',
+  'inspector.popularTimes': 'Popular times',
+  'inspector.photosCount': '{count} photos',
 };
 export default inspector;

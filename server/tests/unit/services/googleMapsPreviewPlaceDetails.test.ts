@@ -75,6 +75,73 @@ describe('googleMapsPreviewPlaceDetails parser', () => {
     expect(result.opening_hours).toHaveLength(7);
   });
 
+  it('parses localized type, country, and accessibility metadata', () => {
+    const tuple = baseTuple();
+    tuple[13] = ['Aquarium', 'Tourist attraction'];
+    tuple[88] = [null, 'SearchResult.TYPE_AQUARIUM', ['SearchResult.TYPE_AQUARIUM', 'JP']];
+    tuple[100] = [null, [[
+      'accessibility',
+      'Accessibility',
+      [
+        [
+          '/geo/type/establishment_poi/has_wheelchair_accessible_entrance',
+          'Wheelchair-accessible entrance',
+          [1, [[1, 'Wheelchair-accessible entrance']]],
+        ],
+        [
+          '/geo/type/establishment_poi/has_wheelchair_accessible_parking',
+          'Wheelchair-accessible car park',
+          [1, [[0, 'No wheelchair-accessible car park']]],
+        ],
+      ],
+    ]]];
+
+    const result = parseGoogleMapsPreviewPlaceDetailsResponse(responseForTuple(tuple), { ftid, language: 'en' });
+
+    expect(result.type).toBe('Aquarium');
+    expect(result.types).toEqual(['Aquarium', 'Tourist attraction']);
+    expect(result.primary_type).toBe('SearchResult.TYPE_AQUARIUM');
+    expect(result.country_code).toBe('JP');
+    expect(result.accessible).toBe(true);
+    expect(result.accessibility).toContainEqual({
+      key: 'wheelchair_accessible_entrance',
+      label: 'Wheelchair-accessible entrance',
+      value: true,
+      text: 'Wheelchair-accessible entrance',
+    });
+    expect(result.name_translated).toBe('Sunshine Aquarium');
+    expect(result.written_address).toBe('3 Chome-1 Higashiikebukuro, Toshima City, Tokyo');
+  });
+
+  it('parses hourly popular-times rows when Google includes them', () => {
+    const tuple = baseTuple();
+    tuple[84] = [[
+      ['Monday', 1, [[9, 15], [10, 56], [11, 91]]],
+      ['Sunday', 7, [[12, 33]]],
+    ]];
+
+    const result = parseGoogleMapsPreviewPlaceDetailsResponse(responseForTuple(tuple), { ftid });
+
+    expect(result.popular_times).toEqual([
+      { day: 1, hour: 9, occupancy_percent: 15 },
+      { day: 1, hour: 10, occupancy_percent: 56 },
+      { day: 1, hour: 11, occupancy_percent: 91 },
+      { day: 0, hour: 12, occupancy_percent: 33 },
+    ]);
+  });
+
+  it('parses Google editorial summary text from the preview tuple', () => {
+    const tuple = baseTuple();
+    tuple[32] = [
+      [null, 'Elegant 16th-century riverside castle', null, null, null, 1],
+      [null, 'Imposing Sengoku-period castle built on a defensible hilltop overlooking the Kiso River.', null, null, null, 1],
+    ];
+
+    const result = parseGoogleMapsPreviewPlaceDetailsResponse(responseForTuple(tuple), { ftid });
+
+    expect(result.summary).toBe('Imposing Sengoku-period castle built on a defensible hilltop overlooking the Kiso River.');
+  });
+
   it('does not treat reduced one-day p203 rows as a full weekly schedule', () => {
     const tuple = baseTuple();
     tuple[203] = [[weeklyRows()[0]]];
@@ -120,6 +187,30 @@ describe('googleMapsPreviewPlaceDetails parser', () => {
 
     expect(result.name).toBe('Mixalive TOKYO');
     expect(result.business_status).toBe('CLOSED_PERMANENTLY');
+  });
+
+  it('maps temporary closure status text to business status', () => {
+    const tuple = baseTuple();
+    const statusRow: any[] = [];
+    statusRow[8] = ['Temporarily closed'];
+    tuple[88] = [];
+    tuple[203] = [weeklyRows(), statusRow];
+
+    const result = parseGoogleMapsPreviewPlaceDetailsResponse(responseForTuple(tuple), { ftid });
+
+    expect(result.open_now).toBe(false);
+    expect(result.business_status).toBe('CLOSED_TEMPORARILY');
+  });
+
+  it('maps local-language renovation closure notices before provider status', () => {
+    const tuple = baseTuple();
+    tuple[88] = ['OPERATIONAL', 'SearchResult.TYPE_CASTLE'];
+    tuple[154] = [[['改修工事のため2027年10月31日まで休館しています。']]];
+
+    const result = parseGoogleMapsPreviewPlaceDetailsResponse(responseForTuple(tuple), { ftid });
+
+    expect(result.open_now).toBe(false);
+    expect(result.business_status).toBe('CLOSED_TEMPORARILY');
   });
 
   it('builds direct preview and search fallback URLs', () => {

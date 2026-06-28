@@ -4,7 +4,7 @@ import { openFile } from '../../utils/fileDownload'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { X, Clock, MapPin, ExternalLink, Phone, Banknote, Edit2, Trash2, Plus, Minus, ChevronDown, ChevronUp, FileText, Upload, File, FileImage, Star, Navigation, Map as MapIcon, Users, Mountain, TrendingUp, Bookmark, BookmarkCheck, Copy } from 'lucide-react'
+import { X, Clock, MapPin, ExternalLink, Phone, Banknote, Edit2, Trash2, Plus, Minus, ChevronDown, ChevronUp, FileText, Upload, File, FileImage, Star, Navigation, Map as MapIcon, Users, Mountain, TrendingUp, Bookmark, BookmarkCheck, Copy, Info, Accessibility, MessageSquare, Image as ImageIcon, BarChart3 } from 'lucide-react'
 import PlaceAvatar from '../shared/PlaceAvatar'
 import GuestBadge from '../shared/GuestBadge'
 import StatusBadge from '../Collections/StatusBadge'
@@ -28,6 +28,8 @@ import { getOpenStreetMapUrlForPlace } from './placeOpenStreetMap'
 import { formatDurationInput, parseDurationMinutes } from '../../utils/durationInput'
 
 const detailsCache = new Map()
+const INFO_BLOCK_CLASS = 'mb-2 break-inside-avoid rounded-[10px] bg-surface-hover px-3 py-2.5'
+const INFO_BLOCK_HEADER_CLASS = 'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-content-secondary'
 
 function getSessionCache(key) {
   try {
@@ -40,21 +42,25 @@ function setSessionCache(key, value) {
   try { sessionStorage.setItem(key, JSON.stringify(value)) } catch {}
 }
 
-function usePlaceDetails(googlePlaceId, osmId, language) {
+function usePlaceDetails(googlePlaceId, googleFtid, osmId, language) {
   const [details, setDetails] = useState(null)
-  const detailId = googlePlaceId || osmId
-  const cacheKey = `gdetails_${detailId}_${language}`
+  const detailId = googlePlaceId || googleFtid || osmId
+  const cacheKey = `gdetails_v7_expanded_${detailId}_${language}`
   useEffect(() => {
     if (!detailId) { setDetails(null); return }
     if (detailsCache.has(cacheKey)) { setDetails(detailsCache.get(cacheKey)); return }
     const cached = getSessionCache(cacheKey)
     if (cached) { detailsCache.set(cacheKey, cached); setDetails(cached); return }
-    mapsApi.details(detailId, language).then(data => {
+    let cancelled = false
+    setDetails(null)
+    mapsApi.details(detailId, language, { expand: true }).then(data => {
+      if (cancelled) return
       detailsCache.set(cacheKey, data.place)
       setSessionCache(cacheKey, data.place)
       setDetails(data.place)
     }).catch(() => {})
-  }, [detailId, language])
+    return () => { cancelled = true }
+  }, [detailId, language, cacheKey])
   return details
 }
 
@@ -89,6 +95,56 @@ function convertHoursLine(line, timeFormat) {
     })
   }
   return line
+}
+
+function cleanText(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function humanizeType(value) {
+  const text = cleanText(value)
+  if (!text) return null
+  const cleaned = text.replace(/^SearchResult\.TYPE_/i, '').replace(/^gcid:/i, '').replace(/_/g, ' ').toLowerCase()
+  return cleaned.replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function photoUrlFromRecord(photo: any): string | null {
+  if (!photo || typeof photo !== 'object') return null
+  for (const key of ['url', 'photoUrl', 'src']) {
+    const value = cleanText(photo[key])
+    if (value) return value
+  }
+  return null
+}
+
+function uniquePhotoUrls(...sources: Array<string | null | undefined | any[]>): string[] {
+  const urls: string[] = []
+  const seen = new Set<string>()
+  for (const source of sources) {
+    const values = Array.isArray(source) ? source.map(item => typeof item === 'string' ? cleanText(item) : photoUrlFromRecord(item)) : [cleanText(source)]
+    for (const value of values) {
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      urls.push(value)
+    }
+  }
+  return urls
+}
+
+function uniqueNameParts(...values) {
+  const out = []
+  for (const value of values) {
+    const text = cleanText(value)
+    if (!text) continue
+    if (out.some(existing => existing.localeCompare(text, undefined, { sensitivity: 'accent' }) === 0)) continue
+    out.push(text)
+  }
+  return out
+}
+
+function weekdayName(day, locale) {
+  const base = new Date(Date.UTC(2026, 5, 28 + day, 12))
+  return base.toLocaleDateString(locale, { weekday: 'short', timeZone: 'UTC' })
 }
 
 function formatFileSize(bytes) {
@@ -180,7 +236,7 @@ export default function PlaceInspector({
   const [nameValue, setNameValue] = useState('')
   const nameInputRef = useRef(null)
   const fileInputRef = useRef(null)
-  const googleDetails = usePlaceDetails(place?.google_place_id, place?.osm_id, language)
+  const googleDetails = usePlaceDetails(place?.google_place_id, place?.google_ftid, place?.osm_id, language)
 
   // Library-wide "is this place already saved anywhere I can see?" indicator for
   // the trip-planner footer bookmark. Re-checks when the place changes or after
@@ -258,10 +314,24 @@ export default function PlaceInspector({
   const openNow = googleDetails?.open_now ?? null
   // Prefer the place's stored ftid; if it has none yet, use the one just fetched from Google.
   const googleMapsUrl = getGoogleMapsUrlForPlace(
-    place ? { ...place, google_ftid: place.google_ftid || googleDetails?.google_ftid || null } : null,
+    { ...place, google_ftid: place.google_ftid || googleDetails?.google_ftid || null },
     googleDetails?.google_maps_url,
   )
   const openStreetMapUrl = getOpenStreetMapUrlForPlace(place)
+  const displayAddress = cleanText(googleDetails?.written_address)
+    || cleanText(googleDetails?.address_translated)
+    || cleanText(googleDetails?.address)
+    || place.address
+  const translatedName = cleanText(googleDetails?.name_translated) || cleanText(googleDetails?.name)
+  const originalName = cleanText(googleDetails?.name_original)
+  const secondaryNames = uniqueNameParts(translatedName, originalName).filter(name => name !== place.name)
+  const placeType = humanizeType(googleDetails?.type || googleDetails?.types?.[0] || googleDetails?.primary_type)
+  const accessibility = Array.isArray(googleDetails?.accessibility) ? googleDetails.accessibility : []
+  const reviews = Array.isArray(googleDetails?.reviews) ? googleDetails.reviews.filter(r => r?.text || r?.author).slice(0, 3) : []
+  const popularTimes = Array.isArray(googleDetails?.popular_times) ? googleDetails.popular_times : []
+  const popularStatus = cleanText(googleDetails?.popular_status)
+  const photoCount = Array.isArray(googleDetails?.photos) ? googleDetails.photos.length : 0
+  const phoneLabel = t('inspector.phone') === 'inspector.phone' ? 'Phone' : t('inspector.phone')
   const selectedDay = days?.find(d => d.id === selectedDayId)
   const weekdayIndex = getWeekdayIndex(selectedDay?.date)
 
@@ -300,45 +370,45 @@ export default function PlaceInspector({
         fontFamily: "var(--font-system)",
       }}
     >
-      <div className="bg-surface-elevated" style={{
-        backdropFilter: 'blur(40px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-        borderRadius: 20,
-        boxShadow: '0 8px 40px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.06)',
-        overflow: 'hidden',
-        maxHeight: '60vh',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
+      <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-[20px] bg-surface-elevated shadow-[0_8px_40px_rgba(0,0,0,0.14),0_0_0_1px_rgba(0,0,0,0.06)] [backdrop-filter:blur(40px)_saturate(180%)] [-webkit-backdrop-filter:blur(40px)_saturate(180%)]">
         {/* Header */}
         <PlaceInspectorHeader openNow={openNow} place={place} category={category} t={t} editingName={editingName}
           nameInputRef={nameInputRef} nameValue={nameValue} setNameValue={setNameValue} commitNameEdit={commitNameEdit}
           handleNameKeyDown={handleNameKeyDown} startNameEdit={startNameEdit} onUpdatePlace={onUpdatePlace}
-          locale={locale} timeFormat={timeFormat} onClose={onClose} />
+          locale={locale} timeFormat={timeFormat} onClose={onClose} secondaryNames={secondaryNames} displayAddress={displayAddress} />
 
-        {/* Content — scrollable */}
-        <div data-testid="inspector-scroll" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Content */}
+        <div data-testid="inspector-scroll" className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden px-4 py-3">
 
           {/* Info-Chips — hidden on mobile, shown on desktop */}
-          <div className="hidden sm:flex" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-            {googleDetails?.rating && (() => {
-              const shortReview = (googleDetails.reviews || []).find(r => r.text && r.text.length > 5)
-              return (
-                <Chip
-                  icon={<Star size={12} fill="#facc15" color="#facc15" />}
-                  text={<>
-                    {googleDetails.rating.toFixed(1)}
-                    {googleDetails.rating_count ? <span style={{ opacity: 0.5 }}> ({googleDetails.rating_count.toLocaleString(locale)})</span> : ''}
-                    {shortReview && <span className="hidden md:inline" style={{ opacity: 0.6, fontWeight: 400, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}> · „{shortReview.text}"</span>}
-                  </>}
-                  color="var(--text-secondary)" bg="var(--bg-hover)"
-                />
-              )
-            })()}
+          <div className="hidden shrink-0 flex-wrap items-center gap-1.5 sm:flex">
+            {placeType && (
+              <Chip icon={<Info size={12} />} text={placeType} color="var(--text-secondary)" bg="var(--bg-hover)" />
+            )}
+            {googleDetails?.rating && (
+              <Chip
+                icon={<Star size={12} fill="#facc15" color="#facc15" />}
+                text={<>
+                  {googleDetails.rating.toFixed(1)}
+                  {googleDetails.rating_count ? <span className="opacity-50"> ({googleDetails.rating_count.toLocaleString(locale)})</span> : null}
+                </>}
+                color="var(--text-secondary)" bg="var(--bg-hover)"
+              />
+            )}
             {place.price > 0 && (
               <Chip icon={<Banknote size={12} />} text={formatMoney(Number(place.price) || 0, place.currency || tripCurrency || 'EUR', locale)} color="#059669" bg="#ecfdf5" />
             )}
+            {googleDetails?.accessible !== null && googleDetails?.accessible !== undefined && (
+              <Chip
+                icon={<Accessibility size={12} />}
+                text={googleDetails.accessible ? t('inspector.accessible') : t('inspector.accessibilityLimited')}
+                color={googleDetails.accessible ? '#047857' : '#b45309'}
+                bg={googleDetails.accessible ? '#ecfdf5' : '#fffbeb'}
+              />
+            )}
           </div>
+
+          <PlacePhotoPreview place={place} details={googleDetails} photoCount={photoCount} t={t} />
 
           {assignmentInDay && selectedDayId && (
             <AssignmentDurationControl
@@ -350,44 +420,59 @@ export default function PlaceInspector({
             />
           )}
 
-          {/* Telefon */}
-          {(place.phone || googleDetails?.phone) && (
-            <div style={{ display: 'flex', gap: 12 }}>
-              <a href={`tel:${place.phone || googleDetails.phone}`}
-                className="text-content"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'calc(12px * var(--fs-scale-body, 1))', textDecoration: 'none' }}>
-                <Phone size={12} /> {place.phone || googleDetails.phone}
-              </a>
+          <div data-testid="inspector-info-scroll" className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
+            <div data-testid="inspector-info-columns" className="columns-1 gap-2 sm:columns-2">
+              {/* Phone */}
+              {(place.phone || googleDetails?.phone) && (
+                <div className={INFO_BLOCK_CLASS}>
+                  <div className={INFO_BLOCK_HEADER_CLASS}>
+                    <Phone size={13} className="text-content-faint" /> {phoneLabel}
+                  </div>
+                  <a
+                    href={`tel:${place.phone || googleDetails.phone}`}
+                    className="inline-flex items-center gap-1 text-xs text-content no-underline [word-break:break-word]"
+                  >
+                    {place.phone || googleDetails.phone}
+                  </a>
+                </div>
+              )}
+
+              {/* Description / Summary */}
+              {(place.description || googleDetails?.summary) && (
+                <div className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
+                  <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.description || googleDetails?.summary || ''}</Markdown>
+                </div>
+              )}
+
+              {/* Notes */}
+              {place.notes && (
+                <div className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
+                  <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.notes}</Markdown>
+                </div>
+              )}
+
+              {mode === 'trip' && (
+                <PlaceReservationParticipants selectedAssignmentId={selectedAssignmentId} reservations={reservations}
+                  assignments={assignments} selectedDayId={selectedDayId} tripMembers={tripMembers} locale={locale}
+                  timeFormat={timeFormat} t={t} onSetParticipants={onSetParticipants} />
+              )}
+
+              <PlaceExtras openingHours={openingHours} weekdayIndex={weekdayIndex} hoursExpanded={hoursExpanded}
+                setHoursExpanded={setHoursExpanded} timeFormat={timeFormat} t={t} place={place} placeFiles={placeFiles}
+                onFileUpload={onFileUpload} filesExpanded={filesExpanded} setFilesExpanded={setFilesExpanded}
+                fileInputRef={fileInputRef} handleFileUpload={handleFileUpload} isUploading={isUploading}
+                distanceUnit={distanceUnit} />
+
+              <GoogleDetailsSections
+                accessibility={accessibility}
+                reviews={reviews}
+                popularTimes={popularTimes}
+                popularStatus={popularStatus}
+                locale={locale}
+                t={t}
+              />
             </div>
-          )}
-
-          {/* Description / Summary */}
-          {(place.description || googleDetails?.summary) && (
-            <div className="collab-note-md bg-surface-hover text-content-muted" style={{ borderRadius: 10, overflow: 'hidden', flexShrink: 0, fontSize: 'calc(12px * var(--fs-scale-body, 1))', lineHeight: '1.5', padding: '8px 12px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-              <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.description || googleDetails?.summary || ''}</Markdown>
-            </div>
-          )}
-
-          {/* Notes */}
-          {place.notes && (
-            <div className="collab-note-md bg-surface-hover text-content-muted" style={{ borderRadius: 10, overflow: 'hidden', flexShrink: 0, fontSize: 'calc(12px * var(--fs-scale-body, 1))', lineHeight: '1.5', padding: '8px 12px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-              <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.notes}</Markdown>
-            </div>
-          )}
-
-          {/* Reservation + Participants — trip-only (collections have no days) */}
-          {mode === 'trip' && (
-            <PlaceReservationParticipants selectedAssignmentId={selectedAssignmentId} reservations={reservations}
-              assignments={assignments} selectedDayId={selectedDayId} tripMembers={tripMembers} locale={locale}
-              timeFormat={timeFormat} t={t} onSetParticipants={onSetParticipants} />
-          )}
-
-          {/* Opening hours + Files — side by side on desktop only if both exist */}
-          <PlaceExtras openingHours={openingHours} weekdayIndex={weekdayIndex} hoursExpanded={hoursExpanded}
-            setHoursExpanded={setHoursExpanded} timeFormat={timeFormat} t={t} place={place} placeFiles={placeFiles}
-            onFileUpload={onFileUpload} filesExpanded={filesExpanded} setFilesExpanded={setFilesExpanded}
-            fileInputRef={fileInputRef} handleFileUpload={handleFileUpload} isUploading={isUploading}
-            distanceUnit={distanceUnit} />
+          </div>
 
           {/* Extra native rows from placeDetailProvider plugins (#1429). */}
           {mode === 'trip' && providerDetails.length > 0 && (
@@ -420,7 +505,7 @@ export default function PlaceInspector({
         </div>
 
         {/* Footer actions */}
-        <div className="border-t border-edge-faint" style={{ padding: '10px 16px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-edge-faint px-4 py-2.5">
           {/* Collection mode — copy to trip + per-place status */}
           {mode === 'collection' && onCopyToTrip && (
             <ActionButton onClick={onCopyToTrip} variant="primary" icon={<Copy size={13} />}
@@ -456,7 +541,7 @@ export default function PlaceInspector({
             <ActionButton onClick={() => window.open(place.website || googleDetails?.website, '_blank')} variant="ghost" icon={<ExternalLink size={13} />}
               label={<span className="hidden sm:inline">{t('inspector.website')}</span>} />
           )}
-          <div style={{ flex: 1 }} />
+          <div className="flex-1" />
           {mode === 'trip' && onEdit && (
             <ActionButton onClick={onEdit} variant="ghost" icon={<Edit2 size={13} />} label={<span className="hidden sm:inline">{t('common.edit')}</span>} />
           )}
@@ -483,9 +568,12 @@ interface ChipProps {
 
 function Chip({ icon, text, color = 'var(--text-secondary)', bg = 'var(--bg-hover)' }: ChipProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 99, background: bg, color, fontSize: 'calc(12px * var(--fs-scale-body, 1))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-      <span style={{ flexShrink: 0, display: 'flex' }}>{icon}</span>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+    <div
+      className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap rounded-full px-[9px] py-[3px] text-xs"
+      style={{ background: bg, color }}
+    >
+      <span className="flex shrink-0">{icon}</span>
+      <span className="truncate">{text}</span>
     </div>
   )
 }
@@ -501,6 +589,161 @@ function Row({ icon, children }: RowProps) {
       <div style={{ flexShrink: 0 }}>{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
     </div>
+  )
+}
+
+function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; details: any; photoCount: number; t: (key: string, params?: Record<string, string | number>) => string }) {
+  const [photoUrl, setPhotoUrl] = useState(place.image_url || null)
+  const directPhotoUrls = uniquePhotoUrls(Array.isArray(details?.photos) ? details.photos : [])
+  const photoUrls = uniquePhotoUrls(place.image_url, directPhotoUrls, photoUrl)
+  const photoId = cleanText(details?.google_place_id)
+    || cleanText(details?.google_ftid)
+    || cleanText(place.google_place_id)
+    || cleanText(place.google_ftid)
+    || cleanText(place.osm_id)
+  const photoLat = typeof details?.lat === 'number' ? details.lat : place.lat
+  const photoLng = typeof details?.lng === 'number' ? details.lng : place.lng
+  const photoName = cleanText(details?.name) || place.name
+
+  useEffect(() => {
+    let cancelled = false
+    setPhotoUrl(place.image_url || null)
+    if (place.image_url || directPhotoUrls.length > 0 || !photoId) return () => { cancelled = true }
+    mapsApi.placePhoto(photoId, photoLat ?? undefined, photoLng ?? undefined, photoName)
+      .then(data => {
+        if (!cancelled && data?.photoUrl) setPhotoUrl(data.photoUrl)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [photoId, place.id, place.image_url, photoLat, photoLng, photoName, directPhotoUrls.length])
+
+  if (photoUrls.length === 0) return null
+  const displayedPhotoCount = Math.max(photoCount, photoUrls.length)
+
+  return (
+    <div className="shrink-0 overflow-hidden rounded-lg border border-edge-faint bg-surface-hover">
+      <div className="flex snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain p-2 [-webkit-overflow-scrolling:touch]">
+        {photoUrls.map((url, index) => (
+          <div key={url} className="relative h-[126px] flex-[0_0_min(72vw,210px)] shrink-0 snap-start overflow-hidden rounded-[7px] bg-surface-hover">
+            <img src={url} alt={place.name} loading={index === 0 ? 'eager' : 'lazy'} className="block h-full w-full object-cover" />
+            {index === 0 && displayedPhotoCount > 1 && (
+              <div className="absolute bottom-[7px] right-[7px] inline-flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.58)] px-[7px] py-[3px] text-[11px] font-semibold text-white">
+                <ImageIcon size={12} /> {t('inspector.photosCount', { count: displayedPhotoCount })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularStatus, locale, t }: {
+  accessibility: Array<{ key?: string; label?: string; value?: boolean | null; text?: string | null }>
+  reviews: Array<{ author?: string | null; rating?: number | null; text?: string | null; time?: string | null }>
+  popularTimes: Array<{ day: number; hour: number; occupancy_percent: number }>
+  popularStatus?: string | null
+  locale: string
+  t: (key: string, params?: Record<string, string | number>) => string
+}) {
+  const showAccessibility = accessibility.length > 0
+  const showReviews = reviews.length > 0
+  const showPopularTimes = popularTimes.length > 0 || Boolean(popularStatus)
+  if (!showAccessibility && !showReviews && !showPopularTimes) return null
+
+  const popularByDay = new Map<number, Array<{ hour: number; occupancy_percent: number }>>()
+  for (const item of popularTimes) {
+    if (!popularByDay.has(item.day)) popularByDay.set(item.day, [])
+    popularByDay.get(item.day)!.push(item)
+  }
+
+  return (
+    <>
+      {showAccessibility && (
+        <div className={INFO_BLOCK_CLASS}>
+          <div className={INFO_BLOCK_HEADER_CLASS}>
+            <Accessibility size={13} className="text-content-faint" /> {t('inspector.accessibility')}
+          </div>
+          <div className="flex flex-col gap-1">
+            {accessibility.map((feature, idx) => (
+              <div key={`${feature.key || feature.label || idx}`} className="flex items-start gap-1.5 text-xs leading-[1.35] text-content-muted">
+                <span className={`font-bold ${feature.value === true ? 'text-[#16a34a]' : feature.value === false ? 'text-[#d97706]' : 'text-content-faint'}`}>
+                  {feature.value === true ? '✓' : feature.value === false ? '–' : '•'}
+                </span>
+                <span>{feature.text || feature.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showReviews && (
+        <div className={INFO_BLOCK_CLASS}>
+          <div className={INFO_BLOCK_HEADER_CLASS}>
+            <MessageSquare size={13} className="text-content-faint" /> {t('inspector.reviews')}
+          </div>
+          <div className="flex flex-col gap-2">
+            {reviews.map((review, idx) => (
+              <div key={`${review.author || 'review'}-${idx}`} className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-content">
+                  {review.rating ? <><Star size={11} fill="#facc15" className="text-[#facc15]" /> {review.rating}</> : null}
+                  {review.author && <span className="truncate">{review.author}</span>}
+                  {review.time && <span className="font-normal text-content-faint">{review.time}</span>}
+                </div>
+                {review.text && (
+                  <div className="mt-0.5 overflow-hidden text-xs leading-[1.4] text-content-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                    {review.text}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showPopularTimes && (
+        <div className={INFO_BLOCK_CLASS}>
+          <div className={INFO_BLOCK_HEADER_CLASS}>
+            <BarChart3 size={13} className="text-content-faint" /> {t('inspector.popularTimes')}
+          </div>
+          {popularStatus && (
+            <div className="mb-[7px] text-[11px] leading-[1.35] text-content-muted">
+              {popularStatus}
+            </div>
+          )}
+          <div className="flex flex-col gap-[5px]">
+            {[1, 2, 3, 4, 5, 6, 0].map(day => {
+              const values = (popularByDay.get(day) || []).slice().sort((a, b) => a.hour - b.hour)
+              if (values.length === 0) return null
+              const peak = Math.max(...values.map(v => v.occupancy_percent))
+              const byHour = new Map(values.map(v => [v.hour, v.occupancy_percent]))
+              return (
+                <div key={day} className="grid grid-cols-[34px_minmax(0,1fr)_34px] items-center gap-1.5">
+                  <span className="text-[10px] font-semibold text-content-faint">{weekdayName(day, locale)}</span>
+                  <div className="grid h-7 grid-cols-[repeat(24,minmax(2px,1fr))] items-end gap-0.5">
+                    {Array.from({ length: 24 }, (_, hour) => {
+                      const percent = byHour.get(hour) ?? 0
+                      return (
+                        <div
+                          key={`${day}-${hour}`}
+                          title={`${hour}:00 · ${percent}%`}
+                          style={{
+                            height: `${percent > 0 ? Math.max(4, percent * 0.28) : 2}px`,
+                            borderRadius: 2,
+                            background: percent > 0 && percent === peak ? 'var(--accent)' : percent > 0 ? 'var(--border-primary)' : 'color-mix(in srgb, var(--border-faint) 55%, transparent)',
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                  <span className="text-right text-[10px] text-content-faint">{peak}%</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -565,10 +808,10 @@ function AssignmentDurationControl({
   ])
 
   return (
-    <div className="bg-surface-hover" style={{ borderRadius: 10, padding: '8px 10px', display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 8, alignItems: 'start' }}>
-      <Clock size={14} color="var(--text-faint)" style={{ marginTop: 18 }} />
-      <div style={{ minWidth: 0 }}>
-        <label htmlFor={inputId} className="text-content-faint" style={{ display: 'block', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 5 }}>
+    <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2 rounded-[10px] bg-surface-hover px-2.5 py-2">
+      <Clock size={14} className="mt-[18px] text-content-faint" />
+      <div className="min-w-0">
+        <label htmlFor={inputId} className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.03em] text-content-faint">
           {t('places.durationMinutes')}
         </label>
         <input
@@ -590,8 +833,7 @@ function AssignmentDurationControl({
             }
           }}
           placeholder={t('places.durationPlaceholder')}
-          className="form-input"
-          style={{ width: '100%' }}
+          className="form-input w-full"
         />
       </div>
     </div>
@@ -606,24 +848,15 @@ interface ActionButtonProps {
 }
 
 export function ActionButton({ onClick, variant, icon, label }: ActionButtonProps) {
-  const base = {
-    primary: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', hoverBg: 'var(--text-secondary)' },
-    ghost: { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: 'none', hoverBg: 'var(--bg-tertiary)' },
-    danger: { background: 'rgba(239,68,68,0.08)', color: '#dc2626', border: 'none', hoverBg: 'rgba(239,68,68,0.16)' },
+  const variantClass = {
+    primary: 'bg-accent text-accent-text hover:bg-[var(--text-secondary)]',
+    ghost: 'bg-surface-hover text-content-secondary hover:bg-surface-tertiary',
+    danger: 'bg-[rgba(239,68,68,0.08)] text-[#dc2626] hover:bg-[rgba(239,68,68,0.16)]',
   }
-  const s = base[variant] || base.ghost
   return (
     <button
       onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 5,
-        padding: '6px 12px', borderRadius: 10, minHeight: 30,
-        fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 500, cursor: 'pointer',
-        fontFamily: 'inherit', transition: 'background 0.15s, opacity 0.15s',
-        background: s.background, color: s.color, border: s.border,
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = s.hoverBg}
-      onMouseLeave={e => e.currentTarget.style.background = s.background}
+      className={`flex min-h-[30px] cursor-pointer items-center gap-1.5 rounded-[10px] border-0 px-3 py-1.5 font-[inherit] text-xs font-medium transition-[background,opacity] ${variantClass[variant] || variantClass.ghost}`}
     >
       {icon}{label}
     </button>
@@ -672,11 +905,11 @@ function ParticipantsBox({ tripMembers, participantIds, allJoined, onSetParticip
   }
 
   return (
-    <div style={{ borderRadius: 12, border: '1px solid var(--border-faint)', padding: '8px 10px' }}>
-      <div className="text-content-faint" style={{ fontSize: 'calc(9px * var(--fs-scale-caption, 1))', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+    <div className="mb-2 break-inside-avoid rounded-xl border border-edge-faint px-2.5 py-2">
+      <div className="mb-1.5 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.03em] text-content-faint">
         <Users size={10} /> {t('inspector.participants')}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+      <div className="flex flex-wrap items-center gap-1">
         {activeMembers.map(member => {
           const isHovered = hoveredId === member.id
           const canRemove = activeMembers.length > 1
@@ -685,60 +918,29 @@ function ParticipantsBox({ tripMembers, participantIds, allJoined, onSetParticip
               onMouseEnter={() => setHoveredId(member.id)}
               onMouseLeave={() => setHoveredId(null)}
               onClick={() => { if (canRemove) handleRemove(member.id) }}
-              className={isHovered && canRemove ? 'bg-[rgba(239,68,68,0.06)] text-[#ef4444]' : 'bg-surface-hover text-content'}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4, padding: '2px 7px 2px 3px', borderRadius: 99,
-                border: `1.5px solid ${isHovered && canRemove ? 'rgba(239,68,68,0.4)' : 'var(--accent)'}`,
-                fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 500,
-                cursor: canRemove ? 'pointer' : 'default',
-                transition: 'all 0.15s',
-              }}>
-              <div className="bg-surface-tertiary text-content-muted" style={{
-                width: 16, height: 16, borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'calc(7px * var(--fs-scale-caption, 1))', fontWeight: 700,
-                overflow: 'hidden', flexShrink: 0,
-              }}>
-                {(member.avatar_url || member.avatar) ? <img src={member.avatar_url || avatarSrc(member.avatar)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : member.username?.[0]?.toUpperCase()}
+              className={`${isHovered && canRemove ? 'border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.06)] text-[#ef4444]' : 'border-accent bg-surface-hover text-content'} ${canRemove ? 'cursor-pointer' : 'cursor-default'} inline-flex rounded-full border-[1.5px]`}
+            >
+              <div className="flex items-center gap-1 rounded-full py-0.5 pl-[3px] pr-[7px] text-[10px] font-medium transition-all">
+                <div className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-tertiary text-[7px] font-bold text-content-muted">
+                  {(member.avatar_url || member.avatar) ? <img src={member.avatar_url || avatarSrc(member.avatar)!} className="h-full w-full object-cover" /> : member.username?.[0]?.toUpperCase()}
+                </div>
+                <span className={isHovered && canRemove ? 'line-through' : undefined}>{member.username}</span>
               </div>
-              <span style={{ textDecoration: isHovered && canRemove ? 'line-through' : 'none' }}>{member.username}</span>
             </div>
           )
         })}
 
         {/* Add button */}
         {availableToAdd.length > 0 && (
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setShowAdd(!showAdd)} className="text-content-faint" style={{
-              width: 22, height: 22, borderRadius: '50%', border: '1.5px dashed var(--border-primary)',
-              background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 'calc(12px * var(--fs-scale-body, 1))', transition: 'all 0.12s',
-            }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text-muted)'; e.currentTarget.style.color = 'var(--text-primary)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.color = 'var(--text-faint)' }}
-            >+</button>
+          <div className="relative">
+            <button onClick={() => setShowAdd(!showAdd)} className="flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full border-[1.5px] border-dashed border-edge bg-transparent text-xs text-content-faint transition-all hover:border-content-muted hover:text-content">+</button>
 
             {showAdd && (
-              <div className="bg-surface-card" style={{
-                position: 'absolute', top: 26, left: 0, zIndex: 100,
-                border: '1px solid var(--border-primary)', borderRadius: 10,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 4, minWidth: 140,
-              }}>
+              <div className="absolute left-0 top-[26px] z-[100] min-w-[140px] rounded-[10px] border border-edge bg-surface-card p-1 shadow-[0_4px_16px_rgba(0,0,0,0.12)]">
                 {availableToAdd.map(member => (
-                  <button key={member.id} onClick={() => handleAdd(member.id)} className="text-content" style={{
-                    display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px',
-                    borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer',
-                    fontFamily: 'inherit', fontSize: 'calc(11px * var(--fs-scale-caption, 1))', textAlign: 'left',
-                    transition: 'background 0.1s',
-                  }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                  >
-                    <div className="bg-surface-tertiary text-content-muted" style={{
-                      width: 18, height: 18, borderRadius: '50%',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'calc(8px * var(--fs-scale-caption, 1))', fontWeight: 700,
-                      overflow: 'hidden', flexShrink: 0,
-                    }}>
-                      {(member.avatar_url || member.avatar) ? <img src={member.avatar_url || avatarSrc(member.avatar)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : member.username?.[0]?.toUpperCase()}
+                  <button key={member.id} onClick={() => handleAdd(member.id)} className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-2 py-[5px] text-left font-[inherit] text-[11px] text-content transition-colors hover:bg-surface-hover">
+                    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-tertiary text-[8px] font-bold text-content-muted">
+                      {(member.avatar_url || member.avatar) ? <img src={member.avatar_url || avatarSrc(member.avatar)!} className="h-full w-full object-cover" /> : member.username?.[0]?.toUpperCase()}
                     </div>
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.username}</span>
                     {member.is_guest && <GuestBadge size="xs" />}
@@ -755,7 +957,7 @@ function ParticipantsBox({ tripMembers, participantIds, allJoined, onSetParticip
 
 
 function PlaceInspectorHeader({ openNow, place, category, t, editingName, nameInputRef, nameValue, setNameValue,
-  commitNameEdit, handleNameKeyDown, startNameEdit, onUpdatePlace, locale, timeFormat, onClose }: any) {
+  commitNameEdit, handleNameKeyDown, startNameEdit, onUpdatePlace, locale, timeFormat, onClose, secondaryNames, displayAddress }: any) {
   return (
         <div style={{ display: 'flex', alignItems: 'center', gap: openNow !== null ? 26 : 14, padding: openNow !== null ? '18px 16px 14px 28px' : '18px 16px 14px', borderBottom: '1px solid var(--border-faint)', flexShrink: 0 }}>
           {/* Avatar with open/closed ring + tag */}
@@ -821,10 +1023,17 @@ function PlaceInspectorHeader({ openNow, place, category, t, editingName, nameIn
                 )
               })()}
             </div>
-            {place.address && (
+            {!editingName && secondaryNames?.length > 0 && (
+              <div className="text-content-muted" style={{ fontSize: 12, lineHeight: 1.35, marginTop: 3, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {secondaryNames.map(name => (
+                  <span key={name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                ))}
+              </div>
+            )}
+            {displayAddress && (
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 6 }}>
                 <MapPin size={11} color="var(--text-faint)" style={{ flexShrink: 0, marginTop: 2 }} />
-                <span className="text-content-muted" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{place.address}</span>
+                <span className="text-content-muted" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{displayAddress}</span>
               </div>
             )}
             {place.place_time && (
@@ -865,19 +1074,19 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
             const showParticipants = selectedAssignmentId && tripMembers.length > 1
             if (!res && !showParticipants) return null
             return (
-              <div className={`grid ${res && showParticipants ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'} gap-2`}>
+              <>
                 {/* Reservation */}
                 {res && (() => {
                   const confirmed = res.status === 'confirmed'
                   return (
-                    <div style={{ borderRadius: 12, overflow: 'hidden', border: `1px solid ${confirmed ? 'rgba(22,163,74,0.2)' : 'rgba(217,119,6,0.2)'}` }}>
-                      <div className={confirmed ? 'bg-[rgba(22,163,74,0.08)]' : 'bg-[rgba(217,119,6,0.08)]'} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px' }}>
-                        <div className={confirmed ? 'bg-[#16a34a]' : 'bg-[#d97706]'} style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0 }} />
-                        <span className={confirmed ? 'text-[#16a34a]' : 'text-[#d97706]'} style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 700 }}>{confirmed ? t('reservations.confirmed') : t('reservations.pending')}</span>
-                        <span style={{ flex: 1 }} />
-                        <span className="text-content" style={{ fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{res.title}</span>
+                    <div className={`mb-2 break-inside-avoid overflow-hidden rounded-xl border bg-surface-hover ${confirmed ? 'border-[rgba(22,163,74,0.2)]' : 'border-[rgba(217,119,6,0.2)]'}`}>
+                      <div className={`flex items-center gap-2 px-2.5 py-1.5 ${confirmed ? 'bg-[rgba(22,163,74,0.08)]' : 'bg-[rgba(217,119,6,0.08)]'}`}>
+                        <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${confirmed ? 'bg-[#16a34a]' : 'bg-[#d97706]'}`} />
+                        <span className={`text-[10px] font-bold ${confirmed ? 'text-[#16a34a]' : 'text-[#d97706]'}`}>{confirmed ? t('reservations.confirmed') : t('reservations.pending')}</span>
+                        <span className="flex-1" />
+                        <span className="truncate text-[11px] font-semibold text-content">{res.title}</span>
                       </div>
-                      <div style={{ padding: '6px 10px', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <div className="flex flex-wrap gap-3 px-2.5 py-1.5">
                         {(() => {
                           const { date, time: startTime } = splitReservationDateTime(res.reservation_time)
                           const { time: endTime } = splitReservationDateTime(res.reservation_end_time)
@@ -885,14 +1094,14 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
                             <>
                               {date && (
                                 <div>
-                                  <div className="text-content-faint" style={{ fontSize: 'calc(8px * var(--fs-scale-caption, 1))', fontWeight: 600, textTransform: 'uppercase' }}>{t('reservations.date')}</div>
-                                  <div className="text-content" style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 500, marginTop: 1 }}>{new Date(date + 'T00:00:00Z').toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}</div>
+                                  <div className="text-[8px] font-semibold uppercase text-content-faint">{t('reservations.date')}</div>
+                                  <div className="mt-px text-[10px] font-medium text-content">{new Date(date + 'T00:00:00Z').toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}</div>
                                 </div>
                               )}
                               {(startTime || endTime) && (
                                 <div>
-                                  <div className="text-content-faint" style={{ fontSize: 'calc(8px * var(--fs-scale-caption, 1))', fontWeight: 600, textTransform: 'uppercase' }}>{t('reservations.time')}</div>
-                                  <div className="text-content" style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 500, marginTop: 1 }}>
+                                  <div className="text-[8px] font-semibold uppercase text-content-faint">{t('reservations.time')}</div>
+                                  <div className="mt-px text-[10px] font-medium text-content">
                                     {startTime ? formatTime(startTime, locale, timeFormat) : ''}
                                     {endTime ? ` – ${formatTime(endTime, locale, timeFormat)}` : ''}
                                   </div>
@@ -903,12 +1112,12 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
                         })()}
                         {res.confirmation_number && (
                           <div>
-                            <div className="text-content-faint" style={{ fontSize: 'calc(8px * var(--fs-scale-caption, 1))', fontWeight: 600, textTransform: 'uppercase' }}>{t('reservations.confirmationCode')}</div>
-                            <div className="text-content" style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 500, marginTop: 1 }}>{res.confirmation_number}</div>
+                            <div className="text-[8px] font-semibold uppercase text-content-faint">{t('reservations.confirmationCode')}</div>
+                            <div className="mt-px text-[10px] font-medium text-content">{res.confirmation_number}</div>
                           </div>
                         )}
                       </div>
-                      {res.notes && <div className="collab-note-md text-content-faint" style={{ padding: '0 10px 6px', fontSize: 'calc(10px * var(--fs-scale-caption, 1))', lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'anywhere' }}><Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{res.notes}</Markdown></div>}
+                      {res.notes && <div className="collab-note-md px-2.5 pb-1.5 text-[10px] leading-[1.4] text-content-faint [overflow-wrap:anywhere] [word-break:break-word]"><Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{res.notes}</Markdown></div>}
                       {(() => {
                         const meta = typeof res.metadata === 'string' ? JSON.parse(res.metadata || '{}') : (res.metadata || {})
                         if (!meta || Object.keys(meta).length === 0) return null
@@ -921,7 +1130,7 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
                         if (meta.check_in_time) parts.push(`Check-in ${meta.check_in_time}`)
                         if (meta.check_out_time) parts.push(`Check-out ${meta.check_out_time}`)
                         if (parts.length === 0) return null
-                        return <div className="text-content-muted" style={{ padding: '0 10px 6px', fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 500 }}>{parts.join(' · ')}</div>
+                        return <div className="px-2.5 pb-1.5 text-[10px] font-medium text-content-muted">{parts.join(' · ')}</div>
                       })()}
                     </div>
                   )
@@ -939,7 +1148,7 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
                     t={t}
                   />
                 )}
-              </div>
+              </>
             )
           })()}
     </>
@@ -949,33 +1158,25 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
 function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpanded, timeFormat, t, place,
   placeFiles, onFileUpload, filesExpanded, setFilesExpanded, fileInputRef, handleFileUpload, isUploading, distanceUnit }: any) {
   return (
-          <div className={`grid grid-cols-1 ${openingHours?.length > 0 ? 'sm:grid-cols-2' : ''} gap-2`}>
+          <>
           {openingHours && openingHours.length > 0 && (
-            <div className="bg-surface-hover" style={{ borderRadius: 10, overflow: 'hidden' }}>
+            <div className={`${INFO_BLOCK_CLASS} overflow-hidden px-0 py-0`}>
               <button
                 onClick={() => setHoursExpanded(h => !h)}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
+                className="flex w-full cursor-pointer items-center justify-between border-0 bg-transparent px-3 py-2 font-[inherit]"
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Clock size={13} color="#9ca3af" />
-                  <span className="text-content-secondary" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 500 }}>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <Clock size={13} className="shrink-0 text-content-faint" />
+                  <span className="truncate text-xs font-medium text-content-secondary">
                     {hoursExpanded ? t('inspector.openingHours') : (convertHoursLine(openingHours[weekdayIndex] || '', timeFormat) || t('inspector.showHours'))}
                   </span>
                 </div>
-                {hoursExpanded ? <ChevronUp size={13} color="#9ca3af" /> : <ChevronDown size={13} color="#9ca3af" />}
+                {hoursExpanded ? <ChevronUp size={13} className="shrink-0 text-content-faint" /> : <ChevronDown size={13} className="shrink-0 text-content-faint" />}
               </button>
               {hoursExpanded && (
-                <div style={{ padding: '0 12px 10px' }}>
+                <div className="px-3 pb-2.5">
                   {openingHours.map((line, i) => (
-                    <div key={i} className={i === weekdayIndex ? 'text-content' : 'text-content-muted'} style={{
-                      fontSize: 'calc(12px * var(--fs-scale-body, 1))',
-                      fontWeight: i === weekdayIndex ? 600 : 400,
-                      padding: '2px 0',
-                    }}>{convertHoursLine(line, timeFormat)}</div>
+                    <div key={i} className={`${i === weekdayIndex ? 'font-semibold text-content' : 'font-normal text-content-muted'} py-0.5 text-xs`}>{convertHoursLine(line, timeFormat)}</div>
                   ))}
                 </div>
               )}
@@ -1032,34 +1233,34 @@ function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpand
               }
 
               return (
-                <div className="bg-surface-hover" style={{ borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <TrendingUp size={13} color="#9ca3af" />
-                    <span className="text-content-secondary" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 500 }}>{t('inspector.trackStats')}</span>
+                <div className={`${INFO_BLOCK_CLASS} flex flex-col gap-2`}>
+                  <div className="flex items-center gap-1.5">
+                    <TrendingUp size={13} className="text-content-faint" />
+                    <span className="text-xs font-medium text-content-secondary">{t('inspector.trackStats')}</span>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    <div className="text-content" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600 }}>
-                      <MapPin size={12} color="#3b82f6" />
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex items-center gap-1 text-xs font-semibold text-content">
+                      <MapPin size={12} className="text-[#3b82f6]" />
                       {formatDistance(distKm, distanceUnit)}
                     </div>
                     {hasEle && (
                       <>
-                        <div className="text-content" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600 }}>
-                          <Mountain size={12} color="#22c55e" />
+                        <div className="flex items-center gap-1 text-xs font-semibold text-content">
+                          <Mountain size={12} className="text-[#22c55e]" />
                           {formatElevation(maxEle, distanceUnit)}
                         </div>
-                        <div className="text-content" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600 }}>
-                          <Mountain size={12} color="#ef4444" />
+                        <div className="flex items-center gap-1 text-xs font-semibold text-content">
+                          <Mountain size={12} className="text-[#ef4444]" />
                           {formatElevation(minEle, distanceUnit)}
                         </div>
-                        <div className="text-content-muted" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))' }}>
+                        <div className="text-xs text-content-muted">
                           ↑{formatElevation(totalUp, distanceUnit)} &nbsp;↓{formatElevation(totalDown, distanceUnit)}
                         </div>
                       </>
                     )}
                   </div>
                   {pathD && (
-                    <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" className="bg-surface-tertiary" style={{ display: 'block', borderRadius: 6 }}>
+                    <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" className="block rounded-md bg-surface-tertiary">
                       <defs>
                         <linearGradient id={`ele-grad-${place.id}`} x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
@@ -1077,23 +1278,23 @@ function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpand
 
           {/* Files section */}
           {(placeFiles.length > 0 || onFileUpload) && (
-            <div className="bg-surface-hover" style={{ borderRadius: 10, overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 6 }}>
+            <div className={`${INFO_BLOCK_CLASS} overflow-hidden px-0 py-0`}>
+              <div className="flex items-center gap-1.5 px-3 py-2">
                 <button
                   onClick={() => setFilesExpanded(f => !f)}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', textAlign: 'left' }}
+                  className="flex flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left font-[inherit]"
                 >
-                  <FileText size={13} color="#9ca3af" />
-                  <span className="text-content-secondary" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 500 }}>
+                  <FileText size={13} className="shrink-0 text-content-faint" />
+                  <span className="text-xs font-medium text-content-secondary">
                     {placeFiles.length > 0 ? t('inspector.filesCount', { count: placeFiles.length }) : t('inspector.files')}
                   </span>
-                  {filesExpanded ? <ChevronUp size={12} color="#9ca3af" /> : <ChevronDown size={12} color="#9ca3af" />}
+                  {filesExpanded ? <ChevronUp size={12} className="text-content-faint" /> : <ChevronDown size={12} className="text-content-faint" />}
                 </button>
                 {onFileUpload && (
-                  <label className="text-content-muted bg-surface-tertiary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 'calc(11px * var(--fs-scale-caption, 1))', padding: '2px 6px', borderRadius: 6 }}>
-                    <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileUpload} />
+                  <label className="flex cursor-pointer items-center gap-1 rounded-md bg-surface-tertiary px-1.5 py-0.5 text-[11px] text-content-muted">
+                    <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
                     {isUploading ? (
-                      <span style={{ fontSize: 'calc(11px * var(--fs-scale-caption, 1))' }}>…</span>
+                      <span className="text-[11px]">…</span>
                     ) : (
                       <><Upload size={11} strokeWidth={2} /> {t('common.upload')}</>
                     )}
@@ -1101,18 +1302,18 @@ function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpand
                 )}
               </div>
               {filesExpanded && placeFiles.length > 0 && (
-                <div style={{ padding: '0 12px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div className="flex flex-col gap-1 px-3 pb-2.5">
                   {placeFiles.map(f => (
-                    <button key={f.id} onClick={() => openFile(f.url).catch(() => {})} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', cursor: 'pointer', background: 'none', border: 'none', width: '100%', textAlign: 'left' }}>
-                      {(f.mime_type || '').startsWith('image/') ? <FileImage size={12} color="#6b7280" /> : <File size={12} color="#6b7280" />}
-                      <span className="text-content-secondary" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_name}</span>
-                      {f.file_size && <span className="text-content-faint" style={{ fontSize: 'calc(11px * var(--fs-scale-caption, 1))', flexShrink: 0 }}>{formatFileSize(f.file_size)}</span>}
+                    <button key={f.id} onClick={() => openFile(f.url).catch(() => {})} className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent text-left no-underline">
+                      {(f.mime_type || '').startsWith('image/') ? <FileImage size={12} className="text-content-muted" /> : <File size={12} className="text-content-muted" />}
+                      <span className="flex-1 truncate text-xs text-content-secondary">{f.original_name}</span>
+                      {f.file_size && <span className="shrink-0 text-[11px] text-content-faint">{formatFileSize(f.file_size)}</span>}
                     </button>
                   ))}
                 </div>
               )}
             </div>
           )}
-          </div>
+          </>
   )
 }

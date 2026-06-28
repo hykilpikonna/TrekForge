@@ -152,6 +152,48 @@ describe('PlaceFormModal', () => {
     expect(screen.getByDisplayValue('Paris')).toBeInTheDocument();
   });
 
+  it('FE-PLANNER-PLACEFORM-016b: POI prefill shows expanded place details before adding', async () => {
+    server.use(
+      http.get('/api/maps/details/:placeId', () => HttpResponse.json({
+        place: {
+          google_place_id: 'ChIJHashima',
+          name_translated: 'Hashima Coal Mine Ruins',
+          name_original: '端島炭坑',
+          written_address: 'Hashima, Nagasaki, Japan',
+          lat: 32.6278,
+          lng: 129.7386,
+          type: 'Historical landmark',
+          rating: 4.4,
+          rating_count: 321,
+          accessible: false,
+          accessibility: [{ key: 'wheelchair_accessible_entrance', text: 'No wheelchair-accessible entrance' }],
+          reviews: [{ author: 'Aiko', text: 'Worth the ferry ride.' }],
+          popular_times: [{ day: 1, hour: 10, occupancy_percent: 80 }],
+          photos: [{ name: 'places/ChIJHashima/photos/one' }],
+        },
+      })),
+      http.get('/api/maps/place-photo/:placeId', () => HttpResponse.json({
+        photoUrl: '/api/maps/place-photo/ChIJHashima/bytes',
+      })),
+    );
+
+    render(
+      <PlaceFormModal
+        {...defaultProps}
+        place={null}
+        prefillCoords={{ lat: 32.6277, lng: 129.7385, name: '端島炭坑', address: 'Nagasaki', osm_id: 'way:123' }}
+      />,
+    );
+
+    expect(await screen.findByText('Hashima Coal Mine Ruins')).toBeInTheDocument();
+    expect(screen.getByText('端島炭坑')).toBeInTheDocument();
+    expect(screen.getByText('Historical Landmark')).toBeInTheDocument();
+    expect(screen.getByText('Worth the ferry ride.')).toBeInTheDocument();
+    expect(screen.getByText('Popular times')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('32.6278')).toBeInTheDocument();
+    expect(await screen.findByAltText('Hashima Coal Mine Ruins')).toBeInTheDocument();
+  });
+
   it('FE-PLANNER-PLACEFORM-017: form resets when isOpen changes from place to null', () => {
     const place = buildPlace({ name: 'Old Place' });
     const { rerender } = render(<PlaceFormModal {...defaultProps} place={place} isOpen={true} />);

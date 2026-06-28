@@ -170,6 +170,20 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function formatCoordinateText(value: number): string {
+  const rounded = roundCoordinate(value);
+  return Object.is(rounded, -0) ? '0' : String(rounded);
+}
+
+function formatLatLngText(lat: number, lng: number): string {
+  return `${formatCoordinateText(lat)},${formatCoordinateText(lng)}`;
+}
+
+function roundCoordinate(value: number): number {
+  const rounded = Number(value.toFixed(7));
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string') throw makeHttpError(400, `${field} must be a string`);
@@ -196,14 +210,17 @@ function validateLocation(value: unknown, field: string): NormalizedLocation {
   if ((lat !== undefined || lng !== undefined) && (!finiteNumber(lat) || !finiteNumber(lng))) {
     throw makeHttpError(400, `${field}.lat and ${field}.lng must both be finite numbers when provided`);
   }
-  if (!text && (!finiteNumber(lat) || !finiteNumber(lng))) {
+  const hasCoordinates = finiteNumber(lat) && finiteNumber(lng);
+  if (!text && !hasCoordinates) {
     throw makeHttpError(400, `${field} must include text, label/address, or lat/lng`);
   }
   if (text && text.length > MAX_LOCATION_TEXT_LENGTH) throw makeHttpError(400, `${field} is too long`);
+  const normalizedLat = hasCoordinates ? roundCoordinate(lat as number) : undefined;
+  const normalizedLng = hasCoordinates ? roundCoordinate(lng as number) : undefined;
 
   return {
-    text: text ?? `${lat},${lng}`,
-    ...(finiteNumber(lat) && finiteNumber(lng) ? { lat, lng } : {}),
+    text: text ?? formatLatLngText(normalizedLat!, normalizedLng!),
+    ...(hasCoordinates ? { lat: normalizedLat, lng: normalizedLng } : {}),
     placeId: optionalString(body.placeId, `${field}.placeId`),
     dataId: optionalString(body.dataId, `${field}.dataId`) ?? optionalString(body.cid, `${field}.cid`),
   };

@@ -14,6 +14,7 @@ import {
 
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1'
 const OSRM_DRIVING_BASE = 'https://routing.openstreetmap.de/routed-car/route/v1/driving'
+const OSRM_WALKING_BASE = 'https://routing.openstreetmap.de/routed-foot/route/v1/foot'
 
 const buildOsrmRouteResponse = (distance = 5000, duration = 360) => ({
   code: 'Ok',
@@ -382,6 +383,79 @@ describe('calculateRouteWithLegs persistent cache', () => {
       avoidHighways: true,
       avoidFerries: false,
     })
+  })
+
+  it('FE-COMP-ROUTECALCULATOR-023b: Google Maps mobile routing reports no-route errors without OSRM fallback', async () => {
+    let mobileCalls = 0
+    let osrmCalls = 0
+    server.use(
+      http.post('/api/maps/directions-mobile', () => {
+        mobileCalls += 1
+        return HttpResponse.json({ routes: [] })
+      }),
+      http.get(`${OSRM_WALKING_BASE}/:coords`, () => {
+        osrmCalls += 1
+        return HttpResponse.json(buildOsrmRouteResponse(2400, 900))
+      })
+    )
+
+    await expect(calculateRouteWithLegs([wp1, wp2], {
+      provider: 'google_maps_mobile',
+      profile: 'walking',
+    })).rejects.toThrow('No route found')
+    await expect(calculateRouteWithLegs([wp1, wp2], {
+      provider: 'google_maps_mobile',
+      profile: 'walking',
+    })).rejects.toThrow('No route found')
+
+    expect(mobileCalls).toBe(2)
+    expect(osrmCalls).toBe(0)
+  })
+
+  it('FE-COMP-ROUTECALCULATOR-023c: Google Maps mobile retries untimed when a scheduled route has no alternatives', async () => {
+    const bodies: any[] = []
+    let osrmCalls = 0
+    server.use(
+      http.post('/api/maps/directions-mobile', async ({ request }) => {
+        const body = await request.json() as any
+        bodies.push(body)
+        if (body.departureTime) return HttpResponse.json({ routes: [] })
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 19661, text: '19.7 km' },
+              duration: { seconds: 2177, text: '36 min' },
+              overviewGeometry: [
+                { lat: body.from.lat, lng: body.from.lng },
+                { lat: 48.858, lng: 2.356 },
+                { lat: body.to.lat, lng: body.to.lng },
+              ],
+            },
+          ],
+        })
+      }),
+      http.get(`${OSRM_DRIVING_BASE}/:coords`, () => {
+        osrmCalls += 1
+        return HttpResponse.json(buildOsrmRouteResponse(2400, 900))
+      })
+    )
+
+    const from = { ...wp1, label: 'Gifu Castle' }
+    const to = { ...wp2, label: 'Inuyama Castle' }
+    const result = await calculateRouteWithLegs([from, to], {
+      provider: 'google_maps_mobile',
+      departureLocalDateTime: '2026-12-01T10:10',
+    })
+
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0].from.text).toBe('Gifu Castle')
+    expect(bodies[0].to.text).toBe('Inuyama Castle')
+    expect(bodies[0].departureTime).toEqual({ kind: 'departAtLocal', localDateTime: '2026-12-01T10:10' })
+    expect(bodies[1].departureTime).toBeUndefined()
+    expect(result.duration).toBe(2177)
+    expect(result.distance).toBe(19661)
+    expect(result.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
+    expect(osrmCalls).toBe(0)
   })
 
   it('marks explicit zero Google transit fares as Free and leaves unknown fares empty', async () => {

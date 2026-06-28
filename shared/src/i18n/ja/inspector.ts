@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': '予約を編集',
   'inspector.participants': '参加者',
   'inspector.trackStats': '統計を記録',
+  'inspector.accessibility': 'バリアフリー',
+  'inspector.accessible': '利用しやすい',
+  'inspector.accessibilityLimited': 'バリアフリー制限あり',
+  'inspector.reviews': '口コミ',
+  'inspector.popularTimes': '混雑する時間帯',
+  'inspector.photosCount': '{count}枚の写真',
 };
 export default inspector;

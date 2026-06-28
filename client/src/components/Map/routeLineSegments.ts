@@ -210,7 +210,7 @@ function buildRouteLinePartsBySegment(
   route: [number, number][][] | null | undefined,
   routeSegments: RouteSegment[] | null | undefined = [],
 ): RouteLinePart[][] {
-  const safeRouteSegments = routeSegments ?? []
+  const safeRouteSegments = (routeSegments ?? []).filter(segment => !segment.errorText)
   const transitBySegment = safeRouteSegments.map((segment, index) => transitPartsForSegment(segment, route?.[index]))
   const hasTransitParts = transitBySegment.some(parts => parts.length > 0)
 

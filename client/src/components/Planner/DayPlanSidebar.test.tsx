@@ -13,6 +13,7 @@ import {
 } from '../../../tests/helpers/factories'
 import DayPlanSidebar from './DayPlanSidebar'
 import { mapsApi } from '../../api/client'
+import { calculateRouteWithLegs } from '../Map/RouteCalculator'
 
 // ── Hoisted mock state (accessible in vi.mock factories) ────────────────────
 const mockDayNotesState = vi.hoisted(() => ({
@@ -314,8 +315,25 @@ describe('DayPlanSidebar', () => {
 
     render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [assignment] } })} />)
 
-    await waitFor(() => expect(mapsApi.details).toHaveBeenCalledWith('0x882bf179e806d471:0x8591dde29c821a93', expect.any(String)))
+    await waitFor(() => expect(mapsApi.details).toHaveBeenCalledWith('google-place-42', expect.any(String)))
     await waitFor(() => expect(screen.getByText(/Outside opening hours/i)).toBeInTheDocument())
+  })
+
+  it('FE-PLANNER-DAYPLAN-011c: warns when a scheduled place is temporarily closed', async () => {
+    vi.mocked(mapsApi.details).mockResolvedValueOnce({
+      place: { business_status: 'CLOSED_TEMPORARILY' },
+    } as any)
+    const place = buildPlace({
+      id: 43,
+      name: 'Gifu Castle',
+      google_place_id: 'ChIJclosed43',
+    })
+    const day = buildDay({ id: 10, date: '2025-06-02', title: 'Monday' })
+    const assignment = buildAssignment({ id: 100, day_id: 10, order_index: 0, place, duration_minutes: 60 })
+
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [assignment] } })} />)
+
+    await waitFor(() => expect(screen.getByText(/Temporarily closed/i)).toBeInTheDocument())
   })
 
   it('FE-PLANNER-DAYPLAN-012: assigned place uses calculated time and ignores legacy place_time', () => {
@@ -545,6 +563,23 @@ describe('DayPlanSidebar', () => {
       toLabel: 'Lunch',
       title: 'Museum to Lunch',
     }))
+  })
+
+  it('renders a route error connector when route info cannot be obtained', async () => {
+    vi.mocked(calculateRouteWithLegs).mockRejectedValueOnce(new Error('No route found'))
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1', wake_up_time: '08:00' })
+    const museum = buildPlace({ id: 1, name: 'Museum', lat: 48.86, lng: 2.34 })
+    const lunch = buildPlace({ id: 2, name: 'Lunch', lat: 48.87, lng: 2.35 })
+    const assignments = {
+      '10': [
+        buildAssignment({ id: 11, day_id: 10, order_index: 0, place: museum, duration_minutes: 60 }),
+        buildAssignment({ id: 22, day_id: 10, order_index: 1, place: lunch, duration_minutes: 60 }),
+      ],
+    }
+
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [museum, lunch], assignments, routeShown: true })} />)
+
+    await waitFor(() => expect(screen.getByText(/Failed to calculate route/i)).toBeInTheDocument())
   })
 
   it('opens route details from a calendar route block', async () => {
@@ -1334,6 +1369,41 @@ describe('DayPlanSidebar', () => {
       days: [day], places: [place], assignments: { '10': [assignment] }, categories: [category],
     })} />)
     expect(screen.getByText('Café de Flore')).toBeInTheDocument()
+  })
+
+  it('FE-PLANNER-DAYPLAN-052b: list subtext shows original name before category', async () => {
+    vi.mocked(mapsApi.details).mockResolvedValueOnce({
+      place: { name_original: '岐阜城', name_translated: 'Gifu Castle' },
+    } as any)
+    const category = buildCategory({ id: 5, name: 'Castles', icon: 'landmark' })
+    const place = buildPlace({ id: 43, name: 'Gifu Castle', category_id: 5, google_place_id: 'ChIJgifu43' })
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
+    const assignment = buildAssignment({ id: 99, day_id: 10, order_index: 0, place })
+
+    render(<DayPlanSidebar {...makeDefaultProps({
+      days: [day], places: [place], assignments: { '10': [assignment] }, categories: [category],
+    })} />)
+
+    await waitFor(() => expect(screen.getByText(/岐阜城.*Castles/)).toBeInTheDocument())
+  })
+
+  it('FE-PLANNER-DAYPLAN-052c: calendar subtext shows original name before category', async () => {
+    localStorage.setItem('trek:day-plan-view:1', 'calendar')
+    vi.mocked(mapsApi.details).mockResolvedValueOnce({
+      place: { name_original: '岐阜城', name_translated: 'Gifu Castle' },
+    } as any)
+    const category = buildCategory({ id: 5, name: 'Castles', icon: 'landmark' })
+    const place = buildPlace({ id: 43, name: 'Gifu Castle', category_id: 5, google_place_id: 'ChIJgifu43' })
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
+    const assignment = buildAssignment({ id: 99, day_id: 10, order_index: 0, place, duration_minutes: 60 })
+
+    render(<DayPlanSidebar {...makeDefaultProps({
+      days: [day], places: [place], assignments: { '10': [assignment] }, categories: [category],
+    })} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('calendar-activity-99')).toHaveTextContent(/岐阜城.*Castles/)
+    })
   })
 
   // ── Drop on assignment row ─────────────────────────────────────────────

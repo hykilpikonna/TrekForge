@@ -22,7 +22,7 @@ const OSRM_PROFILE_BASE: Record<OsrmRouteProfile, string> = {
 const routeCache = new Map<string, RouteWithLegs>()
 const ROUTE_CACHE_MAX = 200
 const ROUTE_CACHE_STORAGE_KEY = 'trek:route-cache:v1'
-const ROUTE_CACHE_VERSION = 10
+const ROUTE_CACHE_VERSION = 13
 const ROUTE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const ROUTE_CHOICE_STORAGE_KEY = 'trek:route-alternative-choices:v1'
 const ROUTE_CHOICE_VERSION = 1
@@ -470,8 +470,8 @@ export async function calculateSegments(
 /**
  * One OSRM call per waypoint-run that returns BOTH the real road geometry (for the
  * map) and per-leg distance/duration (for the sidebar connectors). Results are cached
- * by the exact waypoint list. Throws on OSRM failure so callers can fall back to a
- * straight line.
+ * by the exact waypoint list. Throws on provider failure so callers can surface the
+ * route error instead of showing stale or synthetic routing data.
  */
 export async function calculateRouteWithLegs(
   waypoints: Waypoint[],
@@ -1001,6 +1001,11 @@ function googleMobileRouteAlternative(
   }
 }
 
+function googleMobileLocation(point: Waypoint): { lat: number; lng: number; text?: string } {
+  const text = typeof point.label === 'string' ? point.label.trim() : ''
+  return text ? { text, lat: point.lat, lng: point.lng } : { lat: point.lat, lng: point.lng }
+}
+
 async function fetchGoogleTransitPreviewRoutes(
   from: Waypoint,
   to: Waypoint,
@@ -1165,19 +1170,30 @@ async function calculateGoogleMobileRouteWithLegs(
     const from = waypoints[i]
     const to = waypoints[i + 1]
     const legDeparture = currentDeparture
-    const body = {
-      from: { lat: from.lat, lng: from.lng },
-      to: { lat: to.lat, lng: to.lng },
-      ...(legDeparture ? { departureTime: { kind: 'departAtLocal' as const, localDateTime: legDeparture } } : {}),
+    const buildBody = (departure: string | null) => ({
+      from: googleMobileLocation(from),
+      to: googleMobileLocation(to),
+      ...(departure ? { departureTime: { kind: 'departAtLocal' as const, localDateTime: departure } } : {}),
       options: {
         mode: googleMode(profile),
         avoidTolls: google?.avoidTolls === true,
         avoidHighways: google?.avoidHighways === true,
         avoidFerries: google?.avoidFerries === true,
       },
+    })
+    const fetchMobileRoutes = async (departure: string | null) => {
+      const response = await apiClient.post('/maps/directions-mobile', buildBody(departure), { signal }).then(r => r.data as GoogleMobileDirectionsResponse)
+      return { response, routes: response.routes ?? [] }
     }
-    const response = await apiClient.post('/maps/directions-mobile', body, { signal }).then(r => r.data as GoogleMobileDirectionsResponse)
-    const mobileRoutes = response.routes ?? []
+
+    let { response, routes: mobileRoutes } = await fetchMobileRoutes(legDeparture)
+    if (!mobileRoutes.length && legDeparture) {
+      const untimed = await fetchMobileRoutes(null)
+      if (untimed.routes.length) {
+        response = untimed.response
+        mobileRoutes = untimed.routes
+      }
+    }
     if (!mobileRoutes.length) throw new Error('No route found')
 
     let alternatives: RouteAlternative[]
