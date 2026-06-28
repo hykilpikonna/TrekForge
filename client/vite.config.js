@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { fileURLToPath } from 'node:url'
 
 const backendTarget = process.env.VITE_DEV_PROXY_TARGET || process.env.DEV_PROXY_TARGET || `http://localhost:${process.env.BACKEND_PORT || '3001'}`
 const proxyToBackend = (extra = {}) => ({
@@ -8,8 +9,16 @@ const proxyToBackend = (extra = {}) => ({
   changeOrigin: true,
   ...extra,
 })
+const sharedSrc = fileURLToPath(new URL('../shared/src', import.meta.url))
 
 export default defineConfig({
+  resolve: {
+    alias: [
+      { find: /^@trek\/shared\/i18n\/([^/]+)$/, replacement: `${sharedSrc}/i18n/$1/index.ts` },
+      { find: '@trek/shared/i18n', replacement: `${sharedSrc}/i18n/index.ts` },
+      { find: '@trek/shared', replacement: `${sharedSrc}/index.ts` },
+    ],
+  },
   plugins: [
     react(),
     VitePWA({
