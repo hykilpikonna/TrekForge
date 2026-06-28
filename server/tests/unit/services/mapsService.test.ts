@@ -18,6 +18,7 @@ const {
   mockCacheGetInFlight,
   mockCacheSetInFlight,
   mockFetchMobilePlaceDetails,
+  mockFetchMobileRichPlaceDetails,
 } = vi.hoisted(() => ({
   mockDbGet: vi.fn(() => undefined as any),
   mockDbRun: vi.fn(),
@@ -32,6 +33,7 @@ const {
   mockCacheGetInFlight: vi.fn(() => undefined),
   mockCacheSetInFlight: vi.fn(),
   mockFetchMobilePlaceDetails: vi.fn(),
+  mockFetchMobileRichPlaceDetails: vi.fn(async () => ({ popular_times: null, popular_status: null, reviews: [], photos: [], summary: null })),
 }));
 
 vi.mock('../../../src/db/database', () => ({
@@ -82,6 +84,7 @@ vi.mock('../../../src/services/placePhotoCache', () => ({
 
 vi.mock('../../../src/services/googleMapsMobilePlaceDetails', () => ({
   fetchGoogleMapsMobilePlaceDetails: (input: unknown) => mockFetchMobilePlaceDetails(input),
+  fetchGoogleMapsMobileRichPlaceDetails: (input: unknown) => mockFetchMobileRichPlaceDetails(input),
 }));
 
 import {
@@ -116,6 +119,8 @@ afterEach(() => {
   mockCacheGetInFlight.mockReturnValue(undefined);
   mockCacheSetInFlight.mockReset();
   mockFetchMobilePlaceDetails.mockReset();
+  mockFetchMobileRichPlaceDetails.mockReset();
+  mockFetchMobileRichPlaceDetails.mockResolvedValue({ popular_times: null, popular_status: null, reviews: [], photos: [], summary: null });
 });
 
 // ── parseOpeningHours ─────────────────────────────────────────────────────────
@@ -1090,6 +1095,25 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect((result.place as any).website).toBeNull();
   });
 
+  it('MAPS-040b2: returns cached OSM details without refetching', async () => {
+    const cachedPlace = {
+      osm_id: 'way:12345',
+      name: 'Cached Castle',
+      source: 'google',
+      business_status: 'CLOSED_TEMPORARILY',
+      cache_schema_version: 8,
+    };
+    mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetails } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetails(1, 'way:12345', 'en');
+
+    expect(result.place).toEqual(cachedPlace);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   const ftid = '0x882bf179e806d471:0x8591dde29c821a93';
   const placeId = 'ChIJ123';
 
@@ -1111,12 +1135,15 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     name?: string;
     statusText?: string;
     businessStatus?: string;
+    ratingCount?: number | null;
+    phone?: string | null;
     rows?: unknown[];
+    popularTimes?: unknown[];
   } = {}) {
     const tuple: any[] = [];
     const statusRow: any[] = [];
     if (options.statusText) statusRow[8] = [options.statusText];
-    tuple[4] = [null, null, null, ['https://reviews.example', '200,000 reviews'], null, null, null, 4.7, 200000];
+    tuple[4] = [null, null, null, ['https://reviews.example', '200,000 reviews'], null, null, null, 4.7, options.ratingCount === undefined ? 200000 : options.ratingCount];
     tuple[7] = ['https://www.toureiffel.paris', 'toureiffel.paris'];
     tuple[9] = [null, null, 48.8584, 2.2945];
     tuple[10] = options.dataId ?? ftid;
@@ -1124,7 +1151,8 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     tuple[18] = 'Champ de Mars, 5 Av. Anatole France, 75007 Paris';
     tuple[78] = options.id ?? placeId;
     tuple[88] = [options.businessStatus ?? 'Iconic iron tower'];
-    tuple[178] = [['+33 892 70 12 39']];
+    if (options.phone !== null) tuple[178] = [[options.phone === undefined ? '+33 892 70 12 39' : options.phone]];
+    if (options.popularTimes) tuple[84] = options.popularTimes;
     tuple[203] = [options.rows ?? previewRows(), statusRow];
     const data: any[] = [];
     data[6] = tuple;
@@ -1163,7 +1191,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     ]);
     expect(place.business_status).toBe('OPERATIONAL');
     expect(place.source).toBe('google');
-    expect(place.cache_schema_version).toBe(3);
+    expect(place.cache_schema_version).toBe(8);
     expect(place.reviews).toHaveLength(0);
     expect(place.summary).toBeNull();
   });
@@ -1185,7 +1213,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect((result.place as any).google_ftid).toBe(ftid);
   });
 
-  it('MAPS-041b3: returns fresh schema-v3 Google place details cache without refetching', async () => {
+  it('MAPS-041b3: returns fresh schema-v8 Google place details cache without refetching', async () => {
     const cachedPlace = {
       google_place_id: 'ChIJCached',
       name: 'Cached Museum',
@@ -1193,7 +1221,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
         { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
       ],
       business_status: 'OPERATIONAL',
-      cache_schema_version: 3,
+      cache_schema_version: 8,
     };
     mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
     const fetchMock = vi.fn();
@@ -1208,7 +1236,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
 
   it('MAPS-041b4: refreshes stale Google place details cache weekly', async () => {
     mockDbGet.mockReturnValueOnce({
-      payload_json: JSON.stringify({ google_place_id: placeId, name: 'Old details', cache_schema_version: 3 }),
+      payload_json: JSON.stringify({ google_place_id: placeId, name: 'Old details', cache_schema_version: 6 }),
       fetched_at: Date.now() - (8 * 24 * 60 * 60 * 1000),
     });
     const fetchMock = vi.fn().mockResolvedValue({
@@ -1247,7 +1275,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((result.place as any).business_status).toBe('CLOSED_PERMANENTLY');
-    expect((result.place as any).cache_schema_version).toBe(3);
+    expect((result.place as any).cache_schema_version).toBe(8);
   });
 
   it('MAPS-041b6: fills missing preview weekly hours from mobile place details', async () => {
@@ -1267,13 +1295,15 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     ];
     mockFetchMobilePlaceDetails.mockResolvedValue({
       google_ftid: ftid,
+      rating_count: 321,
+      phone: '+33 mobile',
       opening_hours: mobileHours,
       opening_periods: mobilePeriods,
       open_now: false,
     });
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      text: async () => previewPlaceResponse({ rows: [previewRows()[0]] }),
+      text: async () => previewPlaceResponse({ rows: [previewRows()[0]], ratingCount: null, phone: null }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -1284,6 +1314,8 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect(mockFetchMobilePlaceDetails).toHaveBeenCalledWith({ ftid, language: 'de,en;q=0.9' });
     expect((result.place as any).opening_hours).toEqual(mobileHours);
     expect((result.place as any).opening_periods).toEqual(mobilePeriods);
+    expect((result.place as any).rating_count).toBe(321);
+    expect((result.place as any).phone).toBe('+33 mobile');
     expect((result.place as any).open_now).toBe(false);
   });
 
@@ -1328,7 +1360,189 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
     const result = await getPlaceDetailsExpanded(1, ftid);
     expect((result.place as any).reviews).toEqual([]);
-    expect((result.place as any).summary).toBeNull();
+    expect((result.place as any).summary).toBe('Iconic iron tower');
+  });
+
+  it('MAPS-041d2: getPlaceDetailsExpanded uses official Places details for ChIJ IDs when a key is configured', async () => {
+    mockDbGet
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({ google_ftid: ftid })
+      .mockReturnValueOnce({ maps_api_key: 'test-key' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+        id: placeId,
+        displayName: { text: 'Eiffel Tower', languageCode: 'en' },
+        formattedAddress: 'Champ de Mars, Paris',
+        location: { latitude: 48.8584, longitude: 2.2945 },
+        rating: 4.8,
+        userRatingCount: 456,
+        primaryType: 'tourist_attraction',
+        primaryTypeDisplayName: { text: 'Tourist attraction' },
+        accessibilityOptions: { wheelchairAccessibleEntrance: true },
+        reviews: [{
+          authorAttribution: { displayName: 'Ada', uri: 'https://maps.example/ada' },
+          rating: 5,
+          text: { text: 'Worth the queue.' },
+          relativePublishTimeDescription: 'a month ago',
+          publishTime: '2026-05-01T00:00:00Z',
+        }],
+        photos: [{
+          name: 'places/ChIJ123/photos/photo1',
+          widthPx: 1200,
+          heightPx: 800,
+          authorAttributions: [{ displayName: 'Google user' }],
+        }],
+        googleMapsUri: `https://www.google.com/maps?ftid=${ftid}`,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => previewPlaceResponse({
+          popularTimes: [[
+            ['Monday', 1, [[9, 22], [10, 67]]],
+          ]],
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetailsExpanded(1, placeId, 'en');
+    const [detailsUrl, detailsInit] = fetchMock.mock.calls[0];
+
+    expect(String(detailsUrl)).toContain(`places.googleapis.com/v1/places/${placeId}`);
+    expect((detailsInit as any).headers['X-Goog-FieldMask']).toContain('reviews');
+    expect((detailsInit as any).headers['X-Goog-FieldMask']).toContain('photos');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((result.place as any).google_ftid).toBe(ftid);
+    expect((result.place as any).rating_count).toBe(456);
+    expect((result.place as any).type).toBe('Tourist attraction');
+    expect((result.place as any).accessible).toBe(true);
+    expect((result.place as any).popular_times).toEqual([
+      { day: 1, hour: 9, occupancy_percent: 22 },
+      { day: 1, hour: 10, occupancy_percent: 67 },
+    ]);
+    expect((result.place as any).reviews).toEqual([{
+      author: 'Ada',
+      rating: 5,
+      text: 'Worth the queue.',
+      time: 'a month ago',
+      published_at: '2026-05-01T00:00:00Z',
+      photo: null,
+      uri: 'https://maps.example/ada',
+    }]);
+    expect((result.place as any).photos).toEqual([{
+      name: 'places/ChIJ123/photos/photo1',
+      width: 1200,
+      height: 800,
+      attribution: 'Google user',
+      author_uri: null,
+    }]);
+  });
+
+  it('MAPS-041d2b: getPlaceDetailsExpanded enriches feature IDs with official reviews when a key is configured', async () => {
+    mockDbGet
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({ maps_api_key: 'test-key' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => previewPlaceResponse({
+          id: placeId,
+          dataId: ftid,
+          name: 'Inuyama Castle',
+          popularTimes: [[
+            ['Monday', 1, [[9, 30], [10, 65]]],
+          ]],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: placeId,
+          displayName: { text: 'Inuyama Castle', languageCode: 'en' },
+          formattedAddress: '65-2 Inuyama Kitakoken, Inuyama, Aichi',
+          location: { latitude: 35.3884, longitude: 136.9392 },
+          rating: 4.4,
+          userRatingCount: 10593,
+          primaryTypeDisplayName: { text: 'Castle' },
+          editorialSummary: { text: 'Imposing Sengoku-period castle built on a defensible hilltop overlooking the Kiso River.' },
+          reviews: [{ authorAttribution: { displayName: 'Mika' }, rating: 5, text: { text: 'Great view.' } }],
+          googleMapsUri: `https://www.google.com/maps?ftid=${ftid}`,
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetailsExpanded(1, ftid, 'en');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('google.com/maps/preview/place');
+    expect(String(fetchMock.mock.calls[1][0])).toContain(`places.googleapis.com/v1/places/${placeId}`);
+    expect((result.place as any).summary).toBe('Imposing Sengoku-period castle built on a defensible hilltop overlooking the Kiso River.');
+    expect((result.place as any).reviews[0].text).toBe('Great view.');
+    expect((result.place as any).popular_times).toEqual([
+      { day: 1, hour: 9, occupancy_percent: 30 },
+      { day: 1, hour: 10, occupancy_percent: 65 },
+    ]);
+  });
+
+  it('MAPS-041d3: getPlaceDetailsExpanded caches rich mobile photos for feature IDs', async () => {
+    mockFetchMobileRichPlaceDetails.mockResolvedValueOnce({
+      popular_times: [
+        { day: 1, hour: 10, occupancy_percent: 42 },
+      ],
+      popular_status: 'Now: Usually not too busy',
+      reviews: [
+        { author: 'Aiko', rating: 5, text: 'Worth the climb.', time: '2 weeks ago' },
+      ],
+      summary: null,
+      photos: [
+        {
+          url: 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO=w640-h426-k-no',
+          width: 640,
+          height: 426,
+          attribution: null,
+          source: 'google_maps_mobile',
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => previewPlaceResponse({ statusText: 'Open' }),
+    }));
+
+    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetailsExpanded(999, ftid, 'en');
+
+    expect(mockFetchMobileRichPlaceDetails).toHaveBeenCalledWith({
+      ftid,
+      language: 'en,en;q=0.9',
+      timeoutMs: 12000,
+    });
+    expect((result.place as any).popular_times).toEqual([
+      { day: 1, hour: 10, occupancy_percent: 42 },
+    ]);
+    expect((result.place as any).popular_status).toBe('Now: Usually not too busy');
+    expect((result.place as any).reviews).toEqual([
+      { author: 'Aiko', rating: 5, text: 'Worth the climb.', time: '2 weeks ago' },
+    ]);
+    expect((result.place as any).photos).toEqual([
+      {
+        url: 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO=w640-h426-k-no',
+        width: 640,
+        height: 426,
+        attribution: null,
+        source: 'google_maps_mobile',
+      },
+    ]);
+    expect(mockDbRun).toHaveBeenCalledWith(
+      ftid,
+      'en',
+      1,
+      expect.stringContaining('google_maps_mobile'),
+      expect.any(Number),
+    );
   });
 
   it('MAPS-040c: OSM path enriches name/address/coords from Nominatim (serial fetch)', async () => {
@@ -1360,6 +1574,97 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     const nominatimUrl = fetchMock.mock.calls[1][0] as string;
     expect(overpassUrl).toContain('overpass');
     expect(nominatimUrl).toContain('nominatim');
+  });
+
+  it('MAPS-040d: expanded OSM place IDs stay on the OSM details path', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ elements: [{ tags: { name: 'Local Cafe', amenity: 'cafe', wheelchair: 'yes' } }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { osm_type: 'node', osm_id: '55', lat: '48.8', lon: '2.3', display_name: 'Local Cafe, Paris', name: 'Local Cafe' },
+        ],
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetailsExpanded(1, 'node:55', 'en');
+
+    expect((result.place as any).source).toBe('openstreetmap');
+    expect((result.place as any).type).toBe('cafe');
+    expect((result.place as any).accessible).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('overpass');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('nominatim');
+  });
+
+  it('MAPS-040e: expanded OSM details merge nearby Google details when a key is configured', async () => {
+    mockDbGet.mockReturnValue({ maps_api_key: 'test-key' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ elements: [{ tags: { name: 'Local Cafe', amenity: 'cafe' } }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { osm_type: 'node', osm_id: '56', lat: '48.8000', lon: '2.3000', display_name: 'Local Cafe, Paris', name: 'Local Cafe' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          places: [{
+            id: 'ChIJLocal',
+            displayName: { text: 'Local Cafe' },
+            formattedAddress: 'Local Cafe, Paris',
+            location: { latitude: 48.8001, longitude: 2.3001 },
+            googleMapsUri: `https://www.google.com/maps?ftid=${ftid}`,
+          }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'ChIJLocal',
+          displayName: { text: 'Local Cafe', languageCode: 'en' },
+          formattedAddress: 'Local Cafe, Paris',
+          location: { latitude: 48.8001, longitude: 2.3001 },
+          rating: 4.6,
+          userRatingCount: 42,
+          primaryTypeDisplayName: { text: 'Cafe' },
+          reviews: [{ authorAttribution: { displayName: 'Sam' }, rating: 5, text: { text: 'Good coffee.' } }],
+          photos: [{ name: 'places/ChIJLocal/photos/one', widthPx: 800, heightPx: 600 }],
+          googleMapsUri: `https://www.google.com/maps?ftid=${ftid}`,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => previewPlaceResponse({
+          id: 'ChIJLocal',
+          dataId: ftid,
+          name: 'Local Cafe',
+          popularTimes: [[['Monday', 1, [[8, 20], [9, 70]]]]],
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetailsExpanded(1, 'node:56', 'en');
+
+    expect((result.place as any).osm_id).toBe('node:56');
+    expect((result.place as any).google_place_id).toBe('ChIJLocal');
+    expect((result.place as any).rating).toBe(4.6);
+    expect((result.place as any).rating_count).toBe(42);
+    expect((result.place as any).reviews[0].text).toBe('Good coffee.');
+    expect((result.place as any).photos[0].name).toBe('places/ChIJLocal/photos/one');
+    expect((result.place as any).popular_times).toEqual([
+      { day: 1, hour: 8, occupancy_percent: 20 },
+      { day: 1, hour: 9, occupancy_percent: 70 },
+    ]);
   });
 
   it('MAPS-041e: open_now is null when preview status text is absent', async () => {
@@ -1431,7 +1736,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
       { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
     ]);
     expect((result.place as any).business_status).toBe('OPERATIONAL');
-    expect((result.place as any).cache_schema_version).toBe(3);
+    expect((result.place as any).cache_schema_version).toBe(8);
   });
 });
 

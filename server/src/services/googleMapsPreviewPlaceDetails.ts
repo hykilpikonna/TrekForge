@@ -9,15 +9,43 @@ export interface GoogleMapsPreviewOpeningPeriod {
   close?: GoogleMapsPreviewOpeningPoint;
 }
 
+export interface GoogleMapsPreviewAccessibilityFeature {
+  key: string;
+  label: string;
+  value: boolean | null;
+  text: string | null;
+}
+
+export interface GoogleMapsPreviewPopularTime {
+  day: number;
+  hour: number;
+  occupancy_percent: number;
+}
+
 export interface GoogleMapsPreviewPlaceDetails {
   google_place_id: string | null;
   google_ftid: string | null;
   name: string;
+  name_original?: string | null;
+  name_translated?: string | null;
+  name_language?: string | null;
+  original_language?: string | null;
   address: string;
+  address_original?: string | null;
+  address_translated?: string | null;
+  written_address?: string | null;
   lat: number | null;
   lng: number | null;
   rating: number | null;
   rating_count: number | null;
+  type?: string | null;
+  types?: string[];
+  primary_type?: string | null;
+  country_code?: string | null;
+  accessible?: boolean | null;
+  accessibility?: GoogleMapsPreviewAccessibilityFeature[];
+  popular_times?: GoogleMapsPreviewPopularTime[] | null;
+  popular_status?: string | null;
   website: string | null;
   phone: string | null;
   opening_hours: string[] | null;
@@ -27,6 +55,7 @@ export interface GoogleMapsPreviewPlaceDetails {
   google_maps_url: string | null;
   summary: string | null;
   reviews: unknown[];
+  photos?: unknown[];
   source: 'google';
   raw?: unknown;
 }
@@ -332,6 +361,7 @@ function parseOpeningHours(tuple: unknown[]): Pick<GoogleMapsPreviewPlaceDetails
 }
 
 function parseOpenNow(tuple: unknown[]): boolean | null {
+  if (statusFromTextValues([tuple[154], tuple[96]]) !== null) return false;
   const statusRows = Array.isArray(tuple[203]) && Array.isArray(tuple[203][1]) ? tuple[203][1] : null;
   const candidates = [
     statusRows?.[8],
@@ -342,20 +372,199 @@ function parseOpenNow(tuple: unknown[]): boolean | null {
     const text = Array.isArray(candidate) ? nonEmptyString(candidate[0]) : null;
     if (!text) continue;
     if (/^open\b/i.test(text)) return true;
-    if (/^closed\b/i.test(text)) return false;
+    if (/closed/i.test(text)) return false;
+  }
+  return null;
+}
+
+function collectStrings(value: unknown, depth = 0): string[] {
+  if (depth > 8) return [];
+  if (typeof value === 'string') return value.trim() ? [value.trim()] : [];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => collectStrings(entry, depth + 1));
+}
+
+function statusFromText(text: string): string | null {
+  const normalized = text.toLowerCase();
+  if (
+    /permanently\s+closed|closed\s+permanently|permanent\s+closure/.test(normalized)
+    || /閉業|閉店|閉鎖|廃業|営業終了/.test(text)
+  ) {
+    return 'CLOSED_PERMANENTLY';
+  }
+  if (
+    /temporar(?:y|ily)|temporary\s+closure|closed\s+for\s+(?:renovation|construction|repairs?)/.test(normalized)
+    || /臨時休業|一時休業|休館|休業中|改修工事|休園/.test(text)
+  ) {
+    return 'CLOSED_TEMPORARILY';
+  }
+  return null;
+}
+
+function statusFromTextValues(values: unknown[]): string | null {
+  for (const value of values) {
+    for (const text of collectStrings(value)) {
+      const status = statusFromText(text);
+      if (status) return status;
+    }
   }
   return null;
 }
 
 function parseBusinessStatus(tuple: unknown[]): string | null {
-  const raw = Array.isArray(tuple[88]) ? nonEmptyString(tuple[88][0]) : null;
-  if (!raw) return null;
-  const status = raw.toUpperCase();
-  if (status === 'CLOSED' || status.includes('PERMANENTLY_CLOSED') || status.includes('PERMANENTLY CLOSED')) {
-    return 'CLOSED_PERMANENTLY';
+  const statusRows = Array.isArray(tuple[203]) && Array.isArray(tuple[203][1]) ? tuple[203][1] : null;
+  const textStatus = statusFromTextValues([
+    tuple[154],
+    tuple[96],
+    statusRows?.[8],
+    statusRows?.[4],
+    statusRows?.[5],
+  ]);
+  if (textStatus) return textStatus;
+
+  const rawProviderStatus = Array.isArray(tuple[88]) ? nonEmptyString(tuple[88][0]) : null;
+  if (rawProviderStatus) {
+    const status = rawProviderStatus.toUpperCase();
+    if (status === 'CLOSED' || status.includes('PERMANENTLY_CLOSED') || status.includes('PERMANENTLY CLOSED')) {
+      return 'CLOSED_PERMANENTLY';
+    }
+    if (status.includes('TEMPORAR')) return 'CLOSED_TEMPORARILY';
+    return 'OPERATIONAL';
   }
-  if (status.includes('TEMPORAR')) return 'CLOSED_TEMPORARILY';
-  return 'OPERATIONAL';
+
+  return null;
+}
+
+function parseTypes(tuple: unknown[]): { type: string | null; types: string[]; primary_type: string | null } {
+  const displayTypes = Array.isArray(tuple[13])
+    ? tuple[13].map(nonEmptyString).filter((value): value is string => Boolean(value))
+    : [];
+  const rawType = Array.isArray(tuple[88]) ? nonEmptyString(tuple[88][1]) : null;
+  return {
+    type: displayTypes[0] ?? null,
+    types: displayTypes,
+    primary_type: rawType,
+  };
+}
+
+function parseCountryCode(tuple: unknown[]): string | null {
+  const block = Array.isArray(tuple[88]) ? tuple[88] : null;
+  const code = Array.isArray(block?.[2]) ? nonEmptyString(block[2][1]) : null;
+  return code ? code.toUpperCase() : null;
+}
+
+function accessibilityKey(raw: string): string {
+  return raw
+    .replace(/^\/geo\/type\/establishment_poi\/has_/, '')
+    .replace(/^has_/, '')
+    .replace(/[^a-z0-9_]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+}
+
+function parseAccessibility(tuple: unknown[]): GoogleMapsPreviewAccessibilityFeature[] {
+  const root = Array.isArray(tuple[100]) ? tuple[100] : null;
+  const groups = Array.isArray(root?.[1]) ? root[1] : [];
+  const features: GoogleMapsPreviewAccessibilityFeature[] = [];
+
+  for (const group of groups) {
+    const rows = Array.isArray(group) && Array.isArray(group[2]) ? group[2] : [];
+    for (const row of rows) {
+      if (!Array.isArray(row)) continue;
+      const rawKey = nonEmptyString(row[0]);
+      const label = nonEmptyString(row[1]);
+      if (!rawKey || !label) continue;
+      const state = Array.isArray(row[2]) && Array.isArray(row[2][1]) && Array.isArray(row[2][1][0])
+        ? row[2][1][0]
+        : null;
+      const valueCode = Array.isArray(state) && Number.isInteger(state[0]) ? state[0] as number : null;
+      const text = Array.isArray(state) ? nonEmptyString(state[1]) : null;
+      features.push({
+        key: accessibilityKey(rawKey),
+        label,
+        value: valueCode === 1 ? true : valueCode === 0 ? false : null,
+        text,
+      });
+    }
+  }
+
+  return features;
+}
+
+function parsePopularTimesValue(value: unknown): GoogleMapsPreviewPopularTime[] | null {
+  if (!Array.isArray(value)) return null;
+  const rows = Array.isArray(value[0]) && value.length === 1 && Array.isArray(value[0][0])
+    ? value[0]
+    : value;
+  if (!Array.isArray(rows)) return null;
+
+  const popularTimes: GoogleMapsPreviewPopularTime[] = [];
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+    const day = googleDayFromPreview(row[1]) ?? googleDayFromPreview(row[0]);
+    if (day === null) continue;
+
+    const hourRows = row
+      .filter(Array.isArray)
+      .find((candidate) => Array.isArray(candidate)
+        && candidate.some((entry) => Array.isArray(entry)
+          && finiteNumber(entry[0])
+          && finiteNumber(entry[1])
+          && entry[0] >= 0
+          && entry[0] <= 23
+          && entry[1] >= 0
+          && entry[1] <= 100));
+    if (!Array.isArray(hourRows)) continue;
+
+    for (const entry of hourRows) {
+      if (!Array.isArray(entry)) continue;
+      const hour = finiteNumber(entry[0]) ? entry[0] : null;
+      const percent = finiteNumber(entry[1]) ? entry[1] : null;
+      if (hour === null || percent === null) continue;
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23 || percent < 0 || percent > 100) continue;
+      popularTimes.push({ day, hour, occupancy_percent: Math.round(percent) });
+    }
+  }
+
+  return popularTimes.length > 0 ? popularTimes : null;
+}
+
+function parsePopularTimes(tuple: unknown[]): GoogleMapsPreviewPopularTime[] | null {
+  return parsePopularTimesValue(tuple[84]);
+}
+
+function summaryTextFromEntry(value: unknown): string | null {
+  if (typeof value === 'string') return nonEmptyString(value);
+  if (!Array.isArray(value)) return null;
+  for (const index of [1, 0]) {
+    const text = nonEmptyString(value[index]);
+    if (text) return text;
+  }
+  return null;
+}
+
+function looksLikeProviderStatus(value: string): boolean {
+  return /^(OPERATIONAL|CLOSED|CLOSED_TEMPORARILY|CLOSED_PERMANENTLY|SearchResult\.TYPE_|gcid:)/i.test(value.trim());
+}
+
+function parseSummary(tuple: unknown[]): string | null {
+  const summaryBlock = Array.isArray(tuple[32]) ? tuple[32] : null;
+  if (summaryBlock) {
+    for (const candidate of [summaryBlock[1], summaryBlock[0]]) {
+      const text = summaryTextFromEntry(candidate);
+      if (text && !looksLikeProviderStatus(text)) return text;
+    }
+  }
+
+  const shortDescription = Array.isArray(tuple[88]) ? nonEmptyString(tuple[88][0]) : null;
+  if (shortDescription && shortDescription.length > 12 && !looksLikeProviderStatus(shortDescription)) {
+    return shortDescription;
+  }
+
+  const merchantDescription = Array.isArray(tuple[154]) && Array.isArray(tuple[154][0])
+    ? summaryTextFromEntry(tuple[154][0][0]) ?? summaryTextFromEntry(tuple[154][0])
+    : null;
+  return merchantDescription && !looksLikeProviderStatus(merchantDescription) ? merchantDescription : null;
 }
 
 function parseGoogleMapsUrl(tuple: unknown[]): string | null {
@@ -375,16 +584,31 @@ function normalizePlaceTuple(tuple: unknown[], request: ReturnType<typeof normal
   const websiteBlock = Array.isArray(tuple[7]) ? tuple[7] : [];
   const phoneBlock = Array.isArray(tuple[178]) && Array.isArray(tuple[178][0]) ? tuple[178][0] : [];
   const openingHours = parseOpeningHours(tuple);
+  const typeInfo = parseTypes(tuple);
+  const accessibility = parseAccessibility(tuple);
+  const accessibleEntrance = accessibility.find((feature) => feature.key === 'wheelchair_accessible_entrance')?.value;
 
   return {
     google_place_id: nonEmptyString(tuple[78]),
     google_ftid: normalizeFtid(tuple[10] as string | null) ?? request.ftid ?? null,
     name: nonEmptyString(tuple[11]) ?? '',
+    name_translated: nonEmptyString(tuple[11]) ?? '',
+    name_language: request.language,
     address: nonEmptyString(tuple[18]) ?? '',
+    address_translated: nonEmptyString(tuple[18]) ?? '',
+    written_address: nonEmptyString(tuple[18]) ?? '',
     lat: finiteNumber(coords[2]) ? coords[2] : null,
     lng: finiteNumber(coords[3]) ? coords[3] : null,
     rating: finiteNumber(ratingBlock[7]) ? ratingBlock[7] : null,
     rating_count: finiteNumber(ratingBlock[8]) ? ratingBlock[8] : null,
+    type: typeInfo.type,
+    types: typeInfo.types,
+    primary_type: typeInfo.primary_type,
+    country_code: parseCountryCode(tuple),
+    accessible: accessibleEntrance ?? (accessibility.some((feature) => feature.value === true) ? true : null),
+    accessibility,
+    popular_times: parsePopularTimes(tuple),
+    popular_status: null,
     website: nonEmptyString(websiteBlock[0]),
     phone: nonEmptyString(phoneBlock[0]),
     opening_hours: openingHours.opening_hours,
@@ -392,7 +616,7 @@ function normalizePlaceTuple(tuple: unknown[], request: ReturnType<typeof normal
     open_now: parseOpenNow(tuple),
     business_status: parseBusinessStatus(tuple),
     google_maps_url: parseGoogleMapsUrl(tuple),
-    summary: null,
+    summary: parseSummary(tuple),
     reviews: [],
     source: 'google',
     ...(request.includeRaw ? { raw: tuple } : {}),

@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': '编辑预订',
   'inspector.participants': '参与者',
   'inspector.trackStats': '轨迹数据',
+  'inspector.accessibility': '无障碍设施',
+  'inspector.accessible': '无障碍',
+  'inspector.accessibilityLimited': '无障碍设施有限',
+  'inspector.reviews': '评价',
+  'inspector.popularTimes': '热门时段',
+  'inspector.photosCount': '{count} 张照片',
 };
 export default inspector;

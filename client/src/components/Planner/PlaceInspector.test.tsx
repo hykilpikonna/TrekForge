@@ -12,7 +12,10 @@ vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
   return {
     ...actual,
-    mapsApi: { details: vi.fn().mockResolvedValue({ place: null }) },
+    mapsApi: {
+      details: vi.fn().mockResolvedValue({ place: null }),
+      placePhoto: vi.fn().mockResolvedValue({ photoUrl: null }),
+    },
   };
 });
 
@@ -90,6 +93,7 @@ beforeEach(() => {
   seedStore(useSettingsStore, { settings: { time_format: '24h', temperature_unit: 'celsius' } });
 
   vi.mocked(mapsApi.details).mockResolvedValue({ place: null });
+  vi.mocked(mapsApi.placePhoto).mockResolvedValue({ photoUrl: null });
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -398,17 +402,107 @@ describe('PlaceInspector', () => {
     const p = buildPlace({ id: 200, google_place_id: 'ChIJ001' });
     render(<PlaceInspector {...defaultProps} place={p} />);
     await waitFor(() => {
-      expect(vi.mocked(mapsApi.details)).toHaveBeenCalledWith('ChIJ001', expect.any(String));
+      expect(vi.mocked(mapsApi.details)).toHaveBeenCalledWith('ChIJ001', expect.any(String), { expand: true });
+    });
+  });
+
+  it('FE-PLANNER-INSPECTOR-023b: mapsApi.details can use a Google Maps feature ID', async () => {
+    const p = buildPlace({ id: 201, google_place_id: null, google_ftid: '0x1:0x2' } as any);
+    render(<PlaceInspector {...defaultProps} place={p} />);
+    await waitFor(() => {
+      expect(vi.mocked(mapsApi.details)).toHaveBeenCalledWith('0x1:0x2', expect.any(String), { expand: true });
     });
   });
 
   it('FE-PLANNER-INSPECTOR-024: rating chip shown when googleDetails has rating', async () => {
+    const reviewText = 'This is a longer review that belongs in the review block only.';
     vi.mocked(mapsApi.details).mockResolvedValue({
-      place: { rating: 4.5, rating_count: 1200 },
+      place: { rating: 4.5, rating_count: 1200, reviews: [{ author: 'Mia', rating: 5, text: reviewText }] },
     } as any);
     const p = buildPlace({ id: 201, google_place_id: 'ChIJ002' });
     render(<PlaceInspector {...defaultProps} place={p} />);
-    await screen.findByText(/4\.5/);
+    const ratingText = await screen.findByText(/4\.5/);
+    expect(ratingText.closest('div')?.textContent).not.toContain(reviewText);
+    expect(await screen.findByText(reviewText)).toBeTruthy();
+  });
+
+  it('FE-PLANNER-INSPECTOR-024b: localized/original names and expanded metadata are shown', async () => {
+    vi.mocked(mapsApi.details).mockResolvedValue({
+      place: {
+        name_translated: 'Hizen-Hashima Lighthouse',
+        name_original: '肥前端島灯台',
+        written_address: 'Hashima, Nagasaki, Japan',
+        type: 'Historical landmark',
+        accessible: false,
+        accessibility: [{ key: 'wheelchair_accessible_entrance', label: 'Wheelchair-accessible entrance', value: false, text: 'No wheelchair-accessible entrance' }],
+        reviews: [{ author: 'Aiko', rating: 5, text: 'Great view from the water.', time: '2 months ago' }],
+        popular_status: 'Now: Usually not too busy',
+        popular_times: [{ day: 1, hour: 9, occupancy_percent: 25 }, { day: 1, hour: 10, occupancy_percent: 50 }],
+      },
+    } as any);
+    const p = buildPlace({ id: 205, name: '肥前端島灯台', google_place_id: 'ChIJ005' });
+    render(<PlaceInspector {...defaultProps} place={p} />);
+
+    await screen.findByText('Hizen-Hashima Lighthouse');
+    expect(screen.getByText('Hashima, Nagasaki, Japan')).toBeTruthy();
+    expect(screen.getByText('Historical Landmark')).toBeTruthy();
+    expect(screen.getByText('No wheelchair-accessible entrance')).toBeTruthy();
+    expect(screen.getByText('Great view from the water.')).toBeTruthy();
+    expect(screen.getByText('Popular times')).toBeTruthy();
+    expect(screen.getByText('Now: Usually not too busy')).toBeTruthy();
+    expect(screen.getByText('50%')).toBeTruthy();
+  });
+
+  it('FE-PLANNER-INSPECTOR-024c: photo preview prefers enriched Google IDs from expanded details', async () => {
+    vi.mocked(mapsApi.details).mockResolvedValue({
+      place: {
+        google_place_id: 'ChIJEnriched',
+        name: 'Local Cafe',
+        lat: 48.8001,
+        lng: 2.3001,
+        photos: [{ name: 'places/ChIJEnriched/photos/one' }],
+      },
+    } as any);
+    vi.mocked(mapsApi.placePhoto).mockResolvedValue({ photoUrl: '/api/maps/place-photo/ChIJEnriched/bytes' } as any);
+    const p = buildPlace({
+      id: 206,
+      name: 'Local Cafe',
+      osm_id: 'node:56',
+      google_place_id: null,
+      google_ftid: null,
+      lat: 48.8,
+      lng: 2.3,
+    } as any);
+
+    render(<PlaceInspector {...defaultProps} place={p} />);
+
+    await waitFor(() => {
+      expect(vi.mocked(mapsApi.placePhoto)).toHaveBeenCalledWith('ChIJEnriched', 48.8001, 2.3001, 'Local Cafe');
+    });
+    expect(await screen.findByAltText('Local Cafe')).toBeTruthy();
+  });
+
+  it('FE-PLANNER-INSPECTOR-024d: renders direct place photos as a horizontal strip', async () => {
+    vi.mocked(mapsApi.details).mockResolvedValue({
+      place: {
+        google_ftid: '0x123:0x456',
+        name: 'Photo Cafe',
+        photos: [
+          { url: 'https://gz0.googleusercontent.com/gps-cs-s/one=w640-h426-k-no' },
+          { url: 'https://gz0.googleusercontent.com/gps-cs-s/two=w640-h426-k-no' },
+        ],
+      },
+    } as any);
+    vi.mocked(mapsApi.placePhoto).mockResolvedValue({ photoUrl: null } as any);
+    const p = buildPlace({ id: 207, name: 'Photo Cafe', google_ftid: '0x123:0x456' } as any);
+
+    render(<PlaceInspector {...defaultProps} place={p} />);
+
+    expect(await screen.findAllByAltText('Photo Cafe')).toHaveLength(2);
+    const firstPhoto = (await screen.findAllByAltText('Photo Cafe'))[0];
+    expect(firstPhoto.parentElement?.className).toContain('h-[126px]');
+    expect(firstPhoto.parentElement?.className).toContain('shrink-0');
+    expect(screen.getByText('2 photos')).toBeTruthy();
   });
 
   it('FE-PLANNER-INSPECTOR-025: opening hours shown when available', async () => {
@@ -530,6 +624,7 @@ describe('PlaceInspector', () => {
   it('FE-PLANNER-INSPECTOR-033: phone number shown when place has phone', () => {
     const p = buildPlace({ id: 301, phone: '+33 1 23 45 67 89' } as any);
     render(<PlaceInspector {...defaultProps} place={p} />);
+    expect(screen.getByText('Phone')).toBeTruthy();
     expect(screen.getByText(/\+33 1 23 45 67 89/)).toBeTruthy();
   });
 
@@ -631,8 +726,8 @@ describe('PlaceInspector', () => {
 
   it('FE-PLANNER-INSPECTOR-039: session storage cache prevents duplicate mapsApi calls', async () => {
     // Prime the session storage cache with language 'en' (default)
-    sessionStorage.setItem('gdetails_ChIJ005_en', JSON.stringify({ rating: 3.0 }));
-    const p = buildPlace({ id: 304, google_place_id: 'ChIJ005' });
+    sessionStorage.setItem('gdetails_v7_expanded_ChIJCache_en', JSON.stringify({ rating: 3.0 }));
+    const p = buildPlace({ id: 304, google_place_id: 'ChIJCache' });
     render(<PlaceInspector {...defaultProps} place={p} />);
     // Wait for effect to run
     await act(async () => { await new Promise(r => setTimeout(r, 50)) });
@@ -743,16 +838,19 @@ describe('PlaceInspector', () => {
 
   // ── Scroll / overflow (issue #1195) ──────────────────────────────────────
 
-  it('FE-PLANNER-INSPECTOR-046: content area is a bounded flex scroll region', () => {
+  it('FE-PLANNER-INSPECTOR-046: info area is the bounded scroll region', () => {
     const longText = 'Lorem ipsum dolor sit amet. '.repeat(200);
     const p = buildPlace({ id: 200, description: longText, notes: longText } as any);
     render(<PlaceInspector {...defaultProps} place={p} />);
-    const scroll = screen.getByTestId('inspector-scroll') as HTMLElement;
-    expect(scroll.style.overflowY).toBe('auto');
-    expect(scroll.style.minHeight).toBe('0px');
-    // flex must allow the region to shrink/grow within the capped card
-    expect(scroll.style.flex).not.toBe('');
-    expect(scroll.style.flex).not.toBe('0 0 auto');
+    const shell = screen.getByTestId('inspector-scroll') as HTMLElement;
+    const infoScroll = screen.getByTestId('inspector-info-scroll') as HTMLElement;
+    const columns = screen.getByTestId('inspector-info-columns') as HTMLElement;
+    expect(shell.className).toContain('overflow-hidden');
+    expect(shell.className).toContain('min-h-0');
+    expect(infoScroll.className).toContain('overflow-y-auto');
+    expect(infoScroll.className).toContain('flex-1');
+    expect(columns.className).toContain('columns-1');
+    expect(columns.className).toContain('sm:columns-2');
   });
 
   it('FE-PLANNER-INSPECTOR-047: long unbroken description wraps instead of clipping horizontally', () => {
@@ -761,21 +859,20 @@ describe('PlaceInspector', () => {
     const { container } = render(<PlaceInspector {...defaultProps} place={p} />);
     const descDiv = container.querySelector('.collab-note-md') as HTMLElement;
     expect(descDiv).toBeTruthy();
-    expect(descDiv.style.overflowWrap).toBe('anywhere');
-    expect(descDiv.style.wordBreak).toBe('break-word');
+    expect(descDiv.className).toContain('[overflow-wrap:anywhere]');
+    expect(descDiv.className).toContain('[word-break:break-word]');
   });
 
-  it('FE-PLANNER-INSPECTOR-048: description/notes do not shrink so the card scrolls instead of clipping', () => {
+  it('FE-PLANNER-INSPECTOR-048: description/notes stay natural-height items inside the info scroll', () => {
     const longText = 'Lorem ipsum dolor sit amet. '.repeat(200);
     const p = buildPlace({ id: 202, description: longText, notes: longText } as any);
     const { container } = render(<PlaceInspector {...defaultProps} place={p} />);
     const notes = Array.from(container.querySelectorAll('.collab-note-md')) as HTMLElement[];
-    // Both description and notes containers must keep their natural height
-    // (flex-shrink: 0) — otherwise they compress inside the flex column and
-    // overflow:hidden clips the text with no scroll (issue #1195).
+    const infoScroll = screen.getByTestId('inspector-info-scroll') as HTMLElement;
     expect(notes.length).toBe(2);
     for (const el of notes) {
-      expect(el.style.flexShrink).toBe('0');
+      expect(infoScroll.contains(el)).toBe(true);
+      expect(el.className).toContain('break-inside-avoid');
     }
   });
 

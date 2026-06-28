@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Reservering bewerken',
   'inspector.participants': 'Deelnemers',
   'inspector.trackStats': 'Routegegevens',
+  'inspector.accessibility': 'Toegankelijkheid',
+  'inspector.accessible': 'Toegankelijk',
+  'inspector.accessibilityLimited': 'Beperkt toegankelijk',
+  'inspector.reviews': 'Reviews',
+  'inspector.popularTimes': 'Populaire tijden',
+  'inspector.photosCount': "{count} foto's",
 };
 export default inspector;

@@ -12,6 +12,7 @@ import type { GoogleRoutingOptions, RouteProfile, RoutingProvider } from '../com
 const TRANSPORT_TYPES = ['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transit', 'transport_other']
 
 const NO_ACCOMMODATIONS: Accommodation[] = []
+type RoutePoint = { lat: number; lng: number; label?: string | null }
 
 function localDateTimeForDayMinute(date: string, minutes: number): string {
   const value = new Date(`${date}T00:00:00Z`)
@@ -31,9 +32,30 @@ function appendRoutePolyline(
   polylines.push(coordinates.length >= 2 ? coordinates : fallback)
 }
 
-function accommodationPoint(accommodation?: Accommodation): { lat: number; lng: number } | null {
+function routeErrorSegment(
+  from: RoutePoint,
+  to: RoutePoint,
+  errorText = 'Failed to calculate route',
+): RouteSegment {
+  const start: [number, number] = [from.lat, from.lng]
+  const end: [number, number] = [to.lat, to.lng]
+  return {
+    from: start,
+    to: end,
+    mid: [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2],
+    distance: 0,
+    duration: 0,
+    walkingText: '',
+    drivingText: '',
+    distanceText: '',
+    durationText: '',
+    errorText,
+  }
+}
+
+function accommodationPoint(accommodation?: Accommodation): RoutePoint | null {
   return accommodation && accommodation.place_lat != null && accommodation.place_lng != null
-    ? { lat: accommodation.place_lat, lng: accommodation.place_lng }
+    ? { lat: accommodation.place_lat, lng: accommodation.place_lng, label: accommodation.place_name ?? null }
     : null
 }
 
@@ -115,13 +137,14 @@ export function useRouteCalculation(
 
     // Build a unified list of places + transports sorted by effective position.
     type Entry =
-      | { kind: 'place'; lat: number; lng: number; pos: number; durationMinutes: number }
-      | { kind: 'transport'; from: { lat: number; lng: number } | null; to: { lat: number; lng: number } | null; pos: number }
+      | { kind: 'place'; lat: number; lng: number; label?: string | null; pos: number; durationMinutes: number }
+      | { kind: 'transport'; from: RoutePoint | null; to: RoutePoint | null; pos: number }
     const entries: Entry[] = [
       ...da.filter(a => a.place?.lat && a.place?.lng).map(a => ({
         kind: 'place' as const,
         lat: a.place.lat!,
         lng: a.place.lng!,
+        label: a.place.name ?? null,
         pos: a.order_index,
         durationMinutes: normalizeDurationMinutes(a.duration_minutes ?? a.place?.duration_minutes),
       })),
@@ -146,12 +169,12 @@ export function useRouteCalculation(
     // back-to-back transports (e.g. two flights on one day) would otherwise pair the
     // first's arrival point with the second's departure point into a phantom
     // [airport → airport] road route — that is the flight itself, not a drive (#1394).
-    const runs: { lat: number; lng: number }[][] = []
-    let currentRun: { lat: number; lng: number }[] = []
+    const runs: RoutePoint[][] = []
+    let currentRun: RoutePoint[] = []
     let runHasPlace = false
     for (const entry of entries) {
       if (entry.kind === 'place') {
-        currentRun.push({ lat: entry.lat, lng: entry.lng })
+        currentRun.push({ lat: entry.lat, lng: entry.lng, label: entry.label })
         runHasPlace = true
       } else if (entry.from || entry.to) {
         if (entry.from) currentRun.push(entry.from)
@@ -170,9 +193,9 @@ export function useRouteCalculation(
     const bookends = selectedDay && optimizeFromAccommodation !== false
       ? getDayBookendHotels(selectedDay, allDays, accommodations)
       : null
-    const flatPts: { lat: number; lng: number }[] = []
+    const flatPts: RoutePoint[] = []
     for (const entry of entries) {
-      if (entry.kind === 'place') flatPts.push({ lat: entry.lat, lng: entry.lng })
+      if (entry.kind === 'place') flatPts.push({ lat: entry.lat, lng: entry.lng, label: entry.label })
       else { if (entry.from) flatPts.push(entry.from); if (entry.to) flatPts.push(entry.to) }
     }
     // Only draw a hotel bookend when the leg is real. A hotel → first-stop leg holds
@@ -212,15 +235,16 @@ export function useRouteCalculation(
 
     if (runsWithHotel.length === 0) { setRoute(null); setRouteSegments([]); return }
 
-    // Draw straight lines immediately for snappiness, then upgrade to the real
-    // provider route geometry.
-    setRoute(straightLines())
+    // OSRM can be slow; show an optimistic line there. For Google-backed routes,
+    // avoid keeping straight-line geometry around when Google returns no route.
+    const optimisticStraightLine = provider === 'osrm' && profile !== 'transit'
+    setRoute(optimisticStraightLine ? straightLines() : null)
 
     const controller = new AbortController()
     routeAbortRef.current = controller
     const routeLeg = async (
-      from: { lat: number; lng: number },
-      to: { lat: number; lng: number },
+      from: RoutePoint,
+      to: RoutePoint,
       departure: string | null,
       polylines: [number, number][][],
       allLegs: RouteSegment[],
@@ -240,12 +264,12 @@ export function useRouteCalculation(
         return routeSecondsToMinutes(r.duration)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') throw err
-        appendRoutePolyline(polylines, [], leg.map(p => [p.lat, p.lng] as [number, number]))
+        allLegs.push(routeErrorSegment(from, to))
         return 0
       }
     }
     const routeRun = async (
-      run: { lat: number; lng: number }[],
+      run: RoutePoint[],
       departure: string | null,
       polylines: [number, number][][],
       allLegs: RouteSegment[],
@@ -263,7 +287,9 @@ export function useRouteCalculation(
         allLegs.push(...r.legs)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') throw err
-        appendRoutePolyline(polylines, [], run.map(p => [p.lat, p.lng] as [number, number]))
+        for (let i = 0; i < run.length - 1; i++) {
+          allLegs.push(routeErrorSegment(run[i], run[i + 1]))
+        }
       }
     }
 
@@ -272,13 +298,14 @@ export function useRouteCalculation(
       const allLegs: RouteSegment[] = []
       if ((profile === 'transit' || provider === 'google_maps' || provider === 'google_maps_mobile') && selectedDay?.date) {
         let cursor = wakeMinutes
-        let currentPoint: { lat: number; lng: number } | null = startHotelPoint
+        let currentPoint: RoutePoint | null = startHotelPoint
         for (const entry of entries) {
           if (entry.kind === 'place') {
+            const entryPoint = { lat: entry.lat, lng: entry.lng, label: entry.label }
             if (currentPoint) {
               const travelMinutes = await routeLeg(
                 currentPoint,
-                { lat: entry.lat, lng: entry.lng },
+                entryPoint,
                 localDateTimeForDayMinute(selectedDay.date, cursor),
                 polylines,
                 allLegs,
@@ -286,7 +313,7 @@ export function useRouteCalculation(
               cursor += travelMinutes + (travelMinutes > 0 ? scheduleMargin : 0)
             }
             cursor += entry.durationMinutes + scheduleMargin
-            currentPoint = { lat: entry.lat, lng: entry.lng }
+            currentPoint = entryPoint
           } else if (entry.from || entry.to) {
             if (entry.from && currentPoint) {
               const travelMinutes = await routeLeg(
@@ -317,8 +344,11 @@ export function useRouteCalculation(
       }
       if (!controller.signal.aborted) { setRoute(polylines); setRouteSegments(allLegs) }
     } catch (err: unknown) {
-      // Aborted (day changed) — newer call owns the state. Anything else: keep straight lines.
-      if (!(err instanceof Error) || err.name !== 'AbortError') setRouteSegments([])
+      // Aborted (day changed) — newer call owns the state.
+      if (!(err instanceof Error) || err.name !== 'AbortError') {
+        setRoute([])
+        setRouteSegments([])
+      }
     }
   }, [enabled, profile, accommodations, optimizeFromAccommodation, distanceUnit, provider, optimism, scheduleMarginMinutes, avoidTolls, avoidHighways, avoidFerries])
 

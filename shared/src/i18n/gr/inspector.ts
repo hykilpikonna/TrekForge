@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Επεξεργασία Κράτησης',
   'inspector.participants': 'Συμμετέχοντες',
   'inspector.trackStats': 'Στατιστικά Διαδρομής',
+  'inspector.accessibility': 'Προσβασιμότητα',
+  'inspector.accessible': 'Προσβάσιμο',
+  'inspector.accessibilityLimited': 'Περιορισμένη προσβασιμότητα',
+  'inspector.reviews': 'Κριτικές',
+  'inspector.popularTimes': 'Δημοφιλείς ώρες',
+  'inspector.photosCount': '{count} φωτογραφίες',
 };
 export default inspector;

@@ -107,6 +107,16 @@ function firstMessage(fields: ProtoField[], field: number): Buffer {
   return found.value;
 }
 
+function firstString(fields: ProtoField[], field: number): string | null {
+  const found = fields.find((entry) => entry.field === field && entry.wire === 2);
+  return found && Buffer.isBuffer(found.value) ? found.value.toString('utf8') : null;
+}
+
+function firstDouble(fields: ProtoField[], field: number): number | null {
+  const found = fields.find((entry) => entry.field === field && entry.wire === 1);
+  return found && Buffer.isBuffer(found.value) ? found.value.readDoubleLE(0) : null;
+}
+
 function extractMobileRouteOptions(body: Buffer): Buffer {
   for (let pos = 0; pos + 6 <= body.length; pos++) {
     if (body.readUInt16BE(pos) !== 142) continue;
@@ -115,6 +125,28 @@ function extractMobileRouteOptions(body: Buffer): Buffer {
     const root = parseMessage(body.subarray(pos + 6, pos + 6 + length));
     const route = parseMessage(firstMessage(root, 1));
     return firstMessage(route, 6);
+  }
+  throw new Error('Missing type 142 route chunk');
+}
+
+function extractMobileRouteWaypoints(body: Buffer): Array<{ text: string | null; lat: number | null; lng: number | null }> {
+  for (let pos = 0; pos + 6 <= body.length; pos++) {
+    if (body.readUInt16BE(pos) !== 142) continue;
+    const length = body.readUInt32BE(pos + 2);
+    if (length <= 0 || pos + 6 + length > body.length) continue;
+    const root = parseMessage(body.subarray(pos + 6, pos + 6 + length));
+    const route = parseMessage(firstMessage(root, 1));
+    return route
+      .filter((entry) => entry.field === 1 && entry.wire === 2 && Buffer.isBuffer(entry.value))
+      .map((entry) => {
+        const waypoint = parseMessage(entry.value as Buffer);
+        const coordinates = parseMessage(firstMessage(waypoint, 3));
+        return {
+          text: firstString(waypoint, 1),
+          lat: firstDouble(coordinates, 3),
+          lng: firstDouble(coordinates, 4),
+        };
+      });
   }
   throw new Error('Missing type 142 route chunk');
 }
@@ -234,6 +266,23 @@ describe('googleMapsMobileDirections wrapper', () => {
     expect(firstVarint(avoidFerriesPreferences, 1)).toBeNull();
     expect(firstVarint(avoidFerriesPreferences, 2)).toBeNull();
     expect(firstVarint(avoidFerries, 7)).toBe(1);
+  });
+
+  it('normalizes numeric coordinate text before building the mobile route payload', () => {
+    const built = buildGoogleMapsMobileDirectionsRequest({
+      from: { lat: 35.433918, lng: 136.78207129999998 },
+      to: { lat: 35.388360399999996, lng: 136.9391766 },
+      options: { includeDebug: true },
+    });
+
+    expect(built.body.includes(Buffer.from('35.433918,136.7820713'))).toBe(true);
+    expect(built.body.includes(Buffer.from('35.3883604,136.9391766'))).toBe(true);
+    expect(built.body.includes(Buffer.from('136.78207129999998'))).toBe(false);
+    expect(built.body.includes(Buffer.from('35.388360399999996'))).toBe(false);
+    expect(extractMobileRouteWaypoints(built.body)).toEqual([
+      { text: '35.433918,136.7820713', lat: 35.433918, lng: 136.7820713 },
+      { text: '35.3883604,136.9391766', lat: 35.3883604, lng: 136.9391766 },
+    ]);
   });
 
   it('parses optimistic/pessimistic predictions and structured ETC toll fee', () => {

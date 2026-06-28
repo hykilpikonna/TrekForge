@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'تعديل الحجز',
   'inspector.participants': 'المشاركون',
   'inspector.trackStats': 'بيانات المسار',
+  'inspector.accessibility': 'إمكانية الوصول',
+  'inspector.accessible': 'مناسب لذوي الاحتياجات الخاصة',
+  'inspector.accessibilityLimited': 'إمكانية الوصول محدودة',
+  'inspector.reviews': 'المراجعات',
+  'inspector.popularTimes': 'أوقات الذروة',
+  'inspector.photosCount': '{count} صور',
 };
 export default inspector;

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildGoogleMapsMobilePlaceDetailsRequest,
   fetchGoogleMapsMobilePlaceDetails,
+  parseGoogleMapsMobileRichPlaceDetailsResponse,
+  parseGoogleMapsMobilePlacePhotosResponse,
   parseGoogleMapsMobilePlaceDetailsResponse,
 } from '../../../src/services/googleMapsMobilePlaceDetails';
 
@@ -139,6 +141,70 @@ function sampleMobilePlaceResponse(): Buffer {
   return Buffer.concat([Buffer.from([0, 24]), gzipSync(Buffer.concat([place, varintField(3, 2)]))]);
 }
 
+function sampleMobilePlacePhotosResponse(): Buffer {
+  const body = Buffer.from([
+    'https://gz0.googleusercontent.com/gps-cs-s/PHOTO_ONE=w203-h100-k-no-pi0-ya5.1-ro-0-fo100:6',
+    'https://gz0.googleusercontent.com/gps-cs-s/PHOTO_ONE=w393-h524-k-no',
+    'https://gz0.googleusercontent.com/a-/AVATAR=s100-p-k-no-mo',
+    'https://gz0.googleusercontent.com/gpms-cs-s/PHOTO_TWO=w203-h114-k-no2',
+    'https://gz0.googleusercontent.com/gpms-cs-s/VIDEO=mm,hls?ibw=750000',
+  ].join('\0'), 'utf8');
+  return Buffer.concat([Buffer.from([0, 24]), gzipSync(body)]);
+}
+
+function popularHour(hour: number, percent: number, label = 'Usually not too busy'): Buffer {
+  return messageField(2, [
+    varintField(1, hour),
+    varintField(2, percent),
+    stringField(3, label),
+    stringField(5, `${hour}:00`),
+  ]);
+}
+
+function popularDay(day: number, hours: Buffer[]): Buffer {
+  return messageField(1, [
+    varintField(1, day),
+    ...hours,
+  ]);
+}
+
+function reviewAuthor(name: string): Buffer {
+  return messageField(1, [
+    stringField(1, 'https://www.google.com/maps/contrib/123?hl=en-US'),
+    stringField(2, name),
+    stringField(3, 'https://gz0.googleusercontent.com/a-/avatar=s120-c-rp-mo-ba12-br100'),
+  ]);
+}
+
+function review(text: string, rating: number, author: string): Buffer {
+  return messageField(1, [
+    reviewAuthor(author),
+    stringField(2, '2 weeks ago'),
+    stringField(4, text),
+    varintField(5, rating),
+    stringField(19, 'https://www.google.com/maps/reviews/data=!4m8!example'),
+    varintField(58, Date.UTC(2026, 5, 27)),
+    stringField(33, 'en'),
+  ]);
+}
+
+function sampleMobileRichPlaceResponse(): Buffer {
+  const richPlace = messageField(1, [
+    stringField(2, ftid),
+    stringField(3, 'Inuyama Castle'),
+    messageField(57, [
+      popularDay(1, [popularHour(9, 30), popularHour(10, 65, 'Usually a little busy')]),
+      popularDay(7, [popularHour(11, 80, 'Usually as busy as it gets')]),
+      stringField(2, 'Now: Usually not too busy'),
+    ]),
+    messageField(81, [
+      review('Great view over the river.', 5, 'Mika'),
+    ]),
+    stringField(97, 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO_ONE=w203-h100-k-no-pi0-ya5.1-ro-0-fo100:6'),
+  ]);
+  return Buffer.concat([Buffer.from([0, 24]), gzipSync(richPlace)]);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -174,6 +240,55 @@ describe('googleMapsMobilePlaceDetails helper', () => {
     expect(result.opening_periods).toContainEqual({
       open: { day: 0, hour: 9, minute: 30 },
       close: { day: 0, hour: 20, minute: 0 },
+    });
+  });
+
+  it('extracts and normalizes place photos from rich mobile responses', () => {
+    const photos = parseGoogleMapsMobilePlacePhotosResponse(sampleMobilePlacePhotosResponse());
+
+    expect(photos).toEqual([
+      {
+        url: 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO_ONE=w640-h426-k-no',
+        width: 640,
+        height: 426,
+        attribution: null,
+        source: 'google_maps_mobile',
+      },
+      {
+        url: 'https://gz0.googleusercontent.com/gpms-cs-s/PHOTO_TWO=w640-h426-k-no',
+        width: 640,
+        height: 426,
+        attribution: null,
+        source: 'google_maps_mobile',
+      },
+    ]);
+  });
+
+  it('extracts popular times, reviews, and photos from rich mobile responses', () => {
+    const details = parseGoogleMapsMobileRichPlaceDetailsResponse(sampleMobileRichPlaceResponse());
+
+    expect(details.popular_times).toEqual([
+      { day: 1, hour: 9, occupancy_percent: 30 },
+      { day: 1, hour: 10, occupancy_percent: 65 },
+      { day: 0, hour: 11, occupancy_percent: 80 },
+    ]);
+    expect(details.popular_status).toBe('Now: Usually not too busy');
+    expect(details.reviews).toEqual([{
+      author: 'Mika',
+      rating: 5,
+      text: 'Great view over the river.',
+      time: '2 weeks ago',
+      published_at: '2026-06-27T00:00:00.000Z',
+      photo: 'https://gz0.googleusercontent.com/a-/avatar=s120-c-rp-mo-ba12-br100',
+      uri: 'https://www.google.com/maps/reviews/data=!4m8!example',
+      language: 'en',
+    }]);
+    expect(details.photos[0]).toEqual({
+      url: 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO_ONE=w640-h426-k-no',
+      width: 640,
+      height: 426,
+      attribution: null,
+      source: 'google_maps_mobile',
     });
   });
 

@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Foglalás szerkesztése',
   'inspector.participants': 'Résztvevők',
   'inspector.trackStats': 'Útvonal adatok',
+  'inspector.accessibility': 'Akadálymentesség',
+  'inspector.accessible': 'Akadálymentes',
+  'inspector.accessibilityLimited': 'Korlátozott akadálymentesség',
+  'inspector.reviews': 'Vélemények',
+  'inspector.popularTimes': 'Népszerű időszakok',
+  'inspector.photosCount': '{count} fotó',
 };
 export default inspector;

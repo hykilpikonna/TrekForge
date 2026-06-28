@@ -8,7 +8,7 @@ import { useTripStore } from '../../store/tripStore'
 import { useAddonStore } from '../../store/addonStore'
 import CollectionPicker from '../Collections/CollectionPicker'
 import { useToast } from '../shared/Toast'
-import { Search, Paperclip, X, Loader2, Plus } from 'lucide-react'
+import { Search, Paperclip, X, AlertTriangle, Loader2, Plus, Star, MapPin, Info, Accessibility, MessageSquare, Image as ImageIcon, BarChart3 } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { DEFAULT_FORM, isGoogleMapsUrl, type PlaceFormData } from './PlaceFormModal.helpers'
 import { getApiErrorMessage } from '../../utils/apiError'
@@ -38,6 +38,51 @@ interface PlaceFormModalProps {
    *  picker column when the Collections addon is enabled. Sourced from the trip
    *  planner's matchMedia('(max-width:767px)'). */
   isMobile?: boolean
+}
+
+function cleanMapsText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function mapsTypeLabel(value: unknown): string | null {
+  const text = cleanMapsText(value)
+  if (!text) return null
+  const cleaned = text.replace(/^SearchResult\.TYPE_/i, '').replace(/^gcid:/i, '').replace(/_/g, ' ').toLowerCase()
+  return cleaned.replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function uniqueMapsTexts(...values: unknown[]): string[] {
+  const out: string[] = []
+  for (const value of values) {
+    const text = cleanMapsText(value)
+    if (!text) continue
+    if (out.some(existing => existing.localeCompare(text, undefined, { sensitivity: 'accent' }) === 0)) continue
+    out.push(text)
+  }
+  return out
+}
+
+function photoUrlFromDetailsRecord(photo: any): string | null {
+  if (!photo || typeof photo !== 'object') return null
+  for (const key of ['url', 'photoUrl', 'src']) {
+    const value = cleanMapsText(photo[key])
+    if (value) return value
+  }
+  return null
+}
+
+function uniqueDetailPhotoUrls(...sources: Array<string | null | undefined | any[]>): string[] {
+  const urls: string[] = []
+  const seen = new Set<string>()
+  for (const source of sources) {
+    const values = Array.isArray(source) ? source.map(item => typeof item === 'string' ? cleanMapsText(item) : photoUrlFromDetailsRecord(item)) : [cleanMapsText(source)]
+    for (const value of values) {
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      urls.push(value)
+    }
+  }
+  return urls
 }
 
 
@@ -84,6 +129,8 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
   const [pendingFiles, setPendingFiles] = useState([])
+  const [prefillDetails, setPrefillDetails] = useState<Record<string, any> | null>(null)
+  const [prefillDetailsLoading, setPrefillDetailsLoading] = useState(false)
   const fileRef = useRef(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [acSuggestions, setAcSuggestions] = useState<{ placeId: string; mainText: string; secondaryText: string }[]>([])
@@ -150,6 +197,45 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
       }, 50)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    const placeId = prefillCoords?.osm_id
+    if (!isOpen || place || !placeId) {
+      setPrefillDetails(null)
+      setPrefillDetailsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setPrefillDetails(null)
+    setPrefillDetailsLoading(true)
+
+    mapsApi.details(placeId, language, { expand: true })
+      .then(result => {
+        if (cancelled) return
+        const details = result.place as Record<string, any> | null
+        setPrefillDetails(details)
+        if (!details) return
+        setForm(prev => ({
+          ...prev,
+          name: cleanMapsText(details.name_translated) || cleanMapsText(details.name) || prev.name,
+          description: cleanMapsText(details.summary) || prev.description,
+          address: cleanMapsText(details.written_address) || cleanMapsText(details.address_translated) || cleanMapsText(details.address) || prev.address,
+          lat: typeof details.lat === 'number' ? String(details.lat) : prev.lat,
+          lng: typeof details.lng === 'number' ? String(details.lng) : prev.lng,
+          google_place_id: cleanMapsText(details.google_place_id) || prev.google_place_id,
+          google_ftid: cleanMapsText(details.google_ftid) || prev.google_ftid,
+          website: cleanMapsText(details.website) || prev.website,
+          phone: cleanMapsText(details.phone) || prev.phone,
+        }))
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPrefillDetailsLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [isOpen, place, prefillCoords?.osm_id, language])
 
   // Derive location bias bounding box from the trip's existing places
   const places = useTripStore((s) => s.places)
@@ -443,6 +529,8 @@ function usePlaceFormModal(props: PlaceFormModalProps) {
     setIsSaving,
     pendingFiles,
     setPendingFiles,
+    prefillDetails,
+    prefillDetailsLoading,
     fileRef,
     acSuggestions,
     setAcSuggestions,
@@ -509,6 +597,8 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
     setIsSaving,
     pendingFiles,
     setPendingFiles,
+    prefillDetails,
+    prefillDetailsLoading,
     fileRef,
     acSuggestions,
     setAcSuggestions,
@@ -645,6 +735,17 @@ export default function PlaceFormModal(props: PlaceFormModalProps) {
             </div>
           )}
         </div>
+
+        <PrefillDetailsPanel
+          details={prefillDetails}
+          loading={prefillDetailsLoading}
+          lat={form.lat}
+          lng={form.lng}
+          fallbackName={form.name}
+          fallbackOsmId={form.osm_id}
+          t={t}
+          language={language}
+        />
 
         {/* Name */}
         <div>
@@ -855,6 +956,181 @@ interface DurationSectionProps {
   form: PlaceFormData
   handleChange: (field: string, value: string) => void
   t: (key: string, params?: Record<string, string | number>) => string
+}
+
+interface PrefillDetailsPanelProps {
+  details: Record<string, any> | null
+  loading: boolean
+  lat: string
+  lng: string
+  fallbackName: string
+  fallbackOsmId?: string
+  t: (key: string, params?: Record<string, string | number>) => string
+  language: string
+}
+
+function shortWeekday(day: number, locale: string): string {
+  const base = new Date(Date.UTC(2026, 5, 28 + day, 12))
+  return base.toLocaleDateString(locale, { weekday: 'short', timeZone: 'UTC' })
+}
+
+function PrefillDetailsPanel({ details, loading, lat, lng, fallbackName, fallbackOsmId, t, language }: PrefillDetailsPanelProps) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const photoId = cleanMapsText(details?.google_place_id) || cleanMapsText(details?.google_ftid) || cleanMapsText(fallbackOsmId)
+  const directPhotoUrls = uniqueDetailPhotoUrls(Array.isArray(details?.photos) ? details.photos : [])
+  const photoLat = typeof details?.lat === 'number' ? details.lat : lat ? Number(lat) : undefined
+  const photoLng = typeof details?.lng === 'number' ? details.lng : lng ? Number(lng) : undefined
+  const photoName = cleanMapsText(details?.name) || fallbackName
+
+  useEffect(() => {
+    let cancelled = false
+    setPhotoUrl(null)
+    if (!details || directPhotoUrls.length > 0 || !photoId) return () => { cancelled = true }
+    mapsApi.placePhoto(photoId, photoLat, photoLng, photoName)
+      .then(result => {
+        if (!cancelled && result?.photoUrl) setPhotoUrl(result.photoUrl)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [details, directPhotoUrls.length, photoId, photoLat, photoLng, photoName])
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-500 flex items-center gap-2">
+        <Loader2 size={14} className="animate-spin" /> {t('places.loadingDetails')}
+      </div>
+    )
+  }
+  if (!details) return null
+
+  const names = uniqueMapsTexts(details.name_translated || details.name, details.name_original)
+  const address = cleanMapsText(details.written_address) || cleanMapsText(details.address_translated) || cleanMapsText(details.address)
+  const placeType = mapsTypeLabel(details.type || details.types?.[0] || details.primary_type)
+  const rating = typeof details.rating === 'number' ? details.rating : null
+  const ratingCount = typeof details.rating_count === 'number' ? details.rating_count : null
+  const accessibility = Array.isArray(details.accessibility) ? details.accessibility : []
+  const reviews = Array.isArray(details.reviews) ? details.reviews.filter(r => r?.text || r?.author).slice(0, 2) : []
+  const popularTimes = Array.isArray(details.popular_times) ? details.popular_times : []
+  const popularStatus = cleanMapsText(details.popular_status)
+  const photoCount = Array.isArray(details.photos) ? details.photos.length : 0
+  const photoUrls = uniqueDetailPhotoUrls(directPhotoUrls, photoUrl)
+  const displayedPhotoCount = Math.max(photoCount, photoUrls.length)
+  const popularByDay = new Map<number, Array<{ hour: number; occupancy_percent: number }>>()
+  for (const item of popularTimes) {
+    if (typeof item?.day !== 'number' || typeof item?.hour !== 'number' || typeof item?.occupancy_percent !== 'number') continue
+    if (!popularByDay.has(item.day)) popularByDay.set(item.day, [])
+    popularByDay.get(item.day)!.push(item)
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {photoUrls.length > 0 && (
+        <div className="bg-slate-100 p-2">
+          <div className="flex gap-2 overflow-x-auto overscroll-x-contain [scroll-snap-type:x_proximity]">
+            {photoUrls.map((url, index) => (
+              <div key={url} className="relative h-32 flex-[0_0_min(76vw,190px)] snap-start overflow-hidden rounded-lg bg-slate-100">
+                <img src={url} alt={photoName} loading={index === 0 ? 'eager' : 'lazy'} className="h-full w-full object-cover" />
+                {index === 0 && displayedPhotoCount > 1 && (
+                  <div className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-semibold text-white">
+                    <ImageIcon size={12} /> {t('inspector.photosCount', { count: displayedPhotoCount })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="p-3 space-y-2">
+        {names.length > 0 && (
+          <div className="space-y-0.5">
+            {names.map((name, idx) => (
+              <div key={name} className={idx === 0 ? 'text-sm font-semibold text-slate-900' : 'text-xs text-slate-500'}>{name}</div>
+            ))}
+          </div>
+        )}
+        {address && (
+          <div className="flex items-start gap-1.5 text-xs text-slate-500">
+            <MapPin size={12} className="mt-0.5 shrink-0" /> <span>{address}</span>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5">
+          {placeType && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+              <Info size={11} /> {placeType}
+            </span>
+          )}
+          {rating && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+              <Star size={11} fill="#facc15" color="#facc15" /> {rating}{ratingCount ? ` (${ratingCount})` : ''}
+            </span>
+          )}
+          {details.accessible !== null && details.accessible !== undefined && (
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${details.accessible ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+              <Accessibility size={11} /> {details.accessible ? t('inspector.accessible') : t('inspector.accessibilityLimited')}
+            </span>
+          )}
+        </div>
+        {cleanMapsText(details.summary) && (
+          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+            {cleanMapsText(details.summary)}
+          </div>
+        )}
+        {accessibility.length > 0 && (
+          <div className="space-y-1">
+            {accessibility.slice(0, 3).map((feature, idx) => (
+              <div key={feature.key || idx} className="text-xs text-slate-500">{feature.text || feature.label}</div>
+            ))}
+          </div>
+        )}
+        {reviews.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MessageSquare size={12} /> {t('inspector.reviews')}</div>
+            {reviews.map((review, idx) => (
+              <div key={`${review.author || 'review'}-${idx}`} className="text-xs text-slate-500">
+                {review.author && <span className="font-medium text-slate-700">{review.author}: </span>}
+                <span>{review.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {(popularByDay.size > 0 || popularStatus) && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><BarChart3 size={12} /> {t('inspector.popularTimes')}</div>
+            {popularStatus && (
+              <div className="text-xs leading-5 text-slate-500">{popularStatus}</div>
+            )}
+            <div className="space-y-1.5">
+              {[1, 2, 3, 4, 5, 6, 0].map(day => {
+                const values = (popularByDay.get(day) || []).slice().sort((a, b) => a.hour - b.hour)
+                if (values.length === 0) return null
+                const peak = Math.max(...values.map(v => v.occupancy_percent))
+                const byHour = new Map(values.map(v => [v.hour, v.occupancy_percent]))
+                return (
+                  <div key={day} className="grid grid-cols-[2.2rem_minmax(0,1fr)_2rem] items-center gap-1.5">
+                    <div className="truncate text-[10px] font-medium text-slate-400">{shortWeekday(day, language)}</div>
+                    <div className="grid h-7 grid-cols-[repeat(24,minmax(2px,1fr))] items-end gap-0.5">
+                      {Array.from({ length: 24 }, (_, hour) => {
+                        const percent = byHour.get(hour) || 0
+                        return (
+                          <div
+                            key={`${day}-${hour}`}
+                            title={`${hour}:00 · ${percent}%`}
+                            className={percent > 0 && percent === peak ? 'rounded-sm bg-slate-700' : percent > 0 ? 'rounded-sm bg-slate-300' : 'rounded-sm bg-slate-100'}
+                            style={{ height: `${percent > 0 ? Math.max(4, percent * 0.28) : 2}px` }}
+                          />
+                        )
+                      })}
+                    </div>
+                    <div className="text-right text-[10px] text-slate-400">{peak}%</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function DurationSection({ form, handleChange, t }: DurationSectionProps) {

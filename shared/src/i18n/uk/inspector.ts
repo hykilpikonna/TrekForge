@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Редагувати бронювання',
   'inspector.participants': 'Учасники',
   'inspector.trackStats': 'Дані маршруту',
+  'inspector.accessibility': 'Доступність',
+  'inspector.accessible': 'Доступно',
+  'inspector.accessibilityLimited': 'Обмежена доступність',
+  'inspector.reviews': 'Відгуки',
+  'inspector.popularTimes': 'Популярні години',
+  'inspector.photosCount': '{count} фото',
 };
 export default inspector;

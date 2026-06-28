@@ -21,5 +21,11 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Rezervasyonu Düzenle',
   'inspector.participants': 'Katılımcılar',
   'inspector.trackStats': 'İstatistikleri Takip Et',
+  'inspector.accessibility': 'Erişilebilirlik',
+  'inspector.accessible': 'Erişilebilir',
+  'inspector.accessibilityLimited': 'Sınırlı erişilebilirlik',
+  'inspector.reviews': 'Yorumlar',
+  'inspector.popularTimes': 'Popüler saatler',
+  'inspector.photosCount': '{count} fotoğraf',
 };
 export default inspector;
