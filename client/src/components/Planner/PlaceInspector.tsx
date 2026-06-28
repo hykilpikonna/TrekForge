@@ -26,6 +26,8 @@ import { formatDistance, formatElevation } from '../../utils/units'
 import { getGoogleMapsUrlForPlace } from './placeGoogleMaps'
 import { getOpenStreetMapUrlForPlace } from './placeOpenStreetMap'
 import { formatDurationInput, parseDurationMinutes } from '../../utils/durationInput'
+import { buildActivitySchedule } from '../../utils/daySchedule'
+import { parseTimeToMinutes } from '../../utils/dayMerge'
 
 const detailsCache = new Map()
 const INFO_BLOCK_CLASS = 'mb-2 break-inside-avoid rounded-[10px] bg-surface-hover px-3 py-2.5'
@@ -69,6 +71,31 @@ function getWeekdayIndex(dateStr) {
   const d = dateStr ? new Date(dateStr + 'T12:00:00') : new Date()
   const jsDay = d.getDay()
   return jsDay === 0 ? 6 : jsDay - 1
+}
+
+function getPopularWeekdayIndex(dateStr) {
+  const d = dateStr ? new Date(dateStr + 'T12:00:00') : new Date()
+  return d.getDay()
+}
+
+interface PopularTimesSchedule {
+  day: number | null
+  startHour: number | null
+  endHour: number | null
+  label: string | null
+}
+
+function isScheduledPopularHour(day: number, hour: number, schedule?: PopularTimesSchedule | null): boolean {
+  if (!schedule || schedule.day !== day || schedule.startHour == null || schedule.endHour == null) return false
+  if (schedule.endHour <= 24) return hour >= schedule.startHour && hour < schedule.endHour
+  return hour >= schedule.startHour || hour < (schedule.endHour % 24)
+}
+
+function popularBarBackground(percent: number, peak: number, scheduled: boolean): string {
+  if (scheduled) return 'var(--accent)'
+  if (percent <= 0) return 'color-mix(in srgb, var(--text-faint) 34%, transparent)'
+  if (percent === peak) return 'color-mix(in srgb, var(--accent) 76%, var(--text-primary))'
+  return 'color-mix(in srgb, var(--accent) 44%, var(--text-muted))'
 }
 
 function convertHoursLine(line, timeFormat) {
@@ -185,7 +212,8 @@ interface PlaceInspectorProps {
   tripMembers?: TripMember[]
   onSetParticipants?: (assignmentId: number, dayId: number, participantIds: number[]) => void
   onUpdatePlace?: (placeId: number, data: Partial<Place>) => void
-  onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number, settings?: AssignmentTimeSettings) => Promise<void> | void
+  onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number) => Promise<void> | void
+  scheduleMarginMinutes?: number
   leftWidth?: number
   rightWidth?: number
   // ── Collection-mode props ──
@@ -201,6 +229,7 @@ export default function PlaceInspector({
   onClose, onEdit, onDelete, onAssignToDay, onRemoveAssignment,
   files = [], onFileUpload, tripMembers = [], onSetParticipants, onUpdatePlace,
   onUpdateAssignmentDuration,
+  scheduleMarginMinutes = 0,
   leftWidth = 0, rightWidth = 0,
   collectionStatus, onCopyToTrip, onSetStatus, onRemoveFromList,
 }: PlaceInspectorProps) {
@@ -334,6 +363,27 @@ export default function PlaceInspector({
   const phoneLabel = t('inspector.phone') === 'inspector.phone' ? 'Phone' : t('inspector.phone')
   const selectedDay = days?.find(d => d.id === selectedDayId)
   const weekdayIndex = getWeekdayIndex(selectedDay?.date)
+  const normalizedScheduleMargin = Math.max(0, Math.round(Number(scheduleMarginMinutes) || 0))
+  const scheduledSlot = useMemo(() => {
+    if (!selectedDay || !assignmentInDay) return null
+    const sortedAssignments = [...dayAssignments].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+    const schedule = buildActivitySchedule(selectedDay, sortedAssignments, { scheduleMarginMinutes: normalizedScheduleMargin })
+    return schedule[assignmentInDay.id] || null
+  }, [assignmentInDay, dayAssignments, normalizedScheduleMargin, selectedDay])
+  const popularSchedule = useMemo<PopularTimesSchedule>(() => {
+    const day = selectedDay?.date ? getPopularWeekdayIndex(selectedDay.date) : null
+    if (!scheduledSlot) return { day, startHour: null, endHour: null, label: null }
+    const startMinutes = parseTimeToMinutes(scheduledSlot.start)
+    const endMinutes = parseTimeToMinutes(scheduledSlot.end)
+    if (startMinutes == null || endMinutes == null) return { day, startHour: null, endHour: null, label: null }
+    const endAbsolute = endMinutes > startMinutes ? endMinutes : endMinutes + 24 * 60
+    return {
+      day,
+      startHour: Math.floor(startMinutes / 60),
+      endHour: Math.max(Math.floor(startMinutes / 60) + 1, Math.ceil(endAbsolute / 60)),
+      label: `${formatTime(scheduledSlot.start, locale, timeFormat)} - ${formatTime(scheduledSlot.end, locale, timeFormat)}`,
+    }
+  }, [locale, scheduledSlot, selectedDay?.date, timeFormat])
 
   const placeFiles = (files || []).filter(f => String(f.place_id) === String(place.id) || (f.linked_place_ids || []).includes(place.id))
 
@@ -468,7 +518,9 @@ export default function PlaceInspector({
                 reviews={reviews}
                 popularTimes={popularTimes}
                 popularStatus={popularStatus}
+                popularSchedule={popularSchedule}
                 locale={locale}
+                timeFormat={timeFormat}
                 t={t}
               />
             </div>
@@ -638,17 +690,25 @@ function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; de
   )
 }
 
-function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularStatus, locale, t }: {
+function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularStatus, popularSchedule, locale, timeFormat, t }: {
   accessibility: Array<{ key?: string; label?: string; value?: boolean | null; text?: string | null }>
   reviews: Array<{ author?: string | null; rating?: number | null; text?: string | null; time?: string | null }>
   popularTimes: Array<{ day: number; hour: number; occupancy_percent: number }>
   popularStatus?: string | null
+  popularSchedule?: PopularTimesSchedule | null
   locale: string
+  timeFormat: string
   t: (key: string, params?: Record<string, string | number>) => string
 }) {
   const showAccessibility = accessibility.length > 0
   const showReviews = reviews.length > 0
   const showPopularTimes = popularTimes.length > 0 || Boolean(popularStatus)
+  const [popularExpanded, setPopularExpanded] = useState(false)
+
+  useEffect(() => {
+    setPopularExpanded(false)
+  }, [popularSchedule?.day, popularSchedule?.startHour, popularSchedule?.endHour, popularTimes.length, popularStatus])
+
   if (!showAccessibility && !showReviews && !showPopularTimes) return null
 
   const popularByDay = new Map<number, Array<{ hour: number; occupancy_percent: number }>>()
@@ -656,6 +716,19 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
     if (!popularByDay.has(item.day)) popularByDay.set(item.day, [])
     popularByDay.get(item.day)!.push(item)
   }
+  const orderedPopularDays = [1, 2, 3, 4, 5, 6, 0].filter(day => popularByDay.has(day))
+  const scheduledDay = popularSchedule?.day ?? null
+  const collapsedPopularDay = scheduledDay != null && popularByDay.has(scheduledDay)
+    ? scheduledDay
+    : (orderedPopularDays[0] ?? null)
+  const visiblePopularDays = popularExpanded ? orderedPopularDays : (collapsedPopularDay != null ? [collapsedPopularDay] : [])
+  const canExpandPopular = orderedPopularDays.length > 1
+  const collapsedSummary = collapsedPopularDay != null
+    ? [
+      weekdayName(collapsedPopularDay, locale),
+      popularSchedule?.day === collapsedPopularDay ? popularSchedule.label : null,
+    ].filter(Boolean).join(' · ')
+    : null
 
   return (
     <>
@@ -703,36 +776,66 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
 
       {showPopularTimes && (
         <div className={INFO_BLOCK_CLASS}>
-          <div className={INFO_BLOCK_HEADER_CLASS}>
-            <BarChart3 size={13} className="text-content-faint" /> {t('inspector.popularTimes')}
-          </div>
+          <button
+            type="button"
+            disabled={!canExpandPopular}
+            aria-expanded={canExpandPopular ? popularExpanded : undefined}
+            onClick={() => { if (canExpandPopular) setPopularExpanded(v => !v) }}
+            className="mb-2 flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent p-0 text-left font-[inherit] disabled:cursor-default"
+          >
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-content-secondary">
+              <BarChart3 size={13} className="shrink-0 text-content-faint" /> {t('inspector.popularTimes')}
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              {!popularExpanded && collapsedSummary && (
+                <span className="truncate text-[10px] font-medium text-content-faint">{collapsedSummary}</span>
+              )}
+              {canExpandPopular && (
+                popularExpanded
+                  ? <ChevronUp size={13} className="shrink-0 text-content-faint" />
+                  : <ChevronDown size={13} className="shrink-0 text-content-faint" />
+              )}
+            </span>
+          </button>
           {popularStatus && (
             <div className="mb-[7px] text-[11px] leading-[1.35] text-content-muted">
               {popularStatus}
             </div>
           )}
           <div className="flex flex-col gap-[5px]">
-            {[1, 2, 3, 4, 5, 6, 0].map(day => {
+            {visiblePopularDays.map(day => {
               const values = (popularByDay.get(day) || []).slice().sort((a, b) => a.hour - b.hour)
               if (values.length === 0) return null
               const peak = Math.max(...values.map(v => v.occupancy_percent))
               const byHour = new Map(values.map(v => [v.hour, v.occupancy_percent]))
+              const isScheduledDay = popularSchedule?.day === day
               return (
-                <div key={day} className="grid grid-cols-[34px_minmax(0,1fr)_34px] items-center gap-1.5">
-                  <span className="text-[10px] font-semibold text-content-faint">{weekdayName(day, locale)}</span>
+                <div key={day} data-testid={`popular-times-day-${day}`} className="grid grid-cols-[34px_minmax(0,1fr)_34px] items-center gap-1.5">
+                  <span className={`text-[10px] font-semibold ${isScheduledDay ? 'text-accent' : 'text-content-faint'}`}>{weekdayName(day, locale)}</span>
                   <div className="grid h-7 grid-cols-[repeat(24,minmax(2px,1fr))] items-end gap-0.5">
                     {Array.from({ length: 24 }, (_, hour) => {
                       const percent = byHour.get(hour) ?? 0
+                      const scheduled = isScheduledPopularHour(day, hour, popularSchedule)
+                      const hourLabel = formatTime(`${String(hour).padStart(2, '0')}:00`, locale, timeFormat)
+                      const tooltip = `${weekdayName(day, locale)} ${hourLabel} · ${percent}%`
+                      const barHeight = scheduled
+                        ? Math.max(8, percent > 0 ? Math.max(5, percent * 0.28) : 3)
+                        : (percent > 0 ? Math.max(5, percent * 0.28) : 3)
                       return (
-                        <div
-                          key={`${day}-${hour}`}
-                          title={`${hour}:00 · ${percent}%`}
-                          style={{
-                            height: `${percent > 0 ? Math.max(4, percent * 0.28) : 2}px`,
-                            borderRadius: 2,
-                            background: percent > 0 && percent === peak ? 'var(--accent)' : percent > 0 ? 'var(--border-primary)' : 'color-mix(in srgb, var(--border-faint) 55%, transparent)',
-                          }}
-                        />
+                        <div key={`${day}-${hour}`} className="group relative flex h-7 items-end" title={tooltip}>
+                          <div
+                            data-testid={`popular-time-slot-${day}-${hour}`}
+                            aria-label={tooltip}
+                            className={`w-full rounded-sm transition-[height,background] ${scheduled ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface-hover' : ''}`}
+                            style={{
+                              height: `${barHeight}px`,
+                              background: popularBarBackground(percent, peak, scheduled),
+                            }}
+                          />
+                          <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-content px-1.5 py-1 text-[10px] font-semibold text-surface shadow-lg group-hover:block">
+                            {tooltip}
+                          </span>
+                        </div>
                       )
                     })}
                   </div>
