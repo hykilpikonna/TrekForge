@@ -16,7 +16,7 @@ import { useSaveToCollectionStore } from '../../store/saveToCollectionStore'
 import { getCategoryIcon, isEmojiCategoryIcon } from '../shared/categoryIcons'
 import { useToast } from '../shared/Toast'
 import { useTranslation, translateApiError } from '../../i18n'
-import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap } from '../../types'
+import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap, DistanceUnit } from '../../types'
 import type { CollectionStatus } from '@trek/shared'
 import { splitReservationDateTime, formatTime } from '../../utils/formatters'
 import { formatDistance, formatElevation } from '../../utils/units'
@@ -31,6 +31,8 @@ const INFO_BLOCK_CLASS = 'mb-2 break-inside-avoid rounded-[10px] bg-surface-hove
 const INFO_BLOCK_FLUSH_CLASS = 'mb-2 break-inside-avoid overflow-hidden rounded-[10px] bg-surface-hover'
 const INFO_BLOCK_HEADER_CLASS = 'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-content-secondary'
 const POPULAR_TIME_HIGHLIGHT_COLOR = 'var(--journal-accent)'
+
+type TFunction = (key: string, params?: Record<string, string | number>) => string
 
 function getSessionCache(key) {
   try {
@@ -134,10 +136,11 @@ function humanizeType(value) {
   return cleaned.replace(/\b\w/g, c => c.toUpperCase())
 }
 
-function photoUrlFromRecord(photo: any): string | null {
+function photoUrlFromRecord(photo: unknown): string | null {
   if (!photo || typeof photo !== 'object') return null
+  const record = photo as Record<string, unknown>
   for (const key of ['url', 'photoUrl', 'src']) {
-    const value = cleanText(photo[key])
+    const value = cleanText(record[key])
     if (value) return value
   }
   return null
@@ -245,8 +248,8 @@ export default function PlaceInspector({
   const [isUploading, setIsUploading] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState('')
-  const nameInputRef = useRef(null)
-  const fileInputRef = useRef(null)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const googleDetails = usePlaceDetails(place?.google_place_id, place?.google_ftid, place?.osm_id, language)
 
   // Library-wide "is this place already saved anywhere I can see?" indicator for
@@ -307,7 +310,7 @@ export default function PlaceInspector({
     onUpdatePlace(place.id, { name: trimmed })
   }
 
-  const handleNameKeyDown = (e) => {
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') { e.preventDefault(); commitNameEdit() }
     if (e.key === 'Escape') setEditingName(false)
   }
@@ -370,8 +373,8 @@ export default function PlaceInspector({
 
   const placeFiles = (files || []).filter(f => String(f.place_id) === String(place.id) || (f.linked_place_ids || []).includes(place.id))
 
-  const handleFileUpload = useCallback(async (e) => {
-    const selectedFiles = Array.from((e.target as HTMLInputElement).files || [])
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || [])
     if (!selectedFiles.length || !onFileUpload) return
     setIsUploading(true)
     try {
@@ -408,7 +411,7 @@ export default function PlaceInspector({
         <PlaceInspectorHeader openNow={openNow} place={place} category={category} t={t} editingName={editingName}
           nameInputRef={nameInputRef} nameValue={nameValue} setNameValue={setNameValue} commitNameEdit={commitNameEdit}
           handleNameKeyDown={handleNameKeyDown} startNameEdit={startNameEdit} onUpdatePlace={onUpdatePlace}
-          locale={locale} timeFormat={timeFormat} onClose={onClose} secondaryNames={secondaryNames} displayAddress={displayAddress} />
+          onClose={onClose} secondaryNames={secondaryNames} displayAddress={displayAddress} />
 
         {/* Content */}
         <div data-testid="inspector-scroll" className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden px-4 py-3">
@@ -456,26 +459,26 @@ export default function PlaceInspector({
                   />
                 )}
 
+                <AccessibilityDetailsBlock accessibility={accessibility} t={t} />
+
                 {/* Phone */}
                 {(place.phone || googleDetails?.phone) && (
-                  <div className={INFO_BLOCK_CLASS}>
-                    <div className={INFO_BLOCK_HEADER_CLASS}>
-                      <Phone size={13} className="text-content-faint" /> {phoneLabel}
-                    </div>
+                  <InfoBlock>
+                    <InfoBlockHeader icon={<Phone size={13} className="text-content-faint" />} title={phoneLabel} />
                     <a
                       href={`tel:${place.phone || googleDetails.phone}`}
                       className="inline-flex items-center gap-1 text-xs text-content no-underline [word-break:break-word]"
                     >
                       {place.phone || googleDetails.phone}
                     </a>
-                  </div>
+                  </InfoBlock>
                 )}
 
                 {/* Notes */}
                 {place.notes && (
-                  <div className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
+                  <InfoBlock className="collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]">
                     <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{place.notes}</Markdown>
-                  </div>
+                  </InfoBlock>
                 )}
 
                 {mode === 'trip' && (
@@ -494,13 +497,12 @@ export default function PlaceInspector({
               <div data-testid="inspector-info-right" className="min-w-0">
                 {/* Description / Summary */}
                 {summaryText && (
-                  <div data-testid="inspector-summary" className={`${INFO_BLOCK_CLASS} collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]`}>
+                  <InfoBlock testId="inspector-summary" className="collab-note-md text-xs leading-[1.5] text-content-muted [overflow-wrap:anywhere] [word-break:break-word]">
                     <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{summaryText}</Markdown>
-                  </div>
+                  </InfoBlock>
                 )}
 
                 <GoogleDetailsSections
-                  accessibility={accessibility}
                   reviews={reviews}
                   popularTimes={popularTimes}
                   popularStatus={popularStatus}
@@ -589,21 +591,43 @@ function Chip({ icon, text, color = 'var(--text-secondary)', bg = 'var(--bg-hove
   )
 }
 
-interface RowProps {
-  icon: React.ReactNode
+interface InfoBlockProps {
   children: React.ReactNode
+  className?: string
+  testId?: string
 }
 
-function Row({ icon, children }: RowProps) {
+function InfoBlock({ children, className = '', testId }: InfoBlockProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flexShrink: 0 }}>{icon}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+    <div data-testid={testId} className={`${INFO_BLOCK_CLASS}${className ? ` ${className}` : ''}`}>
+      {children}
     </div>
   )
 }
 
-function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; details: any; photoCount: number; t: (key: string, params?: Record<string, string | number>) => string }) {
+interface InfoBlockHeaderProps {
+  icon: React.ReactNode
+  title: React.ReactNode
+  className?: string
+}
+
+function InfoBlockHeader({ icon, title, className = '' }: InfoBlockHeaderProps) {
+  return (
+    <div className={`${INFO_BLOCK_HEADER_CLASS}${className ? ` ${className}` : ''}`}>
+      {icon} {title}
+    </div>
+  )
+}
+
+function InfoBlockLabel({ icon, title, htmlFor }: InfoBlockHeaderProps & { htmlFor: string }) {
+  return (
+    <label htmlFor={htmlFor} className={INFO_BLOCK_HEADER_CLASS}>
+      {icon} {title}
+    </label>
+  )
+}
+
+function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; details: Record<string, unknown> | null; photoCount: number; t: TFunction }) {
   const [photoUrl, setPhotoUrl] = useState(place.image_url || null)
   const directPhotoUrls = uniquePhotoUrls(Array.isArray(details?.photos) ? details.photos : [])
   const photoUrls = uniquePhotoUrls(place.image_url, directPhotoUrls, photoUrl)
@@ -649,17 +673,38 @@ function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; de
   )
 }
 
-function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularStatus, popularSchedule, locale, timeFormat, t }: {
+function AccessibilityDetailsBlock({ accessibility, t }: {
   accessibility: Array<{ key?: string; label?: string; value?: boolean | null; text?: string | null }>
+  t: TFunction
+}) {
+  if (accessibility.length === 0) return null
+
+  return (
+    <InfoBlock testId="inspector-accessibility">
+      <InfoBlockHeader icon={<Accessibility size={13} className="text-content-faint" />} title={t('inspector.accessibility')} />
+      <div className="flex flex-col gap-1">
+        {accessibility.map((feature, idx) => (
+          <div key={`${feature.key || feature.label || idx}`} className="flex items-start gap-1.5 text-xs leading-[1.35] text-content-muted">
+            <span className={`font-bold ${feature.value === true ? 'text-[#16a34a]' : feature.value === false ? 'text-[#d97706]' : 'text-content-faint'}`}>
+              {feature.value === true ? '✓' : feature.value === false ? '–' : '•'}
+            </span>
+            <span>{feature.text || feature.label}</span>
+          </div>
+        ))}
+      </div>
+    </InfoBlock>
+  )
+}
+
+function GoogleDetailsSections({ reviews, popularTimes, popularStatus, popularSchedule, locale, timeFormat, t }: {
   reviews: Array<{ author?: string | null; rating?: number | null; text?: string | null; time?: string | null }>
   popularTimes: Array<{ day: number; hour: number; occupancy_percent: number }>
   popularStatus?: string | null
   popularSchedule?: PopularTimesSchedule | null
   locale: string
   timeFormat: string
-  t: (key: string, params?: Record<string, string | number>) => string
+  t: TFunction
 }) {
-  const showAccessibility = accessibility.length > 0
   const showReviews = reviews.length > 0
   const showPopularTimes = popularTimes.length > 0 || Boolean(popularStatus)
   const [popularExpanded, setPopularExpanded] = useState(false)
@@ -668,7 +713,7 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
     setPopularExpanded(false)
   }, [popularSchedule?.day, popularSchedule?.startHour, popularSchedule?.endHour, popularTimes.length, popularStatus])
 
-  if (!showAccessibility && !showReviews && !showPopularTimes) return null
+  if (!showReviews && !showPopularTimes) return null
 
   const popularByDay = new Map<number, Array<{ hour: number; occupancy_percent: number }>>()
   for (const item of popularTimes) {
@@ -691,29 +736,9 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
 
   return (
     <>
-      {showAccessibility && (
-        <div className={INFO_BLOCK_CLASS}>
-          <div className={INFO_BLOCK_HEADER_CLASS}>
-            <Accessibility size={13} className="text-content-faint" /> {t('inspector.accessibility')}
-          </div>
-          <div className="flex flex-col gap-1">
-            {accessibility.map((feature, idx) => (
-              <div key={`${feature.key || feature.label || idx}`} className="flex items-start gap-1.5 text-xs leading-[1.35] text-content-muted">
-                <span className={`font-bold ${feature.value === true ? 'text-[#16a34a]' : feature.value === false ? 'text-[#d97706]' : 'text-content-faint'}`}>
-                  {feature.value === true ? '✓' : feature.value === false ? '–' : '•'}
-                </span>
-                <span>{feature.text || feature.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {showReviews && (
-        <div className={INFO_BLOCK_CLASS}>
-          <div className={INFO_BLOCK_HEADER_CLASS}>
-            <MessageSquare size={13} className="text-content-faint" /> {t('inspector.reviews')}
-          </div>
+        <InfoBlock>
+          <InfoBlockHeader icon={<MessageSquare size={13} className="text-content-faint" />} title={t('inspector.reviews')} />
           <div className="flex flex-col gap-2">
             {reviews.map((review, idx) => (
               <div key={`${review.author || 'review'}-${idx}`} className="min-w-0">
@@ -730,11 +755,11 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
               </div>
             ))}
           </div>
-        </div>
+        </InfoBlock>
       )}
 
       {showPopularTimes && (
-        <div className={INFO_BLOCK_CLASS}>
+        <InfoBlock>
           <button
             type="button"
             disabled={!canExpandPopular}
@@ -803,7 +828,7 @@ function GoogleDetailsSections({ accessibility, reviews, popularTimes, popularSt
               )
             })}
           </div>
-        </div>
+        </InfoBlock>
       )}
     </>
   )
@@ -814,7 +839,7 @@ interface AssignmentDurationControlProps {
   dayId: number
   placeDurationMinutes?: number | null
   onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number) => Promise<void> | void
-  t: (key: string, params?: Record<string, string | number>) => string
+  t: TFunction
 }
 
 function AssignmentDurationControl({
@@ -874,10 +899,8 @@ function AssignmentDurationControl({
     : t('inspector.scheduledDuration')
 
   return (
-    <div className={INFO_BLOCK_CLASS}>
-      <label htmlFor={inputId} className={INFO_BLOCK_HEADER_CLASS}>
-        <Clock size={13} className="text-content-faint" /> {scheduledDurationLabel}
-      </label>
+    <InfoBlock>
+      <InfoBlockLabel htmlFor={inputId} icon={<Clock size={13} className="text-content-faint" />} title={scheduledDurationLabel} />
       <input
         id={inputId}
         type="text"
@@ -899,7 +922,7 @@ function AssignmentDurationControl({
         placeholder={t('places.durationPlaceholder')}
         className="form-input w-full text-xs"
       />
-    </div>
+    </InfoBlock>
   )
 }
 
@@ -937,16 +960,16 @@ interface ParticipantsBoxProps {
 }
 
 function ParticipantsBox({ tripMembers, participantIds, allJoined, onSetParticipants, selectedAssignmentId, selectedDayId, t }: ParticipantsBoxProps) {
-  const [showAdd, setShowAdd] = React.useState(false)
-  const [hoveredId, setHoveredId] = React.useState(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [hoveredId, setHoveredId] = useState<number | null>(null)
 
   // Active participants: if allJoined, show all members; otherwise show only those in participantIds
   const activeMembers = allJoined ? tripMembers : tripMembers.filter(m => participantIds.includes(m.id))
   const availableToAdd = allJoined ? [] : tripMembers.filter(m => !participantIds.includes(m.id))
 
-  const handleRemove = (userId) => {
-    if (!onSetParticipants) return
-    let newIds
+  const handleRemove = (userId: number) => {
+    if (selectedAssignmentId == null || selectedDayId == null) return
+    let newIds: number[]
     if (allJoined) {
       newIds = tripMembers.filter(m => m.id !== userId).map(m => m.id)
     } else {
@@ -956,8 +979,8 @@ function ParticipantsBox({ tripMembers, participantIds, allJoined, onSetParticip
     onSetParticipants(selectedAssignmentId, selectedDayId, newIds)
   }
 
-  const handleAdd = (userId) => {
-    if (!onSetParticipants) return
+  const handleAdd = (userId: number) => {
+    if (selectedAssignmentId == null || selectedDayId == null) return
     const newIds = [...participantIds, userId]
     if (newIds.length === tripMembers.length) {
       onSetParticipants(selectedAssignmentId, selectedDayId, [])
@@ -1018,9 +1041,26 @@ function ParticipantsBox({ tripMembers, participantIds, allJoined, onSetParticip
   )
 }
 
+interface PlaceInspectorHeaderProps {
+  openNow: boolean | null
+  place: Place
+  category?: Category
+  t: TFunction
+  editingName: boolean
+  nameInputRef: React.RefObject<HTMLInputElement | null>
+  nameValue: string
+  setNameValue: React.Dispatch<React.SetStateAction<string>>
+  commitNameEdit: () => void
+  handleNameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
+  startNameEdit: () => void
+  onUpdatePlace: PlaceInspectorProps['onUpdatePlace']
+  onClose: () => void
+  secondaryNames: string[]
+  displayAddress?: string | null
+}
 
 function PlaceInspectorHeader({ openNow, place, category, t, editingName, nameInputRef, nameValue, setNameValue,
-  commitNameEdit, handleNameKeyDown, startNameEdit, onUpdatePlace, locale, timeFormat, onClose, secondaryNames, displayAddress }: any) {
+  commitNameEdit, handleNameKeyDown, startNameEdit, onUpdatePlace, onClose, secondaryNames, displayAddress }: PlaceInspectorHeaderProps) {
   return (
         <div style={{ display: 'flex', alignItems: 'center', gap: openNow !== null ? 26 : 14, padding: openNow !== null ? '18px 16px 14px 28px' : '18px 16px 14px', borderBottom: '1px solid var(--border-faint)', flexShrink: 0 }}>
           {/* Avatar with open/closed ring + tag */}
@@ -1124,8 +1164,20 @@ function PlaceInspectorHeader({ openNow, place, category, t, editingName, nameIn
   )
 }
 
+interface PlaceReservationParticipantsProps {
+  selectedAssignmentId: number | null
+  reservations: Reservation[]
+  assignments: AssignmentsMap
+  selectedDayId: number | null
+  tripMembers: TripMember[]
+  locale: string
+  timeFormat: string
+  t: TFunction
+  onSetParticipants: PlaceInspectorProps['onSetParticipants']
+}
+
 function PlaceReservationParticipants({ selectedAssignmentId, reservations, assignments, selectedDayId,
-  tripMembers, locale, timeFormat, t, onSetParticipants }: any) {
+  tripMembers, locale, timeFormat, t, onSetParticipants }: PlaceReservationParticipantsProps) {
   return (
     <>
           {(() => {
@@ -1218,8 +1270,157 @@ function PlaceReservationParticipants({ selectedAssignmentId, reservations, assi
   )
 }
 
+interface RouteTrackStats {
+  distanceMeters: number
+  hasElevation: boolean
+  minElevation: number
+  maxElevation: number
+  totalUp: number
+  totalDown: number
+  chartWidth: number
+  chartHeight: number
+  elevationPath: string
+}
+
+function routeTrackStatsFromGeometry(routeGeometry?: string | null): RouteTrackStats | null {
+  if (!routeGeometry) return null
+  try {
+    const points = JSON.parse(routeGeometry) as number[][]
+    if (!Array.isArray(points) || points.length < 2 || points.some(point => !Array.isArray(point) || point.length < 2)) return null
+
+    const toRad = (degrees: number) => degrees * Math.PI / 180
+    let distanceMeters = 0
+    for (let i = 1; i < points.length; i++) {
+      const [lat1, lng1] = points[i - 1]
+      const [lat2, lng2] = points[i]
+      if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return null
+      const dLat = toRad(lat2 - lat1)
+      const dLng = toRad(lng2 - lng1)
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+      distanceMeters += 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    }
+
+    const hasElevation = points[0].length >= 3
+    let minElevation = Infinity
+    let maxElevation = -Infinity
+    let totalUp = 0
+    let totalDown = 0
+    const elevations = hasElevation ? points.map(point => point[2]).filter(Number.isFinite) : []
+    if (hasElevation && elevations.length !== points.length) return null
+
+    for (let i = 0; i < elevations.length; i++) {
+      const elevation = elevations[i]
+      minElevation = Math.min(minElevation, elevation)
+      maxElevation = Math.max(maxElevation, elevation)
+      if (i > 0) {
+        const diff = elevation - elevations[i - 1]
+        if (diff > 0) totalUp += diff
+        else totalDown += Math.abs(diff)
+      }
+    }
+
+    const chartWidth = 280
+    const chartHeight = 60
+    let elevationPath = ''
+    if (elevations.length > 1) {
+      const step = Math.max(1, Math.floor(elevations.length / chartWidth))
+      const sampled = elevations.filter((_, i) => i % step === 0)
+      const eMin = Math.min(...sampled)
+      const eMax = Math.max(...sampled)
+      const range = eMax - eMin || 1
+      elevationPath = sampled.map((elevation, i) => {
+        const x = (i / (sampled.length - 1)) * chartWidth
+        const y = chartHeight - ((elevation - eMin) / range) * (chartHeight - 4) - 2
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+      }).join(' ')
+    }
+
+    return {
+      distanceMeters,
+      hasElevation,
+      minElevation,
+      maxElevation,
+      totalUp,
+      totalDown,
+      chartWidth,
+      chartHeight,
+      elevationPath,
+    }
+  } catch {
+    return null
+  }
+}
+
+function TrackStatsBlock({ place, t, distanceUnit }: { place: Place; t: TFunction; distanceUnit: DistanceUnit }) {
+  const stats = routeTrackStatsFromGeometry(place.route_geometry)
+  if (!stats) return null
+
+  const distanceKm = stats.distanceMeters / 1000
+
+  return (
+    <InfoBlock className="flex flex-col gap-2">
+      <InfoBlockHeader
+        className="mb-0"
+        icon={<TrendingUp size={13} className="text-content-faint" />}
+        title={t('inspector.trackStats')}
+      />
+      <div className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-1 text-xs font-semibold text-content">
+          <MapPin size={12} className="text-[#3b82f6]" />
+          {formatDistance(distanceKm, distanceUnit)}
+        </div>
+        {stats.hasElevation && (
+          <>
+            <div className="flex items-center gap-1 text-xs font-semibold text-content">
+              <Mountain size={12} className="text-[#22c55e]" />
+              {formatElevation(stats.maxElevation, distanceUnit)}
+            </div>
+            <div className="flex items-center gap-1 text-xs font-semibold text-content">
+              <Mountain size={12} className="text-[#ef4444]" />
+              {formatElevation(stats.minElevation, distanceUnit)}
+            </div>
+            <div className="text-xs text-content-muted">
+              ↑{formatElevation(stats.totalUp, distanceUnit)} &nbsp;↓{formatElevation(stats.totalDown, distanceUnit)}
+            </div>
+          </>
+        )}
+      </div>
+      {stats.elevationPath && (
+        <svg width="100%" viewBox={`0 0 ${stats.chartWidth} ${stats.chartHeight}`} preserveAspectRatio="none" className="block rounded-md bg-surface-tertiary">
+          <defs>
+            <linearGradient id={`ele-grad-${place.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          <path d={`${stats.elevationPath} L${stats.chartWidth},${stats.chartHeight} L0,${stats.chartHeight} Z`} fill={`url(#ele-grad-${place.id})`} />
+          <path d={stats.elevationPath} fill="none" stroke="#3b82f6" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+        </svg>
+      )}
+    </InfoBlock>
+  )
+}
+
+interface PlaceExtrasProps {
+  openingHours: string[] | null
+  weekdayIndex: number
+  hoursExpanded: boolean
+  setHoursExpanded: React.Dispatch<React.SetStateAction<boolean>>
+  timeFormat: string
+  t: TFunction
+  place: Place
+  placeFiles: TripFile[]
+  onFileUpload?: PlaceInspectorProps['onFileUpload']
+  filesExpanded: boolean
+  setFilesExpanded: React.Dispatch<React.SetStateAction<boolean>>
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
+  isUploading: boolean
+  distanceUnit: DistanceUnit
+}
+
 function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpanded, timeFormat, t, place,
-  placeFiles, onFileUpload, filesExpanded, setFilesExpanded, fileInputRef, handleFileUpload, isUploading, distanceUnit }: any) {
+  placeFiles, onFileUpload, filesExpanded, setFilesExpanded, fileInputRef, handleFileUpload, isUploading, distanceUnit }: PlaceExtrasProps) {
   return (
           <>
           {openingHours && openingHours.length > 0 && (
@@ -1247,97 +1448,7 @@ function PlaceExtras({ openingHours, weekdayIndex, hoursExpanded, setHoursExpand
           )}
 
 
-          {/* GPX Track stats */}
-          {place.route_geometry && (() => {
-            try {
-              const pts: number[][] = JSON.parse(place.route_geometry)
-              if (!pts || pts.length < 2) return null
-              const hasEle = pts[0].length >= 3
-
-              // Haversine distance
-              const toRad = (d: number) => d * Math.PI / 180
-              let totalDist = 0
-              for (let i = 1; i < pts.length; i++) {
-                const [lat1, lng1] = pts[i - 1], [lat2, lng2] = pts[i]
-                const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1)
-                const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
-                totalDist += 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-              }
-              const distKm = totalDist / 1000
-
-              // Elevation stats
-              let minEle = Infinity, maxEle = -Infinity, totalUp = 0, totalDown = 0
-              if (hasEle) {
-                for (let i = 0; i < pts.length; i++) {
-                  const e = pts[i][2]
-                  if (e < minEle) minEle = e
-                  if (e > maxEle) maxEle = e
-                  if (i > 0) {
-                    const diff = e - pts[i - 1][2]
-                    if (diff > 0) totalUp += diff; else totalDown += Math.abs(diff)
-                  }
-                }
-              }
-
-              // Elevation profile SVG
-              const chartW = 280, chartH = 60
-              const elevations = hasEle ? pts.map(p => p[2]) : []
-              let pathD = ''
-              if (elevations.length > 1) {
-                const step = Math.max(1, Math.floor(elevations.length / chartW))
-                const sampled = elevations.filter((_, i) => i % step === 0)
-                const eMin = Math.min(...sampled), eMax = Math.max(...sampled)
-                const range = eMax - eMin || 1
-                pathD = sampled.map((e, i) => {
-                  const x = (i / (sampled.length - 1)) * chartW
-                  const y = chartH - ((e - eMin) / range) * (chartH - 4) - 2
-                  return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-                }).join(' ')
-              }
-
-              return (
-                <div className={`${INFO_BLOCK_CLASS} flex flex-col gap-2`}>
-                  <div className="flex items-center gap-1.5">
-                    <TrendingUp size={13} className="text-content-faint" />
-                    <span className="text-xs font-medium text-content-secondary">{t('inspector.trackStats')}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <div className="flex items-center gap-1 text-xs font-semibold text-content">
-                      <MapPin size={12} className="text-[#3b82f6]" />
-                      {formatDistance(distKm, distanceUnit)}
-                    </div>
-                    {hasEle && (
-                      <>
-                        <div className="flex items-center gap-1 text-xs font-semibold text-content">
-                          <Mountain size={12} className="text-[#22c55e]" />
-                          {formatElevation(maxEle, distanceUnit)}
-                        </div>
-                        <div className="flex items-center gap-1 text-xs font-semibold text-content">
-                          <Mountain size={12} className="text-[#ef4444]" />
-                          {formatElevation(minEle, distanceUnit)}
-                        </div>
-                        <div className="text-xs text-content-muted">
-                          ↑{formatElevation(totalUp, distanceUnit)} &nbsp;↓{formatElevation(totalDown, distanceUnit)}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {pathD && (
-                    <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" className="block rounded-md bg-surface-tertiary">
-                      <defs>
-                        <linearGradient id={`ele-grad-${place.id}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
-                          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.02" />
-                        </linearGradient>
-                      </defs>
-                      <path d={`${pathD} L${chartW},${chartH} L0,${chartH} Z`} fill={`url(#ele-grad-${place.id})`} />
-                      <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-                    </svg>
-                  )}
-                </div>
-              )
-            } catch { return null }
-          })()}
+          <TrackStatsBlock place={place} t={t} distanceUnit={distanceUnit} />
 
           {/* Files section */}
           {(placeFiles.length > 0 || onFileUpload) && (

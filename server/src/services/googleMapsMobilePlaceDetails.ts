@@ -301,6 +301,21 @@ function buildPlaceDetailsPayload(ftid: string): Buffer {
   ]);
 }
 
+function buildMobileMmapHeaders(request: NormalizedRequest, bodyLength: number): Record<string, string> {
+  return {
+    'content-type': 'application/binary',
+    accept: '*/*',
+    'accept-encoding': 'gzip, deflate, br',
+    'accept-language': request.language,
+    'user-agent': 'com.google.Maps/25.47.0 iPhone/18.7.2 hw/iPhone16_1 (gzip)',
+    'upload-draft-interop-version': '6',
+    'x-client-time-format': 'CAI=',
+    'upload-complete': '?1',
+    'x-goog-ext-353267353-bin': 'IOTDCA==',
+    'content-length': String(bodyLength),
+  };
+}
+
 function buildMobileMmapRequest(request: NormalizedRequest): BuiltMobilePlaceDetailsRequest {
   const payload = buildPlaceDetailsPayload(request.ftid);
   const header = Buffer.alloc(6);
@@ -315,18 +330,7 @@ function buildMobileMmapRequest(request: NormalizedRequest): BuiltMobilePlaceDet
   return {
     endpoint: GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT,
     body,
-    headers: {
-      'content-type': 'application/binary',
-      accept: '*/*',
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': request.language,
-      'user-agent': 'com.google.Maps/25.47.0 iPhone/18.7.2 hw/iPhone16_1 (gzip)',
-      'upload-draft-interop-version': '6',
-      'x-client-time-format': 'CAI=',
-      'upload-complete': '?1',
-      'x-goog-ext-353267353-bin': 'IOTDCA==',
-      'content-length': String(body.length),
-    },
+    headers: buildMobileMmapHeaders(request, body.length),
   };
 }
 
@@ -352,18 +356,7 @@ function buildMobileMmapRichPhotosRequest(request: NormalizedRequest): BuiltMobi
   return {
     endpoint: GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT,
     body,
-    headers: {
-      'content-type': 'application/binary',
-      accept: '*/*',
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': request.language,
-      'user-agent': 'com.google.Maps/25.47.0 iPhone/18.7.2 hw/iPhone16_1 (gzip)',
-      'upload-draft-interop-version': '6',
-      'x-client-time-format': 'CAI=',
-      'upload-complete': '?1',
-      'x-goog-ext-353267353-bin': 'IOTDCA==',
-      'content-length': String(body.length),
-    },
+    headers: buildMobileMmapHeaders(request, body.length),
   };
 }
 
