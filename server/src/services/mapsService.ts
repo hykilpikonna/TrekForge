@@ -2,8 +2,16 @@ import { db } from '../db/database';
 import { decrypt_api_key } from './apiKeyCrypto';
 import { safeFetchFollow, SsrfBlockedError } from '../utils/ssrfGuard';
 import { getAppUrl } from './notifications';
-import { fetchGoogleMapsPreviewPlaceDetails, GOOGLE_MAPS_FTID_RE } from './googleMapsPreviewPlaceDetails';
-import { fetchGoogleMapsMobilePlaceDetails, fetchGoogleMapsMobileRichPlaceDetails } from './googleMapsMobilePlaceDetails';
+import {
+  fetchGoogleMapsPreviewPlaceDetails,
+  GOOGLE_MAPS_FTID_RE,
+  type GoogleMapsPreviewPlaceDetails,
+} from './googleMapsPreviewPlaceDetails';
+import {
+  fetchGoogleMapsMobilePlaceDetails,
+  fetchGoogleMapsMobileRichPlaceDetails,
+  type GoogleMapsMobileRichPlaceDetails,
+} from './googleMapsMobilePlaceDetails';
 
 // ── Google API call counter ───────────────────────────────────────────────────
 
@@ -382,6 +390,111 @@ function mergePhotoRecords(...sources: unknown[]): unknown[] {
   return merged;
 }
 
+function isOfficialGooglePlaceId(placeId: string): boolean {
+  return /^ChIJ/i.test(placeId);
+}
+
+function validGoogleFtid(value: unknown): string | null {
+  return typeof value === 'string' && GOOGLE_FTID_RE.test(value) ? value : null;
+}
+
+function hasItems(value: unknown): value is unknown[] {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function needsMobileBasicDetails(place: Record<string, unknown>): boolean {
+  return !Array.isArray(place.opening_periods)
+    || place.rating_count === null
+    || place.rating === null
+    || !place.phone;
+}
+
+function applyMobileBasicDetails(
+  place: Record<string, unknown>,
+  mobilePlace: GoogleMapsPreviewPlaceDetails,
+): void {
+  if (Array.isArray(mobilePlace.opening_hours) && mobilePlace.opening_hours.length > 0) {
+    place.opening_hours = mobilePlace.opening_hours;
+  }
+  if (Array.isArray(mobilePlace.opening_periods) && mobilePlace.opening_periods.length > 0) {
+    place.opening_periods = mobilePlace.opening_periods;
+  }
+  if (typeof mobilePlace.rating === 'number' && place.rating === null) {
+    place.rating = mobilePlace.rating;
+  }
+  if (typeof mobilePlace.rating_count === 'number' && place.rating_count === null) {
+    place.rating_count = mobilePlace.rating_count;
+  }
+  if (mobilePlace.phone && !place.phone) {
+    place.phone = mobilePlace.phone;
+  }
+  if (mobilePlace.address && !place.address) {
+    place.address = mobilePlace.address;
+    place.address_translated = mobilePlace.address;
+    place.written_address = mobilePlace.address;
+  }
+  if (mobilePlace.open_now !== null && mobilePlace.open_now !== undefined) {
+    place.open_now = mobilePlace.open_now;
+  }
+}
+
+function applyMobileRichDetails(
+  place: Record<string, unknown>,
+  mobileRichPlace: GoogleMapsMobileRichPlaceDetails,
+): void {
+  if (mobileRichPlace.photos.length > 0) {
+    place.photos = mergePhotoRecords(place.photos, mobileRichPlace.photos);
+  }
+  if (!place.popular_times && hasItems(mobileRichPlace.popular_times)) {
+    place.popular_times = mobileRichPlace.popular_times;
+  }
+  if (!place.popular_status && mobileRichPlace.popular_status) {
+    place.popular_status = mobileRichPlace.popular_status;
+  }
+  if (!hasItems(place.reviews) && hasItems(mobileRichPlace.reviews)) {
+    place.reviews = mobileRichPlace.reviews;
+  }
+  if (!place.summary && mobileRichPlace.summary) {
+    place.summary = mobileRichPlace.summary;
+  }
+}
+
+function mergeGoogleDetailSources(
+  previewPlace: Record<string, unknown>,
+  officialPlace: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!officialPlace) return previewPlace;
+  return {
+    ...previewPlace,
+    ...officialPlace,
+    google_ftid: officialPlace.google_ftid || previewPlace.google_ftid,
+    google_maps_url: officialPlace.google_maps_url || previewPlace.google_maps_url,
+    popular_times: previewPlace.popular_times ?? officialPlace.popular_times ?? null,
+    popular_status: previewPlace.popular_status ?? officialPlace.popular_status ?? null,
+    opening_hours: previewPlace.opening_hours ?? officialPlace.opening_hours ?? null,
+    opening_periods: previewPlace.opening_periods ?? officialPlace.opening_periods ?? null,
+    open_now: previewPlace.open_now ?? officialPlace.open_now ?? null,
+    business_status: previewPlace.business_status ?? officialPlace.business_status ?? null,
+    summary: officialPlace.summary || previewPlace.summary || null,
+    reviews: hasItems(officialPlace.reviews) ? officialPlace.reviews : previewPlace.reviews,
+    photos: mergePhotoRecords(previewPlace.photos, officialPlace.photos),
+  };
+}
+
+function finalizeGoogleDetails(
+  mergedPlace: Record<string, unknown>,
+  includeExpandedFields: boolean,
+): Record<string, unknown> {
+  return {
+    ...mergedPlace,
+    summary: includeExpandedFields ? mergedPlace.summary : null,
+    reviews: includeExpandedFields ? mergedPlace.reviews : [],
+    photos: includeExpandedFields ? mergePhotoRecords(mergedPlace.photos) : [],
+    cached_at: Date.now(),
+    cache_schema_version: DETAILS_CACHE_SCHEMA_VERSION,
+  };
+}
+
 async function fetchGooglePlacesApiDetails(
   userId: number,
   placeId: string,
@@ -467,7 +580,7 @@ async function fetchGooglePreviewDetailsPlace(
 ): Promise<Record<string, unknown>> {
   const ftid = resolveGoogleFtid(placeId);
   let officialPlace: Record<string, unknown> | null = null;
-  if (/^ChIJ/i.test(placeId)) {
+  if (isOfficialGooglePlaceId(placeId)) {
     try {
       officialPlace = await fetchGooglePlacesApiDetails(userId, placeId, langKey, includeExpandedFields);
       if (!officialPlace.google_ftid && ftid) officialPlace.google_ftid = ftid;
@@ -489,21 +602,17 @@ async function fetchGooglePreviewDetailsPlace(
     }
   }
 
-  const previewFtid = typeof officialPlace?.google_ftid === 'string' && GOOGLE_FTID_RE.test(officialPlace.google_ftid)
-    ? officialPlace.google_ftid
-    : ftid;
+  const previewFtid = validGoogleFtid(officialPlace?.google_ftid) ?? ftid;
   const place = await fetchGoogleMapsPreviewPlaceDetails({
     ftid: previewFtid,
-    placeId: /^ChIJ/i.test(placeId) ? placeId : undefined,
+    placeId: isOfficialGooglePlaceId(placeId) ? placeId : undefined,
     query: previewFtid ? undefined : placeId,
     language: langKey,
     region: 'ca',
   });
-  const mobileFtid = typeof place.google_ftid === 'string' && GOOGLE_FTID_RE.test(place.google_ftid)
-    ? place.google_ftid
-    : ftid;
+  const mobileFtid = validGoogleFtid(place.google_ftid) ?? ftid;
 
-  const discoveredPlaceId = typeof place.google_place_id === 'string' && /^ChIJ/i.test(place.google_place_id)
+  const discoveredPlaceId = typeof place.google_place_id === 'string' && isOfficialGooglePlaceId(place.google_place_id)
     ? place.google_place_id
     : null;
   if (!officialPlace && includeExpandedFields && discoveredPlaceId) {
@@ -519,42 +628,13 @@ async function fetchGooglePreviewDetailsPlace(
     }
   }
 
-  const needsMobileDetails = mobileFtid && (
-    !Array.isArray(place.opening_periods)
-    || place.rating_count === null
-    || place.rating === null
-    || !place.phone
-  );
-
-  if (needsMobileDetails && mobileFtid) {
+  if (mobileFtid && needsMobileBasicDetails(place as unknown as Record<string, unknown>)) {
     try {
       const mobilePlace = await fetchGoogleMapsMobilePlaceDetails({
         ftid: mobileFtid,
         language: `${langKey},en;q=0.9`,
       });
-      if (Array.isArray(mobilePlace.opening_hours) && mobilePlace.opening_hours.length > 0) {
-        place.opening_hours = mobilePlace.opening_hours;
-      }
-      if (Array.isArray(mobilePlace.opening_periods) && mobilePlace.opening_periods.length > 0) {
-        place.opening_periods = mobilePlace.opening_periods;
-      }
-      if (typeof mobilePlace.rating === 'number' && place.rating === null) {
-        place.rating = mobilePlace.rating;
-      }
-      if (typeof mobilePlace.rating_count === 'number' && place.rating_count === null) {
-        place.rating_count = mobilePlace.rating_count;
-      }
-      if (mobilePlace.phone && !place.phone) {
-        place.phone = mobilePlace.phone;
-      }
-      if (mobilePlace.address && !place.address) {
-        place.address = mobilePlace.address;
-        place.address_translated = mobilePlace.address;
-        place.written_address = mobilePlace.address;
-      }
-      if (mobilePlace.open_now !== null && mobilePlace.open_now !== undefined) {
-        place.open_now = mobilePlace.open_now;
-      }
+      applyMobileBasicDetails(place as unknown as Record<string, unknown>, mobilePlace);
     } catch (err) {
       console.warn(
         `Google Maps mobile place details failed for ${mobileFtid}: ${err instanceof Error ? err.message : 'unknown error'}`,
@@ -569,25 +649,7 @@ async function fetchGooglePreviewDetailsPlace(
         language: `${langKey},en;q=0.9`,
         timeoutMs: 12_000,
       });
-      if (mobileRichPlace.photos.length > 0) {
-        place.photos = mergePhotoRecords(place.photos, mobileRichPlace.photos);
-      }
-      if (!place.popular_times && Array.isArray(mobileRichPlace.popular_times) && mobileRichPlace.popular_times.length > 0) {
-        place.popular_times = mobileRichPlace.popular_times;
-      }
-      if (!place.popular_status && mobileRichPlace.popular_status) {
-        place.popular_status = mobileRichPlace.popular_status;
-      }
-      if (
-        (!Array.isArray(place.reviews) || place.reviews.length === 0)
-        && Array.isArray(mobileRichPlace.reviews)
-        && mobileRichPlace.reviews.length > 0
-      ) {
-        place.reviews = mobileRichPlace.reviews;
-      }
-      if (!place.summary && mobileRichPlace.summary) {
-        place.summary = mobileRichPlace.summary;
-      }
+      applyMobileRichDetails(place as unknown as Record<string, unknown>, mobileRichPlace);
     } catch (err) {
       console.warn(
         `Google Maps mobile rich place details failed for ${mobileFtid}: ${err instanceof Error ? err.message : 'unknown error'}`,
@@ -595,39 +657,16 @@ async function fetchGooglePreviewDetailsPlace(
     }
   }
 
-  const mergedPlace: Record<string, unknown> = officialPlace
-    ? {
-      ...place,
-      ...officialPlace,
-      google_ftid: officialPlace.google_ftid || place.google_ftid,
-      google_maps_url: officialPlace.google_maps_url || place.google_maps_url,
-      popular_times: place.popular_times ?? officialPlace.popular_times ?? null,
-      popular_status: place.popular_status ?? officialPlace.popular_status ?? null,
-      opening_hours: place.opening_hours ?? officialPlace.opening_hours ?? null,
-      opening_periods: place.opening_periods ?? officialPlace.opening_periods ?? null,
-      open_now: place.open_now ?? officialPlace.open_now ?? null,
-      business_status: place.business_status ?? officialPlace.business_status ?? null,
-      summary: officialPlace.summary || place.summary || null,
-      reviews: Array.isArray(officialPlace.reviews) && officialPlace.reviews.length > 0 ? officialPlace.reviews : place.reviews,
-      photos: mergePhotoRecords(place.photos, officialPlace.photos),
-    }
-    : place as unknown as Record<string, unknown>;
+  const mergedPlace = mergeGoogleDetailSources(place as unknown as Record<string, unknown>, officialPlace);
 
   await attachOriginalGoogleName(mergedPlace, {
     ftid: mobileFtid,
-    placeId: /^ChIJ/i.test(placeId) ? placeId : undefined,
+    placeId: isOfficialGooglePlaceId(placeId) ? placeId : undefined,
     query: previewFtid ? undefined : placeId,
     langKey,
   });
 
-  return {
-    ...mergedPlace,
-    summary: includeExpandedFields ? mergedPlace.summary : null,
-    reviews: includeExpandedFields ? mergedPlace.reviews : [],
-    photos: includeExpandedFields ? mergePhotoRecords(mergedPlace.photos) : [],
-    cached_at: Date.now(),
-    cache_schema_version: DETAILS_CACHE_SCHEMA_VERSION,
-  };
+  return finalizeGoogleDetails(mergedPlace, includeExpandedFields);
 }
 
 function cachePlaceDetails(placeId: string, langKey: string, expanded: 0 | 1, place: Record<string, unknown>): void {

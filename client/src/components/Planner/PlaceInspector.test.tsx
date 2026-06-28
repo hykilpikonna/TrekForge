@@ -448,6 +448,9 @@ describe('PlaceInspector', () => {
     expect(screen.getByText('Hashima, Nagasaki, Japan')).toBeTruthy();
     expect(screen.getByText('Historical Landmark')).toBeTruthy();
     expect(screen.getByText('No wheelchair-accessible entrance')).toBeTruthy();
+    const accessibilityBlock = screen.getByTestId('inspector-accessibility') as HTMLElement;
+    expect(screen.getByTestId('inspector-info-left')).toContainElement(accessibilityBlock);
+    expect(screen.getByTestId('inspector-info-right')).not.toContainElement(accessibilityBlock);
     expect(screen.getByText('Great view from the water.')).toBeTruthy();
     expect(screen.getByText('Popular times')).toBeTruthy();
     expect(screen.getByText('Now: Usually not too busy')).toBeTruthy();
