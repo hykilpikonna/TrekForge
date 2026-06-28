@@ -374,16 +374,30 @@ export function buildGoogleMapsMobilePlaceDetailsRequest(
 }
 
 function decodeMmapResponse(responseBody: Buffer): { protobuf: Buffer; gzipOffset: number } {
-  const gzipOffset = responseBody.indexOf(Buffer.from([0x1f, 0x8b]));
-  if (gzipOffset < 0) throw makeHttpError(502, 'Google Maps mobile place response did not contain a gzip protobuf payload');
-  try {
-    return { protobuf: gunzipSync(responseBody.subarray(gzipOffset)), gzipOffset };
-  } catch (err) {
-    throw makeHttpError(
-      502,
-      `Unable to inflate Google Maps mobile place response: ${err instanceof Error ? err.message : 'invalid gzip'}`,
-    );
+  const gzipMarker = Buffer.from([0x1f, 0x8b]);
+  let offset = 0;
+  const candidates: Array<{ protobuf: Buffer; gzipOffset: number }> = [];
+  const errors: string[] = [];
+
+  while ((offset = responseBody.indexOf(gzipMarker, offset)) >= 0) {
+    try {
+      candidates.push({ protobuf: gunzipSync(responseBody.subarray(offset)), gzipOffset: offset });
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : 'invalid gzip');
+    }
+    offset += gzipMarker.length;
   }
+
+  if (candidates.length === 0) {
+    if (errors.length > 0) {
+      throw makeHttpError(502, `Unable to inflate Google Maps mobile place response: ${errors[0]}`);
+    }
+    throw makeHttpError(502, 'Google Maps mobile place response did not contain a gzip protobuf payload');
+  }
+
+  return candidates.reduce((best, candidate) =>
+    candidate.protobuf.length > best.protobuf.length ? candidate : best,
+  );
 }
 
 function responseBufferFrom(value: Buffer | ArrayBuffer): Buffer {

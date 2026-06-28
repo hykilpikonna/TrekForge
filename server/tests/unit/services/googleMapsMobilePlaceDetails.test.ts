@@ -152,6 +152,12 @@ function sampleMobilePlacePhotosResponse(): Buffer {
   return Buffer.concat([Buffer.from([0, 24]), gzipSync(body)]);
 }
 
+function sampleMultiMemberMobileResponse(): Buffer {
+  const metadata = gzipSync(Buffer.from('metadata-only', 'utf8'));
+  const richPayload = sampleMobileRichPlaceResponse().subarray(2);
+  return Buffer.concat([Buffer.from([0, 24]), metadata, Buffer.from([0]), richPayload]);
+}
+
 function popularHour(hour: number, percent: number, label = 'Usually not too busy'): Buffer {
   return messageField(2, [
     varintField(1, hour),
@@ -290,6 +296,14 @@ describe('googleMapsMobilePlaceDetails helper', () => {
       attribution: null,
       source: 'google_maps_mobile',
     });
+  });
+
+  it('parses the rich payload when mmap responses contain multiple gzip members', () => {
+    const details = parseGoogleMapsMobileRichPlaceDetailsResponse(sampleMultiMemberMobileResponse());
+
+    expect(details.photos).toHaveLength(1);
+    expect(details.popular_times).toHaveLength(3);
+    expect(details.reviews).toHaveLength(1);
   });
 
   it('posts the generated request and parses the binary response', async () => {
