@@ -290,7 +290,7 @@ describe('useRouteCalculation', () => {
     expect(result.current.routeSegments).toEqual([]);
   });
 
-  it('FE-HOOK-ROUTE-010: non-AbortError from calculateSegments sets routeSegments to []', async () => {
+  it('FE-HOOK-ROUTE-010: non-AbortError from calculateSegments sets routeSegments to an error segment', async () => {
 
     (calculateRouteWithLegs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'));
 
@@ -305,7 +305,17 @@ describe('useRouteCalculation', () => {
     );
 
     await act(async () => {});
-    expect(result.current.routeSegments).toEqual([]);
+    expect(result.current.routeSegments).toEqual([
+      expect.objectContaining({
+        from: [10, 10],
+        to: [20, 20],
+        distance: 0,
+        duration: 0,
+        distanceText: '',
+        durationText: '',
+        errorText: 'Failed to calculate route',
+      }),
+    ]);
   });
 
   it('FE-HOOK-ROUTE-011: when selectedDayId is null, route and segments are cleared', async () => {
