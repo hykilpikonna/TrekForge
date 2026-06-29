@@ -8,6 +8,7 @@ import { X, Clock, MapPin, ExternalLink, Phone, Euro, Edit2, Trash2, Plus, Minus
 import PlaceAvatar from '../shared/PlaceAvatar'
 import GuestBadge from '../shared/GuestBadge'
 import StatusBadge from '../Collections/StatusBadge'
+import PhotoLightbox from '../Journey/PhotoLightbox'
 import { mapsApi } from '../../api/client'
 import { collectionsApi } from '../../api/collections'
 import { useSettingsStore } from '../../store/settingsStore'
@@ -48,7 +49,7 @@ function setSessionCache(key, value) {
 function usePlaceDetails(googlePlaceId, googleFtid, osmId, language) {
   const [details, setDetails] = useState(null)
   const detailId = googlePlaceId || googleFtid || osmId
-  const cacheKey = `gdetails_v8_expanded_${detailId}_${language}`
+  const cacheKey = `gdetails_v9_expanded_${detailId}_${language}`
   useEffect(() => {
     if (!detailId) { setDetails(null); return }
     if (detailsCache.has(cacheKey)) { setDetails(detailsCache.get(cacheKey)); return }
@@ -341,7 +342,7 @@ export default function PlaceInspector({
   const secondaryNames = uniqueNameParts(translatedName, originalName).filter(name => name !== place.name)
   const placeType = humanizeType(googleDetails?.type || googleDetails?.types?.[0] || googleDetails?.primary_type)
   const accessibility = Array.isArray(googleDetails?.accessibility) ? googleDetails.accessibility : []
-  const reviews = Array.isArray(googleDetails?.reviews) ? googleDetails.reviews.filter(r => r?.text || r?.author).slice(0, 3) : []
+  const reviews = Array.isArray(googleDetails?.reviews) ? googleDetails.reviews.filter(r => r?.text || r?.author) : []
   const popularTimes = Array.isArray(googleDetails?.popular_times) ? googleDetails.popular_times : []
   const popularStatus = cleanText(googleDetails?.popular_status)
   const photoCount = Array.isArray(googleDetails?.photos) ? googleDetails.photos.length : 0
@@ -629,8 +630,14 @@ function InfoBlockLabel({ icon, title, htmlFor }: InfoBlockHeaderProps & { htmlF
 
 function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; details: Record<string, unknown> | null; photoCount: number; t: TFunction }) {
   const [photoUrl, setPhotoUrl] = useState(place.image_url || null)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const directPhotoUrls = uniquePhotoUrls(Array.isArray(details?.photos) ? details.photos : [])
   const photoUrls = uniquePhotoUrls(place.image_url, directPhotoUrls, photoUrl)
+  const lightboxPhotos = photoUrls.map((url, index) => ({
+    id: `${place.id}-${index}-${url}`,
+    src: url,
+    caption: place.name,
+  }))
   const photoId = cleanText(details?.google_place_id)
     || cleanText(details?.google_ftid)
     || cleanText(place.google_place_id)
@@ -656,20 +663,36 @@ function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; de
   const displayedPhotoCount = Math.max(photoCount, photoUrls.length)
 
   return (
-    <div className="shrink-0 overflow-hidden rounded-lg border border-edge-faint bg-surface-hover">
-      <div className="flex snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain p-2 [-webkit-overflow-scrolling:touch]">
-        {photoUrls.map((url, index) => (
-          <div key={url} className="relative h-[126px] flex-[0_0_min(72vw,210px)] shrink-0 snap-start overflow-hidden rounded-[7px] bg-surface-hover">
-            <img src={url} alt={place.name} loading={index === 0 ? 'eager' : 'lazy'} className="block h-full w-full object-cover" />
-            {index === 0 && displayedPhotoCount > 1 && (
-              <div className="absolute bottom-[7px] right-[7px] inline-flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.58)] px-[7px] py-[3px] text-[11px] font-semibold text-white">
-                <ImageIcon size={12} /> {t('inspector.photosCount', { count: displayedPhotoCount })}
-              </div>
-            )}
-          </div>
-        ))}
+    <>
+      <div className="shrink-0 overflow-hidden rounded-lg border border-edge-faint bg-surface-hover">
+        <div className="flex snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain p-2 [-webkit-overflow-scrolling:touch]">
+          {photoUrls.map((url, index) => (
+            <button
+              key={url}
+              type="button"
+              aria-label={t('inspector.openPhoto', { index: index + 1, count: photoUrls.length })}
+              onClick={() => setLightboxIndex(index)}
+              className="relative h-[126px] flex-[0_0_min(72vw,210px)] shrink-0 snap-start overflow-hidden rounded-[7px] border-0 bg-surface-hover p-0 text-left"
+            >
+              <img src={url} alt={place.name} loading={index === 0 ? 'eager' : 'lazy'} className="block h-full w-full object-cover transition-transform duration-150 hover:scale-[1.02]" />
+              {index === 0 && displayedPhotoCount > 1 && (
+                <div className="absolute bottom-[7px] right-[7px] inline-flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.58)] px-[7px] py-[3px] text-[11px] font-semibold text-white">
+                  <ImageIcon size={12} /> {t('inspector.photosCount', { count: displayedPhotoCount })}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
+      {lightboxIndex !== null && (
+        <PhotoLightbox
+          key={`${place.id}-${lightboxIndex}`}
+          photos={lightboxPhotos}
+          startIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
+    </>
   )
 }
 
@@ -697,7 +720,7 @@ function AccessibilityDetailsBlock({ accessibility, t }: {
 }
 
 function GoogleDetailsSections({ reviews, popularTimes, popularStatus, popularSchedule, locale, timeFormat, t }: {
-  reviews: Array<{ author?: string | null; rating?: number | null; text?: string | null; time?: string | null }>
+  reviews: Array<{ author?: string | null; rating?: number | null; text?: string | null; time?: string | null; published_at?: string | null; photo?: string | null; uri?: string | null }>
   popularTimes: Array<{ day: number; hour: number; occupancy_percent: number }>
   popularStatus?: string | null
   popularSchedule?: PopularTimesSchedule | null
@@ -708,6 +731,7 @@ function GoogleDetailsSections({ reviews, popularTimes, popularStatus, popularSc
   const showReviews = reviews.length > 0
   const showPopularTimes = popularTimes.length > 0 || Boolean(popularStatus)
   const [popularExpanded, setPopularExpanded] = useState(false)
+  const [reviewsOpen, setReviewsOpen] = useState(false)
 
   useEffect(() => {
     setPopularExpanded(false)
@@ -737,11 +761,27 @@ function GoogleDetailsSections({ reviews, popularTimes, popularStatus, popularSc
   return (
     <>
       {showReviews && (
-        <InfoBlock>
-          <InfoBlockHeader icon={<MessageSquare size={13} className="text-content-faint" />} title={t('inspector.reviews')} />
+        <InfoBlock testId="inspector-reviews">
+          <button
+            type="button"
+            onClick={() => setReviewsOpen(true)}
+            className="mb-1.5 flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent p-0 text-left font-[inherit]"
+          >
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-content-secondary">
+              <MessageSquare size={13} className="text-content-faint" /> {t('inspector.reviews')}
+            </span>
+            <span className="text-[10px] font-medium text-content-faint">
+              {t('inspector.reviewsCount', { count: reviews.length })}
+            </span>
+          </button>
           <div className="flex flex-col gap-2">
-            {reviews.map((review, idx) => (
-              <div key={`${review.author || 'review'}-${idx}`} className="min-w-0">
+            {reviews.slice(0, 2).map((review, idx) => (
+              <button
+                key={`${review.author || 'review'}-${idx}`}
+                type="button"
+                onClick={() => setReviewsOpen(true)}
+                className="block min-w-0 cursor-pointer rounded-md border-0 bg-transparent p-0 text-left font-[inherit] transition-colors hover:bg-surface-tertiary"
+              >
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold text-content">
                   {review.rating ? <><Star size={11} fill="#facc15" className="text-[#facc15]" /> {review.rating}</> : null}
                   {review.author && <span className="truncate">{review.author}</span>}
@@ -752,10 +792,22 @@ function GoogleDetailsSections({ reviews, popularTimes, popularStatus, popularSc
                     {review.text}
                   </div>
                 )}
-              </div>
+              </button>
             ))}
+            {reviews.length > 2 && (
+              <button
+                type="button"
+                onClick={() => setReviewsOpen(true)}
+                className="mt-0.5 inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border-0 bg-surface-tertiary px-2 py-1 text-[11px] font-semibold text-content-secondary hover:bg-surface-card"
+              >
+                {t('inspector.viewAllReviews', { count: reviews.length })}
+              </button>
+            )}
           </div>
         </InfoBlock>
+      )}
+      {reviewsOpen && (
+        <ReviewsPanel reviews={reviews} onClose={() => setReviewsOpen(false)} t={t} />
       )}
 
       {showPopularTimes && (
@@ -831,6 +883,83 @@ function GoogleDetailsSections({ reviews, popularTimes, popularStatus, popularSc
         </InfoBlock>
       )}
     </>
+  )
+}
+
+function ReviewsPanel({ reviews, onClose, t }: {
+  reviews: Array<{ author?: string | null; rating?: number | null; text?: string | null; time?: string | null; published_at?: string | null; photo?: string | null; uri?: string | null }>
+  onClose: () => void
+  t: TFunction
+}) {
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/45 p-3 sm:items-center" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('inspector.reviews')}
+        className="flex max-h-[min(680px,calc(100vh-32px))] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl bg-surface-elevated shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center gap-3 border-b border-edge-faint px-4 py-3">
+          <MessageSquare size={16} className="text-content-faint" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-content">{t('inspector.reviews')}</div>
+            <div className="text-xs text-content-faint">{t('inspector.reviewsCount', { count: reviews.length })}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('common.close')}
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-surface-hover text-content-secondary hover:bg-surface-tertiary"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div className="flex flex-col gap-3">
+            {reviews.map((review, idx) => (
+              <div key={`${review.author || 'review'}-${idx}`} className="rounded-lg bg-surface-hover px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  {review.photo ? (
+                    <img src={review.photo} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-xs font-bold text-content-muted">
+                      {review.author?.trim()?.[0]?.toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                      {review.author && <span className="min-w-0 truncate text-xs font-semibold text-content">{review.author}</span>}
+                      {review.rating ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-content-secondary">
+                          <Star size={11} fill="#facc15" className="text-[#facc15]" /> {review.rating}
+                        </span>
+                      ) : null}
+                      {review.time && <span className="text-[11px] text-content-faint">{review.time}</span>}
+                    </div>
+                    {review.text && (
+                      <div className="mt-1 whitespace-pre-wrap text-xs leading-[1.45] text-content-muted [overflow-wrap:anywhere]">
+                        {review.text}
+                      </div>
+                    )}
+                    {review.uri && (
+                      <a
+                        href={review.uri}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-content-secondary no-underline hover:text-content"
+                      >
+                        {t('inspector.openReview')} <ExternalLink size={11} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -1101,7 +1101,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
       name: 'Cached Castle',
       source: 'google',
       business_status: 'CLOSED_TEMPORARILY',
-      cache_schema_version: 9,
+      cache_schema_version: 10,
     };
     mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
     const fetchMock = vi.fn();
@@ -1191,7 +1191,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     ]);
     expect(place.business_status).toBe('OPERATIONAL');
     expect(place.source).toBe('google');
-    expect(place.cache_schema_version).toBe(9);
+    expect(place.cache_schema_version).toBe(10);
     expect(place.reviews).toHaveLength(0);
     expect(place.summary).toBeNull();
   });
@@ -1213,7 +1213,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect((result.place as any).google_ftid).toBe(ftid);
   });
 
-  it('MAPS-041b3: returns fresh schema-v9 Google place details cache without refetching', async () => {
+  it('MAPS-041b3: returns fresh schema-v10 Google place details cache without refetching', async () => {
     const cachedPlace = {
       google_place_id: 'ChIJCached',
       name: 'Cached Museum',
@@ -1221,7 +1221,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
         { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
       ],
       business_status: 'OPERATIONAL',
-      cache_schema_version: 9,
+      cache_schema_version: 10,
     };
     mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
     const fetchMock = vi.fn();
@@ -1275,7 +1275,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((result.place as any).business_status).toBe('CLOSED_PERMANENTLY');
-    expect((result.place as any).cache_schema_version).toBe(9);
+    expect((result.place as any).cache_schema_version).toBe(10);
   });
 
   it('MAPS-041b6: fills missing preview weekly hours from mobile place details', async () => {
@@ -1545,6 +1545,48 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     );
   });
 
+  it('MAPS-041d4: expanded details dedupe Google photo variants and keep all mobile reviews', async () => {
+    mockFetchMobileRichPlaceDetails.mockResolvedValueOnce({
+      popular_times: null,
+      popular_status: null,
+      reviews: Array.from({ length: 7 }, (_, idx) => ({
+        author: `Reviewer ${idx + 1}`,
+        rating: 5,
+        text: `Review ${idx + 1}`,
+        time: `${idx + 1} days ago`,
+      })),
+      summary: null,
+      photos: [
+        {
+          url: 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO=w203-h100-k-no',
+          width: 203,
+          height: 100,
+          attribution: null,
+          source: 'google_maps_mobile',
+        },
+        {
+          url: 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO=w640-h426-k-no',
+          width: 640,
+          height: 426,
+          attribution: null,
+          source: 'google_maps_mobile',
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => previewPlaceResponse({ statusText: 'Open' }),
+    }));
+
+    const { getPlaceDetailsExpanded } = await import('../../../src/services/mapsService');
+    const result = await getPlaceDetailsExpanded(999, ftid, 'en');
+
+    expect((result.place as any).reviews).toHaveLength(7);
+    expect((result.place as any).reviews[6].text).toBe('Review 7');
+    expect((result.place as any).photos).toHaveLength(1);
+    expect((result.place as any).photos[0].url).toBe('https://gz0.googleusercontent.com/gps-cs-s/PHOTO=w203-h100-k-no');
+  });
+
   it('MAPS-040c: OSM path enriches name/address/coords from Nominatim (serial fetch)', async () => {
     const fetchMock = vi.fn()
       // First call: Overpass (returns element with tags but no coords)
@@ -1736,7 +1778,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
       { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
     ]);
     expect((result.place as any).business_status).toBe('OPERATIONAL');
-    expect((result.place as any).cache_schema_version).toBe(9);
+    expect((result.place as any).cache_schema_version).toBe(10);
   });
 });
 
@@ -1952,6 +1994,40 @@ describe('getPlacePhoto (fetch stubbed)', () => {
     expect(result.photoUrl).toBe(`/api/maps/place-photo/${encodeURIComponent(placeId)}/bytes`);
     expect(result.attribution).toBe('Wikipedia');
     expect(mockCachePut).toHaveBeenCalledOnce();
+  });
+
+  it('MAPS-044h: uses Google Maps mobile photos for feature IDs', async () => {
+    const ftid = '0x882bf179e806d471:0x8591dde29c821a93';
+    const photoUrl = 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO=w640-h426-k-no';
+    mockFetchMobileRichPlaceDetails.mockResolvedValueOnce({
+      popular_times: null,
+      popular_status: null,
+      reviews: [],
+      summary: null,
+      photos: [{
+        url: photoUrl,
+        width: 640,
+        height: 426,
+        attribution: 'Maps photographer',
+        source: 'google_maps_mobile',
+      }],
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(180),
+    }));
+
+    const { getPlacePhoto } = await import('../../../src/services/mapsService');
+    const result = await getPlacePhoto(1, ftid, 35.0, 136.0, 'Ftid Castle');
+
+    expect(mockFetchMobileRichPlaceDetails).toHaveBeenCalledWith({
+      ftid,
+      language: 'en-US,en;q=0.9',
+      timeoutMs: 12000,
+    });
+    expect(result.photoUrl).toBe(`/api/maps/place-photo/${encodeURIComponent(ftid)}/bytes`);
+    expect(result.attribution).toBe('Maps photographer');
+    expect(mockCachePut).toHaveBeenCalledWith(ftid, expect.any(Buffer), 'Maps photographer');
   });
 });
 

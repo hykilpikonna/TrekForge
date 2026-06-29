@@ -550,6 +550,55 @@ describe('PlaceInspector', () => {
     expect(screen.getByText('2 photos')).toBeTruthy();
   });
 
+  it('FE-PLANNER-INSPECTOR-024e: opens place photos in a lightbox viewer', async () => {
+    const user = userEvent.setup();
+    vi.mocked(mapsApi.details).mockResolvedValue({
+      place: {
+        google_ftid: '0x123:0x456',
+        name: 'Photo Gallery',
+        photos: [
+          { url: 'https://gz0.googleusercontent.com/gps-cs-s/one=w640-h426-k-no' },
+          { url: 'https://gz0.googleusercontent.com/gps-cs-s/two=w640-h426-k-no' },
+        ],
+      },
+    } as any);
+    const p = buildPlace({ id: 209, name: 'Photo Gallery', google_ftid: '0x123:0x456' } as any);
+
+    render(<PlaceInspector {...defaultProps} place={p} />);
+
+    const firstPhoto = (await screen.findAllByAltText('Photo Gallery'))[0];
+    await user.click(firstPhoto.closest('button')!);
+    expect(await screen.findByText('1 / 2')).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(await screen.findByText('2 / 2')).toBeTruthy();
+  });
+
+  it('FE-PLANNER-INSPECTOR-024f: opens a reviews panel from compact reviews', async () => {
+    const user = userEvent.setup();
+    vi.mocked(mapsApi.details).mockResolvedValue({
+      place: {
+        reviews: [
+          { author: 'Aiko', rating: 5, text: 'First review.', time: '1 week ago' },
+          { author: 'Mika', rating: 4, text: 'Second review.', time: '2 weeks ago' },
+          { author: 'Sora', rating: 5, text: 'Third review.', time: '3 weeks ago' },
+          { author: 'Ren', rating: 3, text: 'Fourth review.', time: '4 weeks ago' },
+        ],
+      },
+    } as any);
+    const p = buildPlace({ id: 210, name: 'Review Museum', google_place_id: 'ChIJReviews' });
+
+    render(<PlaceInspector {...defaultProps} place={p} />);
+
+    const firstReview = await screen.findByText('First review.');
+    expect(screen.queryByText('Fourth review.')).toBeNull();
+
+    await user.click(firstReview.closest('button')!);
+    expect(await screen.findByRole('dialog', { name: 'Reviews' })).toBeTruthy();
+    expect(await screen.findByText('Fourth review.')).toBeTruthy();
+    expect(screen.getAllByText('4 reviews').length).toBeGreaterThan(0);
+  });
+
   it('FE-PLANNER-INSPECTOR-025: opening hours shown when available', async () => {
     vi.mocked(mapsApi.details).mockResolvedValue({
       place: { opening_hours: ['Mon: 9:00 AM – 5:00 PM', 'Tue: 9:00 AM – 5:00 PM'] },
@@ -771,7 +820,7 @@ describe('PlaceInspector', () => {
 
   it('FE-PLANNER-INSPECTOR-039: session storage cache prevents duplicate mapsApi calls', async () => {
     // Prime the session storage cache with language 'en' (default)
-    sessionStorage.setItem('gdetails_v8_expanded_ChIJCache_en', JSON.stringify({ rating: 3.0 }));
+    sessionStorage.setItem('gdetails_v9_expanded_ChIJCache_en', JSON.stringify({ rating: 3.0 }));
     const p = buildPlace({ id: 304, google_place_id: 'ChIJCache' });
     render(<PlaceInspector {...defaultProps} place={p} />);
     // Wait for effect to run

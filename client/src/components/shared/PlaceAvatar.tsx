@@ -10,7 +10,7 @@ interface Category {
 }
 
 interface PlaceAvatarProps {
-  place: Pick<Place, 'id' | 'name' | 'image_url' | 'google_place_id' | 'osm_id' | 'lat' | 'lng'>
+  place: Pick<Place, 'id' | 'name' | 'image_url' | 'google_place_id' | 'google_ftid' | 'osm_id' | 'lat' | 'lng'>
   size?: number
   category?: Category | null
 }
@@ -29,20 +29,20 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
     const el = ref.current
     if (!el) return
     // Check if already cached — show immediately without waiting for intersection
-    const photoId = place.google_place_id || place.osm_id
+    const photoId = place.google_place_id || place.google_ftid || place.osm_id
     const cacheKey = photoId || `${place.lat},${place.lng}`
     if (cacheKey && getCached(cacheKey)) { setVisible(true); return }
 
     const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); io.disconnect() } }, { rootMargin: '200px' })
     io.observe(el)
     return () => io.disconnect()
-  }, [place.id])
+  }, [place.id, place.image_url, place.google_place_id, place.google_ftid, place.osm_id, place.lat, place.lng, placesPhotosEnabled])
 
   useEffect(() => {
     if (!visible) return
     if (place.image_url) { setPhotoSrc(place.image_url); return }
     if (!placesPhotosEnabled) return
-    const photoId = place.google_place_id || place.osm_id
+    const photoId = place.google_place_id || place.google_ftid || place.osm_id
     if (!photoId && !(place.lat && place.lng)) { setPhotoSrc(null); return }
 
     const cacheKey = photoId || `${place.lat},${place.lng}`
@@ -64,7 +64,7 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
       entry => { setPhotoSrc(entry.thumbDataUrl || entry.photoUrl) }
     )
     return onThumbReady(cacheKey, thumb => setPhotoSrc(thumb))
-  }, [visible, place.id, place.image_url, place.google_place_id, place.osm_id])
+  }, [visible, place.id, place.image_url, place.google_place_id, place.google_ftid, place.osm_id, place.lat, place.lng, place.name, placesPhotosEnabled])
 
   const bgColor = category?.color || '#6366f1'
   const IconComp = getCategoryIcon(category?.icon)
@@ -89,9 +89,9 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
           decoding="async"
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           onError={() => {
-            if (!imageUrlFailed.current && photoSrc === place.image_url && (place.google_place_id || place.osm_id)) {
+            if (!imageUrlFailed.current && photoSrc === place.image_url && (place.google_place_id || place.google_ftid || place.osm_id)) {
               imageUrlFailed.current = true
-              const photoId = place.google_place_id || place.osm_id!
+              const photoId = place.google_place_id || place.google_ftid || place.osm_id!
               const cacheKey = `refetch:${photoId}`
               fetchPhoto(cacheKey, photoId, place.lat ?? undefined, place.lng ?? undefined, place.name,
                 entry => { setPhotoSrc(entry.thumbDataUrl || entry.photoUrl) }
