@@ -22,6 +22,7 @@ import { buildPoiPopupHtml } from './placePopup'
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '../../constants/mapDefaults'
 import { computeMapViewport, TILE_SIZE_GL } from '../../utils/mapViewport'
 import { buildDisplayRouteLineSegments, buildRouteTransferPoints } from './routeLineSegments'
+import { placePhotoCacheKey, placePhotoFetchId, placesPhotoInputsKey } from './mapPlacePhotos'
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
   if (isEmojiCategoryIcon(iconName)) {
@@ -733,7 +734,7 @@ export function MapViewGL({
   // simultaneous thumb arrivals into one re-render.
   const pendingThumbsRef = useRef<Record<string, string>>({})
   const thumbRafRef = useRef<number | null>(null)
-  const placeIds = useMemo(() => places.map(p => p.id).join(','), [places])
+  const placePhotoInputs = useMemo(() => placesPhotoInputsKey(places), [places])
   useEffect(() => {
     if (!places || places.length === 0 || !placesPhotosEnabled) return
     const cleanups: (() => void)[] = []
@@ -753,7 +754,7 @@ export function MapViewGL({
     }
 
     for (const place of places) {
-      const cacheKey = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+      const cacheKey = placePhotoCacheKey(place)
       if (!cacheKey) continue
       const cached = getCached(cacheKey)
       if (cached?.thumbDataUrl) {
@@ -762,12 +763,8 @@ export function MapViewGL({
       }
       cleanups.push(onThumbReady(cacheKey, thumb => setThumb(cacheKey, thumb)))
       if (!cached && !isLoading(cacheKey)) {
-        const photoId =
-          (place.image_url?.startsWith('/api/maps/place-photo/') ? place.image_url : null)
-          || place.google_place_id
-          || place.osm_id
-          || place.image_url
-        if (photoId || (place.lat && place.lng)) {
+        const photoId = placePhotoFetchId(place)
+        if (photoId || (place.lat != null && place.lng != null)) {
           fetchPhoto(cacheKey, photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name)
         }
       }
@@ -780,7 +777,7 @@ export function MapViewGL({
         thumbRafRef.current = null
       }
     }
-  }, [placeIds, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [placePhotoInputs, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reconcile markers with places + photos. The clustered GeoJSON source decides
   // which points are currently unclustered, and we render the existing rich HTML
@@ -810,7 +807,7 @@ export function MapViewGL({
 
       visiblePlaces.forEach(place => {
         const orderNumbers = dayOrderMap[place.id] ?? null
-        const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+        const pck = placePhotoCacheKey(place)
         const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
         const selected = place.id === selectedPlaceId
         const el = createMarkerElement(place as Place & { category_color?: string; category_icon?: string }, photoUrl, orderNumbers, selected)

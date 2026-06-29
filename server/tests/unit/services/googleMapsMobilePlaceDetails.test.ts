@@ -298,6 +298,16 @@ describe('googleMapsMobilePlaceDetails helper', () => {
     });
   });
 
+  it('does not cap mobile rich reviews at five', () => {
+    const richPlace = messageField(1, [
+      messageField(81, Array.from({ length: 7 }, (_, idx) => review(`Review ${idx + 1}`, 5, `Reviewer ${idx + 1}`))),
+    ]);
+    const details = parseGoogleMapsMobileRichPlaceDetailsResponse(Buffer.concat([Buffer.from([0, 24]), gzipSync(richPlace)]));
+
+    expect(details.reviews).toHaveLength(7);
+    expect((details.reviews[6] as any).text).toBe('Review 7');
+  });
+
   it('parses the rich payload when mmap responses contain multiple gzip members', () => {
     const details = parseGoogleMapsMobileRichPlaceDetailsResponse(sampleMultiMemberMobileResponse());
 

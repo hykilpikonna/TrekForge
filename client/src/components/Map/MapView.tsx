@@ -377,6 +377,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import LocationButton from './LocationButton'
 import { buildDisplayRouteLineSegments, buildRouteTransferPoints } from './routeLineSegments'
+import { placePhotoCacheKey, placePhotoFetchId, placesPhotoInputsKey } from './mapPlacePhotos'
 
 // Live-location rendering inside the Leaflet map. Subscribes via the
 // shared useGeolocation hook so the Leaflet and Mapbox variants behave
@@ -607,7 +608,7 @@ export const MapView = memo(function MapView({
   const pendingThumbsRef = useRef<Record<string, string>>({})
   const thumbRafRef = useRef<number | null>(null)
 
-  const placeIds = useMemo(() => places.map(p => p.id).join(','), [places])
+  const placePhotoInputs = useMemo(() => placesPhotoInputsKey(places), [places])
   // Flattened [lat,lng] points of the selected day's route, so the bounds fit can
   // include the full polyline once it has been computed.
   const routeCoords = useMemo<[number, number][]>(() => (route || []).flat() as [number, number][], [route])
@@ -630,7 +631,7 @@ export const MapView = memo(function MapView({
     }
 
     for (const place of places) {
-      const cacheKey = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+      const cacheKey = placePhotoCacheKey(place)
       if (!cacheKey) continue
 
       const cached = getCached(cacheKey)
@@ -642,12 +643,8 @@ export const MapView = memo(function MapView({
       cleanups.push(onThumbReady(cacheKey, thumb => setThumb(cacheKey, thumb)))
 
       if (!cached && !isLoading(cacheKey)) {
-        const photoId =
-          (place.image_url?.startsWith('/api/maps/place-photo/') ? place.image_url : null)
-          || place.google_place_id
-          || place.osm_id
-          || place.image_url
-        if (photoId || (place.lat && place.lng)) {
+        const photoId = placePhotoFetchId(place)
+        if (photoId || (place.lat != null && place.lng != null)) {
           fetchPhoto(cacheKey, photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name)
         }
       }
@@ -660,7 +657,7 @@ export const MapView = memo(function MapView({
         thumbRafRef.current = null
       }
     }
-  }, [placeIds, placesPhotosEnabled])
+  }, [placePhotoInputs, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const clusterIconCreateFunction = useCallback((cluster) => {
     const count = cluster.getChildCount()
@@ -676,7 +673,7 @@ export const MapView = memo(function MapView({
 
   const markers = useMemo(() => places.map((place) => {
     const isSelected = place.id === selectedPlaceId
-    const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+    const pck = placePhotoCacheKey(place)
     const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
     const orderNumbers = dayOrderMap[place.id] ?? null
     return (

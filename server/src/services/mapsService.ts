@@ -190,7 +190,7 @@ function localLanguageForCountry(countryCode?: string | null): string | null {
 
 const GOOGLE_FTID_RE = GOOGLE_MAPS_FTID_RE;
 const DETAILS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DETAILS_CACHE_SCHEMA_VERSION = 9;
+const DETAILS_CACHE_SCHEMA_VERSION = 10;
 
 // Extracts a Google Maps feature id (ftid, 0x..:0x..) from a URL's ?ftid= param.
 // The Places API (New) googleMapsUri is usually a cid-style URL (https://maps.google.com/?cid=NNN)
@@ -340,7 +340,7 @@ function normalizeGooglePlacesApiDetails(
     google_maps_url: data.googleMapsUri || null,
     summary: includeExpandedFields ? data.editorialSummary?.text || null : null,
     reviews: includeExpandedFields
-      ? (data.reviews || []).slice(0, 5).map((r: NonNullable<GooglePlaceDetails['reviews']>[number]) => ({
+      ? (data.reviews || []).map((r: NonNullable<GooglePlaceDetails['reviews']>[number]) => ({
         author: r.authorAttribution?.displayName || null,
         rating: r.rating || null,
         text: r.text?.text || null,
@@ -351,7 +351,7 @@ function normalizeGooglePlacesApiDetails(
       }))
       : [],
     photos: includeExpandedFields
-      ? (data.photos || []).slice(0, 10).map((photo) => ({
+      ? (data.photos || []).map((photo) => ({
         name: photo.name,
         width: photo.widthPx ?? null,
         height: photo.heightPx ?? null,
@@ -365,12 +365,29 @@ function normalizeGooglePlacesApiDetails(
   };
 }
 
+function googlePhotoDedupeKey(value: string): string {
+  const trimmed = value.trim().replace(/[:;),\]]+\d*$/g, '');
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname.endsWith('googleusercontent.com')) {
+      const pathKey = `${parsed.origin}${parsed.pathname}`;
+      const variantIndex = pathKey.lastIndexOf('=');
+      return variantIndex > pathKey.lastIndexOf('/') ? pathKey.slice(0, variantIndex) : pathKey;
+    }
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString();
+  } catch {
+    return trimmed.replace(/[?#].*$/, '').replace(/=[^=/?#]+$/, '');
+  }
+}
+
 function photoRecordKey(photo: unknown): string | null {
   if (!photo || typeof photo !== 'object') return null;
   const record = photo as Record<string, unknown>;
   for (const key of ['url', 'photoUrl', 'src', 'name']) {
     const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'string' && value.trim()) return googlePhotoDedupeKey(value);
   }
   return null;
 }
@@ -385,6 +402,33 @@ function mergePhotoRecords(...sources: unknown[]): unknown[] {
       if (!key || seen.has(key)) continue;
       seen.add(key);
       merged.push(photo);
+    }
+  }
+  return merged;
+}
+
+function reviewRecordKey(review: unknown): string | null {
+  if (!review || typeof review !== 'object') return null;
+  const record = review as Record<string, unknown>;
+  const uri = typeof record.uri === 'string' ? record.uri.trim() : '';
+  if (uri) return `uri:${uri}`;
+  const author = typeof record.author === 'string' ? record.author.trim().toLowerCase() : '';
+  const text = typeof record.text === 'string' ? record.text.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+  const publishedAt = typeof record.published_at === 'string' ? record.published_at.trim() : '';
+  if (author || text || publishedAt) return `review:${author}|${publishedAt}|${text}`;
+  return null;
+}
+
+function mergeReviewRecords(...sources: unknown[]): unknown[] {
+  const merged: unknown[] = [];
+  const seen = new Set<string>();
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
+    for (const review of source) {
+      const key = reviewRecordKey(review);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(review);
     }
   }
   return merged;
@@ -451,8 +495,8 @@ function applyMobileRichDetails(
   if (!place.popular_status && mobileRichPlace.popular_status) {
     place.popular_status = mobileRichPlace.popular_status;
   }
-  if (!hasItems(place.reviews) && hasItems(mobileRichPlace.reviews)) {
-    place.reviews = mobileRichPlace.reviews;
+  if (hasItems(mobileRichPlace.reviews)) {
+    place.reviews = mergeReviewRecords(place.reviews, mobileRichPlace.reviews);
   }
   if (!place.summary && mobileRichPlace.summary) {
     place.summary = mobileRichPlace.summary;
@@ -476,7 +520,7 @@ function mergeGoogleDetailSources(
     open_now: previewPlace.open_now ?? officialPlace.open_now ?? null,
     business_status: previewPlace.business_status ?? officialPlace.business_status ?? null,
     summary: officialPlace.summary || previewPlace.summary || null,
-    reviews: hasItems(officialPlace.reviews) ? officialPlace.reviews : previewPlace.reviews,
+    reviews: mergeReviewRecords(previewPlace.reviews, officialPlace.reviews),
     photos: mergePhotoRecords(previewPlace.photos, officialPlace.photos),
   };
 }
@@ -488,7 +532,7 @@ function finalizeGoogleDetails(
   return {
     ...mergedPlace,
     summary: includeExpandedFields ? mergedPlace.summary : null,
-    reviews: includeExpandedFields ? mergedPlace.reviews : [],
+    reviews: includeExpandedFields ? mergeReviewRecords(mergedPlace.reviews) : [],
     photos: includeExpandedFields ? mergePhotoRecords(mergedPlace.photos) : [],
     cached_at: Date.now(),
     cache_schema_version: DETAILS_CACHE_SCHEMA_VERSION,
@@ -1486,6 +1530,19 @@ export async function getPlaceDetailsExpanded(userId: number, placeId: string, l
 
 // ── Place photo (Google or Wikimedia, disk-cached) ────────────────────────────
 
+function persistPlacePhotoUrl(placeId: string, photoUrl: string): void {
+  try {
+    db.prepare(`
+      UPDATE places
+      SET image_url = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE (google_place_id = ? OR google_ftid = ?)
+        AND (image_url IS NULL OR image_url = '')
+    `).run(photoUrl, placeId, placeId);
+  } catch (dbErr) {
+    console.error('Failed to persist photo URL to database:', dbErr);
+  }
+}
+
 export async function getPlacePhoto(
   userId: number,
   placeId: string,
@@ -1513,96 +1570,129 @@ export async function getPlacePhoto(
   const fetchPromise = (async (): Promise<{ filePath: string; attribution: string | null } | null> => {
     await acquirePhotoFetchSlot();
     try {
-    const apiKey = getMapsKey(userId);
-    const isCoordLookup = placeId.startsWith('coords:');
+      const apiKey = getMapsKey(userId);
+      const isCoordLookup = placeId.startsWith('coords:');
+      const isFtidLookup = GOOGLE_FTID_RE.test(placeId.trim());
 
-    // Coordinate-based Wikipedia/Wikimedia lookup. Used for coordinate-only
-    // (right-click) places and as a fallback when a Google place yields no photo,
-    // so a place added via search still gets a marker image when Google returns
-    // nothing. Returns null (without marking an error) so the caller decides.
-    const fetchWikimediaFallback = async (): Promise<{ filePath: string; attribution: string | null } | null> => {
-      if (isNaN(lat) || isNaN(lng)) return null;
-      try {
-        const wiki = await fetchWikimediaPhoto(lat, lng, name);
-        if (!wiki) return null;
-        // Follow redirects manually so each hop (the image URL can 3xx to a CDN
-        // host) is re-validated against the SSRF guard, not just the first URL.
-        const imgRes = await safeFetchFollow(wiki.photoUrl, undefined, { bypassInternalIpAllowed: true });
-        if (!imgRes.ok) return null;
-        const bytes = Buffer.from(await imgRes.arrayBuffer());
-        const cached = await placePhotoCache.put(placeId, bytes, wiki.attribution);
-        return { filePath: cached.filePath, attribution: cached.attribution };
-      } catch {
-        return null;
+      // Coordinate-based Wikipedia/Wikimedia lookup. Used for coordinate-only
+      // (right-click) places and as a fallback when a Google place yields no photo,
+      // so a place added via search still gets a marker image when Google returns
+      // nothing. Returns null (without marking an error) so the caller decides.
+      const fetchWikimediaFallback = async (): Promise<{ filePath: string; attribution: string | null } | null> => {
+        if (isNaN(lat) || isNaN(lng)) return null;
+        try {
+          const wiki = await fetchWikimediaPhoto(lat, lng, name);
+          if (!wiki) return null;
+          // Follow redirects manually so each hop (the image URL can 3xx to a CDN
+          // host) is re-validated against the SSRF guard, not just the first URL.
+          const imgRes = await safeFetchFollow(wiki.photoUrl, undefined, { bypassInternalIpAllowed: true });
+          if (!imgRes.ok) return null;
+          const bytes = Buffer.from(await imgRes.arrayBuffer());
+          const cached = await placePhotoCache.put(placeId, bytes, wiki.attribution);
+          return { filePath: cached.filePath, attribution: cached.attribution };
+        } catch {
+          return null;
+        }
+      };
+
+      // Google Maps mobile rich details expose direct googleusercontent photos for
+      // feature IDs. This covers places that have Google Maps photos but no
+      // official Places API photo id yet (common for ftid-only imports).
+      const fetchGoogleMapsMobilePhoto = async (): Promise<{ filePath: string; attribution: string | null } | null> => {
+        const ftid = resolveGoogleFtid(placeId);
+        if (!ftid) return null;
+        try {
+          const details = await fetchGoogleMapsMobileRichPlaceDetails({
+            ftid,
+            language: 'en-US,en;q=0.9',
+            timeoutMs: 12_000,
+          });
+          const photo = details.photos.find((item) => item.url);
+          if (!photo) return null;
+          const imgRes = await safeFetchFollow(photo.url, undefined, { bypassInternalIpAllowed: true });
+          if (!imgRes.ok) return null;
+          const bytes = Buffer.from(await imgRes.arrayBuffer());
+          if (!bytes.length) return null;
+          const cached = await placePhotoCache.put(placeId, bytes, photo.attribution);
+          persistPlacePhotoUrl(placeId, cached.photoUrl);
+          return { filePath: cached.filePath, attribution: cached.attribution };
+        } catch (err) {
+          console.warn(
+            `Google Maps mobile photo failed for ${ftid}: ${err instanceof Error ? err.message : 'unknown error'}`,
+          );
+          return null;
+        }
+      };
+
+      // Google Places photo for a Google place_id. Returns null (without marking an
+      // error) on any miss — no key, URL-shaped id, request rejected, no photos, or
+      // a failed media download — so the caller can fall back to Wikimedia.
+      const fetchGooglePhoto = async (): Promise<{ filePath: string; attribution: string | null } | null> => {
+        // URL-shaped placeIds aren't Google IDs — legacy DBs may store raw photo URLs in image_url
+        if (!apiKey || /^https?:\/\//i.test(placeId)) return null;
+
+        // Fetch details to get the photo name
+        const detailsRes = await googleFetch(`https://places.googleapis.com/v1/places/${placeId}`, `getPlacePhoto/details(${placeId})`, {
+          headers: {
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': 'photos',
+          },
+        });
+        const body = await detailsRes.text();
+        if (!detailsRes.ok) {
+          console.error('Google Places photo details error:', detailsRes.status, body.slice(0, 200));
+          return null;
+        }
+        let details: GooglePlaceDetails & { error?: { message?: string } };
+        try { details = body ? JSON.parse(body) : { photos: [] }; }
+        catch { return null; }
+        if (!details.photos?.length) return null;
+
+        const photo = details.photos[0];
+        const photoName = photo.name;
+        const attribution = photo.authorAttributions?.[0]?.displayName || null;
+
+        // Fetch actual image bytes
+        const mediaRes = await googleFetch(
+          `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400`,
+          `getPlacePhoto/media(${placeId})`,
+          { headers: { 'X-Goog-Api-Key': apiKey } }
+        );
+        if (!mediaRes.ok) return null;
+
+        const bytes = Buffer.from(await mediaRes.arrayBuffer());
+        if (!bytes.length) return null;
+
+        const cached = await placePhotoCache.put(placeId, bytes, attribution);
+
+        persistPlacePhotoUrl(placeId, cached.photoUrl);
+
+        return { filePath: cached.filePath, attribution };
+      };
+
+      // Prefer the Google photo (higher quality); if Google yields nothing, fall
+      // back to the same coordinate-based Wikipedia/OSM lookup that right-click
+      // places use. Coordinate-only ids skip Google entirely.
+      if (!isCoordLookup && isFtidLookup) {
+        const mobilePhoto = await fetchGoogleMapsMobilePhoto();
+        if (mobilePhoto) return mobilePhoto;
       }
-    };
 
-    // Google Places photo for a Google place_id. Returns null (without marking an
-    // error) on any miss — no key, URL-shaped id, request rejected, no photos, or
-    // a failed media download — so the caller can fall back to Wikimedia.
-    const fetchGooglePhoto = async (): Promise<{ filePath: string; attribution: string | null } | null> => {
-      // URL-shaped placeIds aren't Google IDs — legacy DBs may store raw photo URLs in image_url
-      if (!apiKey || /^https?:\/\//i.test(placeId)) return null;
-
-      // Fetch details to get the photo name
-      const detailsRes = await googleFetch(`https://places.googleapis.com/v1/places/${placeId}`, `getPlacePhoto/details(${placeId})`, {
-        headers: {
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'photos',
-        },
-      });
-      const body = await detailsRes.text();
-      if (!detailsRes.ok) {
-        console.error('Google Places photo details error:', detailsRes.status, body.slice(0, 200));
-        return null;
-      }
-      let details: GooglePlaceDetails & { error?: { message?: string } };
-      try { details = body ? JSON.parse(body) : { photos: [] }; }
-      catch { return null; }
-      if (!details.photos?.length) return null;
-
-      const photo = details.photos[0];
-      const photoName = photo.name;
-      const attribution = photo.authorAttributions?.[0]?.displayName || null;
-
-      // Fetch actual image bytes
-      const mediaRes = await googleFetch(
-        `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400`,
-        `getPlacePhoto/media(${placeId})`,
-        { headers: { 'X-Goog-Api-Key': apiKey } }
-      );
-      if (!mediaRes.ok) return null;
-
-      const bytes = Buffer.from(await mediaRes.arrayBuffer());
-      if (!bytes.length) return null;
-
-      const cached = await placePhotoCache.put(placeId, bytes, attribution);
-
-      // Persist stable proxy URL to database
-      try {
-        db.prepare(
-          'UPDATE places SET image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE google_place_id = ? AND (image_url IS NULL OR image_url = \'\')'
-        ).run(cached.photoUrl, placeId);
-      } catch (dbErr) {
-        console.error('Failed to persist photo URL to database:', dbErr);
+      if (!isCoordLookup) {
+        const googlePhoto = await fetchGooglePhoto();
+        if (googlePhoto) return googlePhoto;
       }
 
-      return { filePath: cached.filePath, attribution };
-    };
+      if (!isCoordLookup && !isFtidLookup) {
+        const mobilePhoto = await fetchGoogleMapsMobilePhoto();
+        if (mobilePhoto) return mobilePhoto;
+      }
 
-    // Prefer the Google photo (higher quality); if Google yields nothing, fall
-    // back to the same coordinate-based Wikipedia/OSM lookup that right-click
-    // places use. Coordinate-only ids skip Google entirely.
-    if (!isCoordLookup) {
-      const googlePhoto = await fetchGooglePhoto();
-      if (googlePhoto) return googlePhoto;
-    }
+      const fallback = await fetchWikimediaFallback();
+      if (fallback) return fallback;
 
-    const fallback = await fetchWikimediaFallback();
-    if (fallback) return fallback;
-
-    placePhotoCache.markError(placeId);
-    return null;
+      placePhotoCache.markError(placeId);
+      return null;
     } finally {
       releasePhotoFetchSlot();
     }

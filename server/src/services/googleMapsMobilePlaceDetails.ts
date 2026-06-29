@@ -425,6 +425,18 @@ function normalizeRichPhotoUrl(raw: string): GoogleMapsMobilePlacePhoto | null {
   };
 }
 
+function googleusercontentPhotoDedupeKey(url: string): string {
+  const cleaned = url.replace(/[:;),\]]+\d*$/g, '');
+  try {
+    const parsed = new URL(cleaned);
+    const pathKey = `${parsed.origin}${parsed.pathname}`;
+    const variantIndex = pathKey.lastIndexOf('=');
+    return variantIndex > pathKey.lastIndexOf('/') ? pathKey.slice(0, variantIndex) : pathKey;
+  } catch {
+    return cleaned.replace(/[?#].*$/, '').replace(/=[^=/?#]+$/, '');
+  }
+}
+
 function extractGoogleMapsMobilePhotoUrls(protobuf: Buffer): GoogleMapsMobilePlacePhoto[] {
   const photos: GoogleMapsMobilePlacePhoto[] = [];
   const seen = new Set<string>();
@@ -434,8 +446,9 @@ function extractGoogleMapsMobilePhotoUrls(protobuf: Buffer): GoogleMapsMobilePla
     let end = offset;
     while (end < protobuf.length && isUrlByte(protobuf[end])) end += 1;
     const photo = normalizeRichPhotoUrl(protobuf.subarray(offset, end).toString('ascii'));
-    if (photo && !seen.has(photo.url)) {
-      seen.add(photo.url);
+    const dedupeKey = photo ? googleusercontentPhotoDedupeKey(photo.url) : null;
+    if (photo && dedupeKey && !seen.has(dedupeKey)) {
+      seen.add(dedupeKey);
       photos.push(photo);
       if (photos.length >= 24) break;
     }
@@ -700,7 +713,6 @@ function parseMobileReviews(reviewsMessage: Buffer | null): unknown[] {
       uri: fieldStrings(reviewFields, 19)[0] ?? authorInfo.uri,
       language: fieldStrings(reviewFields, 33)[0] ?? null,
     });
-    if (reviews.length >= 5) break;
   }
 
   return reviews;

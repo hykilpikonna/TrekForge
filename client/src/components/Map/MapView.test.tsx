@@ -347,6 +347,19 @@ describe('MapView', () => {
     vi.mocked(photoService.getCached).mockReturnValue(null)
   })
 
+  it('FE-COMP-MAPVIEW-015b: fetches marker photos by Google Maps feature ID', async () => {
+    const ftid = '0x882bf179e806d471:0x8591dde29c821a93'
+    const places = [
+      buildMapPlace({ id: 21, name: 'Ftid Castle', lat: 48.0, lng: 2.0, google_place_id: null, google_ftid: ftid }),
+    ]
+
+    render(<MapView places={places} />)
+
+    await waitFor(() => {
+      expect(photoService.fetchPhoto).toHaveBeenCalledWith(ftid, ftid, 48.0, 2.0, 'Ftid Castle')
+    })
+  })
+
   it('FE-COMP-MAPVIEW-016: tooltip shows address when present', async () => {
     const user = userEvent.setup()
     const places = [
