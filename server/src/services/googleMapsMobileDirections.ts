@@ -69,6 +69,12 @@ export interface GoogleMapsMobileDirectionsLatLng {
   lng: number;
 }
 
+export interface GoogleMapsMobileDirectionsStep {
+  instruction: string | null;
+  maneuver: string | null;
+  distance: GoogleMapsMobileDirectionsDistance;
+}
+
 export interface GoogleMapsMobileDirectionsRoute {
   index: number;
   title: string | null;
@@ -77,6 +83,7 @@ export interface GoogleMapsMobileDirectionsRoute {
   trafficPrediction: GoogleMapsMobileDirectionsTrafficPrediction | null;
   tollFee: GoogleMapsMobileDirectionsMoney | null;
   overviewGeometry?: GoogleMapsMobileDirectionsLatLng[];
+  steps?: GoogleMapsMobileDirectionsStep[];
 }
 
 export interface GoogleMapsMobileDirectionsResult {
@@ -692,17 +699,26 @@ export function buildGoogleMapsMobileDirectionsRequest(
   return buildMobileMmapRequest(normalizeGoogleMapsMobileDirectionsRequest(input));
 }
 
-function decodeMmapResponse(responseBody: Buffer): { protobuf: Buffer; gzipOffset: number } {
-  const gzipOffset = responseBody.indexOf(Buffer.from([0x1f, 0x8b]));
-  if (gzipOffset < 0) throw makeHttpError(502, 'Google Maps mobile response did not contain a gzip protobuf payload');
-  try {
-    return { protobuf: gunzipSync(responseBody.subarray(gzipOffset)), gzipOffset };
-  } catch (err) {
-    throw makeHttpError(
-      502,
-      `Unable to inflate Google Maps mobile response: ${err instanceof Error ? err.message : 'invalid gzip'}`,
-    );
+function decodeMmapResponsePayloads(responseBody: Buffer): Array<{ protobuf: Buffer; gzipOffset: number }> {
+  const gzipMagic = Buffer.from([0x1f, 0x8b]);
+  const payloads: Array<{ protobuf: Buffer; gzipOffset: number }> = [];
+  let searchStart = 0;
+
+  while (searchStart < responseBody.length) {
+    const gzipOffset = responseBody.indexOf(gzipMagic, searchStart);
+    if (gzipOffset < 0) break;
+    searchStart = gzipOffset + 1;
+    try {
+      payloads.push({ protobuf: gunzipSync(responseBody.subarray(gzipOffset)), gzipOffset });
+    } catch {
+      // Gzip magic can appear inside a compressed member; keep scanning for later members.
+    }
   }
+
+  if (!payloads.length) {
+    throw makeHttpError(502, 'Google Maps mobile response did not contain a gzip protobuf payload');
+  }
+  return payloads;
 }
 
 function walkMessages(buffer: Buffer, visit: (message: Buffer, fields: ProtoField[]) => void, depth = 0): void {
@@ -779,6 +795,78 @@ function findTolls(message: Buffer): GoogleMapsMobileDirectionsMoney[] {
   return tolls;
 }
 
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function stepTextFromXml(value: string): string | null {
+  const body = value
+    .replace(/^<step\b[^>]*>/i, '')
+    .replace(/<\/step>$/i, '')
+    .replace(
+      /<\/(road|sign|exit|intersection|interchange)>\s*<(road|sign|exit|intersection|interchange)\b/gi,
+      '</$1> / <$2',
+    )
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;:)])/g, '$1')
+    .replace(/([(/])\s+/g, '$1')
+    .trim();
+  return body ? decodeXmlEntities(body) : null;
+}
+
+function parseRouteStepXml(value: string): GoogleMapsMobileDirectionsStep | null {
+  const instruction = stepTextFromXml(value);
+  if (!instruction) return null;
+  const maneuver = value.match(/\bmaneuver=(['"])(.*?)\1/i)?.[2] ?? null;
+  const metersText = value.match(/\bmeters=(['"])(\d+)\1/i)?.[2] ?? null;
+  const meters = metersText ? Number(metersText) : null;
+  return {
+    instruction,
+    maneuver,
+    distance: {
+      meters: Number.isFinite(meters) ? meters : null,
+      text: null,
+    },
+  };
+}
+
+function textFieldValues(fields: ProtoField[]): string[] {
+  const values: string[] = [];
+  for (const field of fields) {
+    if (field.wire === 2 && Buffer.isBuffer(field.value) && isText(field.value)) {
+      values.push((field.value as Buffer).toString('utf8'));
+    }
+  }
+  return values;
+}
+
+function parseRouteSteps(message: Buffer): GoogleMapsMobileDirectionsStep[] {
+  const steps: GoogleMapsMobileDirectionsStep[] = [];
+  const seen = new Set<string>();
+  walkMessages(message, (_nested, fields) => {
+    for (const text of textFieldValues(fields)) {
+      for (const match of text.matchAll(/<step\b[^>]*>[\s\S]*?<\/step>/gi)) {
+        const step = parseRouteStepXml(match[0]);
+        if (!step) continue;
+        const key = `${step.maneuver ?? ''}:${step.distance.meters ?? ''}:${step.instruction}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        steps.push(step);
+      }
+    }
+  });
+  return steps;
+}
+
 function parsePrediction(summaryMessage: Buffer): GoogleMapsMobileDirectionsTrafficPrediction | null {
   const summaryFields = tryParseMessage(summaryMessage);
   if (!summaryFields) return null;
@@ -849,7 +937,7 @@ function decodeOverviewGeometry(message: Buffer): GoogleMapsMobileDirectionsLatL
 
 function parseRouteHeader(
   headerMessage: Buffer,
-): Omit<GoogleMapsMobileDirectionsRoute, 'tollFee' | 'overviewGeometry'> | null {
+): Omit<GoogleMapsMobileDirectionsRoute, 'tollFee' | 'overviewGeometry' | 'steps'> | null {
   const fields = tryParseMessage(headerMessage);
   if (!fields) return null;
 
@@ -871,23 +959,39 @@ function parseRouteHeader(
 
 function routeKey(route: GoogleMapsMobileDirectionsRoute): string {
   return [
-    route.index,
     route.title ?? '',
     route.distance.meters ?? '',
     route.duration.seconds ?? '',
     route.trafficPrediction?.text ?? '',
-    route.tollFee?.text ?? '',
   ].join(':');
 }
 
 function parseRoutes(protobuf: Buffer): GoogleMapsMobileDirectionsRoute[] {
   const routes: GoogleMapsMobileDirectionsRoute[] = [];
-  const seen = new Set<string>();
+  const routeIndexes = new Map<string, number>();
 
   function addRoute(route: GoogleMapsMobileDirectionsRoute): void {
     const key = routeKey(route);
-    if (seen.has(key)) return;
-    seen.add(key);
+    const existingIndex = routeIndexes.get(key);
+    if (existingIndex !== undefined) {
+      const existing = routes[existingIndex]!;
+      if (!existing.tollFee && route.tollFee) {
+        routes[existingIndex] = {
+          ...existing,
+          tollFee: route.tollFee,
+          overviewGeometry: existing.overviewGeometry ?? route.overviewGeometry,
+          steps: existing.steps?.length ? existing.steps : route.steps,
+        };
+      }
+      if (!existing.steps?.length && route.steps?.length) {
+        routes[existingIndex] = {
+          ...routes[existingIndex]!,
+          steps: route.steps,
+        };
+      }
+      return;
+    }
+    routeIndexes.set(key, routes.length);
     routes.push(route);
   }
 
@@ -902,10 +1006,12 @@ function parseRoutes(protobuf: Buffer): GoogleMapsMobileDirectionsRoute[] {
     if (!header?.title) return null;
     const tolls = findTolls(routeMessage);
     const tollFee = tolls.find((toll) => toll.label === 'ETC') ?? tolls[0] ?? null;
+    const steps = parseRouteSteps(routeMessage);
     return {
       ...header,
       tollFee,
       ...(overviewGeometry ? { overviewGeometry } : {}),
+      ...(steps.length ? { steps } : {}),
     };
   }
 
@@ -965,8 +1071,10 @@ export function parseGoogleMapsMobileDirectionsResponse(
   },
 ): GoogleMapsMobileDirectionsResult {
   const body = responseBufferFrom(responseBody);
-  const decoded = decodeMmapResponse(body);
-  const routes = parseRoutes(decoded.protobuf);
+  const decodedPayloads = decodeMmapResponsePayloads(body);
+  const parsedPayloads = decodedPayloads.map((decoded) => ({ decoded, routes: parseRoutes(decoded.protobuf) }));
+  const selectedPayload = parsedPayloads.find((payload) => payload.routes.length > 0) ?? parsedPayloads[0]!;
+  const { decoded, routes } = selectedPayload;
   const firstRoute = routes[0] ?? null;
   const includeDebug = context?.includeDebug ?? context?.request?.options.includeDebug === true;
   const includeRaw = context?.includeRaw ?? context?.request?.options.includeRaw === true;

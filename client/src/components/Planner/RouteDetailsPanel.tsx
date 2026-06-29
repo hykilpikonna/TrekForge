@@ -95,7 +95,7 @@ function signatureLabel(step: RouteStep, profile: PlannerRouteDetailsProfile): s
 }
 
 function routeSignatureSteps(route: RouteAlternative, profile: PlannerRouteDetailsProfile): RouteStep[] {
-  const steps = mergeConsecutiveWalkingSteps(route.steps ?? [])
+  const steps = mergeConsecutiveSignatureSteps(route.steps ?? [], profile)
   if (steps.length) return steps
   return [{ mode: profile === 'transit' ? 'transit' : profile }]
 }
@@ -168,6 +168,20 @@ function mergeConsecutiveWalkingSteps(steps: RouteStep[]): RouteStep[] {
 
   if (walkRun.length) merged.push(mergeWalkingRun(walkRun))
   return merged
+}
+
+function isTransitSignatureStep(step: RouteStep): boolean {
+  return step.mode === 'transit' && Boolean(step.transit)
+}
+
+function mergeConsecutiveSignatureSteps(steps: RouteStep[], profile: PlannerRouteDetailsProfile): RouteStep[] {
+  const merged = mergeConsecutiveWalkingSteps(steps)
+  return merged.filter((step, index) => {
+    if (index === 0) return true
+    const previous = merged[index - 1]
+    if (isTransitSignatureStep(previous) || isTransitSignatureStep(step)) return true
+    return signatureLabel(previous, profile) !== signatureLabel(step, profile)
+  })
 }
 
 export default function RouteDetailsPanel({

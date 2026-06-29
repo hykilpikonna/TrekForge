@@ -336,6 +336,18 @@ describe('calculateRouteWithLegs persistent cache', () => {
                 { lat: 48.858, lng: 2.356 },
                 { lat: body.to.lat, lng: body.to.lng },
               ],
+              steps: [
+                {
+                  instruction: 'Turn right at 赤池２丁目北（交差点）',
+                  maneuver: 'TURN',
+                  distance: { meters: 1996, text: null },
+                },
+                {
+                  instruction: 'Use the left lane to take the Mei-Nikan Expy ramp',
+                  maneuver: 'ON_RAMP',
+                  distance: { meters: 91, text: null },
+                },
+              ],
             },
           ],
         })
@@ -360,6 +372,20 @@ describe('calculateRouteWithLegs persistent cache', () => {
     expect(first.distance).toBe(1200)
     expect(first.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
     expect(first.legs[0].tollText).toBe('ETC \u00a58620')
+    expect(first.legs[0].steps).toMatchObject([
+      {
+        mode: 'driving',
+        instruction: 'Turn right at 赤池２丁目北（交差点）',
+        distance: 1996,
+        distanceText: '2 km',
+      },
+      {
+        mode: 'driving',
+        instruction: 'Use the left lane to take the Mei-Nikan Expy ramp',
+        distance: 91,
+        distanceText: '91 m',
+      },
+    ])
     expect(second.legs[0].duration).toBe(1050)
     expect(calls).toBe(1)
     expect(bodies[0].options).toMatchObject({
@@ -412,27 +438,14 @@ describe('calculateRouteWithLegs persistent cache', () => {
     expect(osrmCalls).toBe(0)
   })
 
-  it('FE-COMP-ROUTECALCULATOR-023c: Google Maps mobile retries untimed when a scheduled route has no alternatives', async () => {
+  it('FE-COMP-ROUTECALCULATOR-023c: Google Maps mobile does not retry untimed and routes labeled points by coordinates', async () => {
     const bodies: any[] = []
     let osrmCalls = 0
     server.use(
       http.post('/api/maps/directions-mobile', async ({ request }) => {
         const body = await request.json() as any
         bodies.push(body)
-        if (body.departureTime) return HttpResponse.json({ routes: [] })
-        return HttpResponse.json({
-          routes: [
-            {
-              distance: { meters: 19661, text: '19.7 km' },
-              duration: { seconds: 2177, text: '36 min' },
-              overviewGeometry: [
-                { lat: body.from.lat, lng: body.from.lng },
-                { lat: 48.858, lng: 2.356 },
-                { lat: body.to.lat, lng: body.to.lng },
-              ],
-            },
-          ],
-        })
+        return HttpResponse.json({ routes: [] })
       }),
       http.get(`${OSRM_DRIVING_BASE}/:coords`, () => {
         osrmCalls += 1
@@ -442,19 +455,15 @@ describe('calculateRouteWithLegs persistent cache', () => {
 
     const from = { ...wp1, label: 'Gifu Castle' }
     const to = { ...wp2, label: 'Inuyama Castle' }
-    const result = await calculateRouteWithLegs([from, to], {
+    await expect(calculateRouteWithLegs([from, to], {
       provider: 'google_maps_mobile',
       departureLocalDateTime: '2026-12-01T10:10',
-    })
+    })).rejects.toThrow('No route found')
 
-    expect(bodies).toHaveLength(2)
-    expect(bodies[0].from.text).toBe('Gifu Castle')
-    expect(bodies[0].to.text).toBe('Inuyama Castle')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0].from).toEqual({ lat: wp1.lat, lng: wp1.lng })
+    expect(bodies[0].to).toEqual({ lat: wp2.lat, lng: wp2.lng })
     expect(bodies[0].departureTime).toEqual({ kind: 'departAtLocal', localDateTime: '2026-12-01T10:10' })
-    expect(bodies[1].departureTime).toBeUndefined()
-    expect(result.duration).toBe(2177)
-    expect(result.distance).toBe(19661)
-    expect(result.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
     expect(osrmCalls).toBe(0)
   })
 
@@ -617,40 +626,18 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
   })
 
-  it('FE-COMP-ROUTECALCULATOR-025: transit routing preserves mobile geometry and falls back to untimed preview details', async () => {
+  it('FE-COMP-ROUTECALCULATOR-025: mobile transit routing uses only mobile directions', async () => {
     let mobileCalls = 0
-    const previewBodies: any[] = []
+    let previewCalls = 0
     let osrmCalls = 0
     server.use(
       http.get(`${OSRM_DRIVING_BASE}/:coords`, () => {
         osrmCalls += 1
         return HttpResponse.json(buildOsrmRouteResponse())
       }),
-      http.post('/api/maps/directions-preview', async ({ request }) => {
-        const body = await request.json() as any
-        previewBodies.push(body)
-        expect(body.mode).toBe('transit')
-        if (body.time) return HttpResponse.json({ routes: [] })
-        return HttpResponse.json({
-          routes: [
-            {
-              legs: [
-                {
-                  distance: { meters: 1200, text: '1.2 km' },
-                  duration: { seconds: 600, text: '10 min' },
-                  transit: {
-                    lineName: 'Metro 2',
-                    serviceShortName: 'M2',
-                    color: '#2563eb',
-                    departureStop: { name: 'Opera' },
-                    arrivalStop: { name: 'Nation' },
-                    stopCount: 5,
-                  },
-                },
-              ],
-            },
-          ],
-        })
+      http.post('/api/maps/directions-preview', () => {
+        previewCalls += 1
+        return HttpResponse.json({ routes: [] })
       }),
       http.post('/api/maps/directions-mobile', async ({ request }) => {
         mobileCalls += 1
@@ -680,70 +667,25 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
 
     expect(mobileCalls).toBe(1)
-    expect(previewBodies).toHaveLength(2)
-    expect(previewBodies[0].time).toEqual({ kind: 'departAtLocal', localDateTime: '2026-12-01T09:00' })
-    expect(previewBodies[1].time).toBeUndefined()
+    expect(previewCalls).toBe(0)
     expect(osrmCalls).toBe(0)
     expect(result.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
     expect(result.legs[0]).toMatchObject({
-      duration: 600,
-      durationText: '10 min',
-      distance: 1200,
-      distanceText: '1.2 km',
+      duration: 960,
+      durationText: '16 min',
+      distance: 2300,
+      distanceText: '2.3 km',
     })
-    expect(result.legs[0].steps?.[0].transit?.line.shortName).toBe('M2')
+    expect(result.legs[0].steps).toBeUndefined()
   })
 
-  it('FE-COMP-ROUTECALCULATOR-025b: mobile transit refreshes cached alternatives that are missing step details', async () => {
-    let previewHasDetails = false
+  it('FE-COMP-ROUTECALCULATOR-025b: mobile transit caches alternatives without preview refresh', async () => {
     let mobileCalls = 0
     let previewCalls = 0
     server.use(
-      http.post('/api/maps/directions-preview', async ({ request }) => {
+      http.post('/api/maps/directions-preview', () => {
         previewCalls += 1
-        const body = await request.json() as any
-        expect(body.mode).toBe('transit')
-        if (!previewHasDetails) return HttpResponse.json({ routes: [] })
-        return HttpResponse.json({
-          routes: [
-            {
-              index: 0,
-              distance: { meters: 1200, text: '1.2 km' },
-              duration: { seconds: 600, text: '10 min' },
-              legs: [
-                {
-                  distance: { meters: 1200, text: '1.2 km' },
-                  duration: { seconds: 600, text: '10 min' },
-                  transit: {
-                    lineName: 'Metro 2',
-                    serviceShortName: 'M2',
-                    color: '#2563eb',
-                    departureStop: { name: 'Opera' },
-                    arrivalStop: { name: 'Nation' },
-                  },
-                },
-              ],
-            },
-            {
-              index: 1,
-              distance: { meters: 2100, text: '2.1 km' },
-              duration: { seconds: 780, text: '13 min' },
-              legs: [
-                {
-                  distance: { meters: 2100, text: '2.1 km' },
-                  duration: { seconds: 780, text: '13 min' },
-                  transit: {
-                    lineName: 'Elizabeth line',
-                    serviceShortName: 'EL',
-                    color: '#7c3aed',
-                    departureStop: { name: 'Paddington' },
-                    arrivalStop: { name: 'Heathrow' },
-                  },
-                },
-              ],
-            },
-          ],
-        })
+        return HttpResponse.json({ routes: [] })
       }),
       http.post('/api/maps/directions-mobile', async ({ request }) => {
         mobileCalls += 1
@@ -777,10 +719,12 @@ describe('calculateRouteWithLegs persistent cache', () => {
       profile: 'transit',
       provider: 'google_maps_mobile',
     })
-    expect(stale.legs[0].alternatives?.[1].steps).toBeUndefined()
+    expect(stale.legs[0].alternatives?.[1]).toMatchObject({
+      durationText: '13 min',
+      distanceText: '2.1 km',
+    })
 
     setRouteAlternativeChoice(stale.legs[0].routeChoiceKey!, 1)
-    previewHasDetails = true
 
     const refreshed = await calculateRouteWithLegs([wp1, wp2], {
       profile: 'transit',
@@ -792,10 +736,9 @@ describe('calculateRouteWithLegs persistent cache', () => {
       durationText: '13 min',
       distanceText: '2.1 km',
     })
-    expect(refreshed.legs[0].steps?.[0].transit?.line.shortName).toBe('EL')
-    expect(refreshed.legs[0].alternatives?.[1].steps?.[0].transit?.line.shortName).toBe('EL')
-    expect(mobileCalls).toBe(2)
-    expect(previewCalls).toBe(2)
+    expect(refreshed.legs[0].steps).toBeUndefined()
+    expect(mobileCalls).toBe(1)
+    expect(previewCalls).toBe(0)
   })
 })
 

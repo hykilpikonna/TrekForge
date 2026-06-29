@@ -177,23 +177,25 @@ function sampleOverviewGeometry(points: Array<{ lat: number; lng: number }>): Bu
   return messageField(8, [bytesField(1, packedVarints(latDeltas)), bytesField(2, packedVarints(lngDeltas))]);
 }
 
-function sampleMobileMmapResponse(): Buffer {
-  const overviewGeometry = sampleOverviewGeometry([
-    { lat: 35.6778606, lng: 139.763749 },
-    { lat: 35.3433356, lng: 139.1565648 },
-    { lat: 35.1700303, lng: 136.897241 },
-  ]);
+function sampleRouteSummary(): Buffer {
   const summary = messageField(11, [
     messageField(1, [varintField(1, 16_800)]),
     messageField(5, [varintField(1, 15_000), varintField(2, 21_000), stringField(3, '4 hr 10 min to 5 hr 50 min')]),
   ]);
-  const header = messageField(1, [
-    varintField(1, 0),
+  return summary;
+}
+
+function sampleRouteHeader(index = 0): Buffer {
+  return messageField(1, [
+    varintField(1, index),
     stringField(2, 'Tomei Expressway'),
     messageField(3, [varintField(1, 348_474)]),
     messageField(4, [varintField(1, 16_800)]),
-    summary,
+    sampleRouteSummary(),
   ]);
+}
+
+function sampleRouteDetails(): Buffer {
   const money = messageField(1, [stringField(1, 'JPY'), varintField(2, 8_620), varintField(3, 0)]);
   const moneyContainer = messageField(6, [money, stringField(2, '\u00a58620')]);
   const tollDetail = messageField(1, [
@@ -202,9 +204,33 @@ function sampleMobileMmapResponse(): Buffer {
     stringField(4, 'ETC'),
     moneyContainer,
   ]);
-  const details = messageField(2, [messageField(10, [tollDetail])]);
-  const routeWrapper = messageField(2, [header, details]);
-  const protobuf = messageField(1, [messageField(1, [routeWrapper, overviewGeometry])]);
+  const turnStep = messageField(20, [
+    stringField(
+      2,
+      "<step maneuver='TURN' meters='1996'>Turn <turn side='RIGHT'>right</turn> at <intersectionlist><intersection lang='ja'>赤池２丁目北（交差点）</intersection></intersectionlist></step>",
+    ),
+  ]);
+  const rampStep = messageField(20, [
+    stringField(
+      2,
+      "<step maneuver='ON_RAMP' meters='91'>Use the left lane to take the <signlist><sign lang='en'>Mei-Nikan Expy</sign></signlist> ramp</step>",
+    ),
+  ]);
+  return messageField(2, [messageField(10, [tollDetail]), turnStep, rampStep]);
+}
+
+function sampleMobileMmapResponse(options: { duplicateHeaderWithoutToll?: boolean } = {}): Buffer {
+  const overviewGeometry = sampleOverviewGeometry([
+    { lat: 35.6778606, lng: 139.763749 },
+    { lat: 35.3433356, lng: 139.1565648 },
+    { lat: 35.1700303, lng: 136.897241 },
+  ]);
+  const routeWrapper = messageField(2, [sampleRouteHeader(), sampleRouteDetails()]);
+  const routeContainers = [messageField(1, [routeWrapper, overviewGeometry])];
+  if (options.duplicateHeaderWithoutToll) {
+    routeContainers.push(messageField(1, [sampleRouteHeader(8)]));
+  }
+  const protobuf = messageField(1, routeContainers);
   return Buffer.concat([Buffer.from([0, 24]), gzipSync(protobuf)]);
 }
 
@@ -308,11 +334,51 @@ describe('googleMapsMobileDirections wrapper', () => {
         { lat: 35.3433356, lng: 139.1565648 },
         { lat: 35.1700303, lng: 136.897241 },
       ],
+      steps: [
+        {
+          instruction: 'Turn right at 赤池２丁目北（交差点）',
+          maneuver: 'TURN',
+          distance: { meters: 1996, text: null },
+        },
+        {
+          instruction: 'Use the left lane to take the Mei-Nikan Expy ramp',
+          maneuver: 'ON_RAMP',
+          distance: { meters: 91, text: null },
+        },
+      ],
     });
     expect(result.optimisticDuration?.seconds).toBe(15000);
     expect(result.pessimisticDuration?.seconds).toBe(21000);
     expect(result.tollFee?.amount).toBe(8620);
     expect(result.debug?.gzipOffset).toBe(2);
+  });
+
+  it('deduplicates header-only route repeats and preserves parsed ETC tolls', () => {
+    const result = parseGoogleMapsMobileDirectionsResponse(
+      sampleMobileMmapResponse({ duplicateHeaderWithoutToll: true }),
+      { includeDebug: true },
+    );
+
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0]).toMatchObject({
+      title: 'Tomei Expressway',
+      tollFee: {
+        amount: 8620,
+        text: '\u00a58620',
+        currency: 'JPY',
+        label: 'ETC',
+      },
+    });
+  });
+
+  it('parses routes from a later gzip protobuf when the response starts with metadata', () => {
+    const metadata = Buffer.concat([Buffer.from([0, 1]), gzipSync(messageField(99, [varintField(1, 1)]))]);
+    const response = Buffer.concat([metadata, Buffer.from([0xaa, 0xbb]), sampleMobileMmapResponse()]);
+    const result = parseGoogleMapsMobileDirectionsResponse(response, { includeDebug: true });
+
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0]?.title).toBe('Tomei Expressway');
+    expect(result.debug?.gzipOffset).toBeGreaterThan(metadata.length);
   });
 
   it('posts the generated binary request to the mobile mmap endpoint', async () => {
