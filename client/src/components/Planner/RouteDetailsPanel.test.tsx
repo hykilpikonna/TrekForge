@@ -252,4 +252,67 @@ describe('RouteDetailsPanel', () => {
     expect(screen.getByText('ETC \u00a54100')).toBeInTheDocument()
   })
 
+  it('collapses continuous driving steps in route alternative summaries', () => {
+    render(
+      <RouteDetailsPanel
+        selection={{
+          key: 'route-5',
+          dayId: 10,
+          profile: 'driving',
+          title: 'Castle to Hotel',
+          subtitle: 'Castle to Hotel',
+          fromLabel: 'Castle',
+          toLabel: 'Hotel',
+          dayTitle: 'Day 1',
+          segment: {
+            mid: [35.38, 136.94],
+            from: [35.38, 136.94],
+            to: [35.41, 136.76],
+            distance: 45000,
+            duration: 3600,
+            walkingText: '9 h',
+            drivingText: '1 h',
+            durationText: '1 h',
+            distanceText: '45 km',
+            alternatives: [
+              {
+                index: 0,
+                distance: 45000,
+                duration: 3600,
+                walkingText: '9 h',
+                drivingText: '1 h',
+                durationText: '1 h',
+                distanceText: '45 km',
+                steps: [
+                  { mode: 'driving', instruction: 'Head north' },
+                  { mode: 'driving', instruction: 'Continue straight' },
+                  { mode: 'driving', instruction: 'Take the ramp' },
+                ],
+              },
+              {
+                index: 1,
+                distance: 52000,
+                duration: 4200,
+                walkingText: '10 h',
+                drivingText: '1 h 10 min',
+                durationText: '1 h 10 min',
+                distanceText: '52 km',
+                steps: [
+                  { mode: 'driving', instruction: 'Head north' },
+                  { mode: 'walking', instruction: 'Walk through parking' },
+                  { mode: 'driving', instruction: 'Continue to destination' },
+                ],
+              },
+            ],
+          },
+        }}
+        onClose={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Select Drive')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Drive to Drive/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Select Drive to Walk to Drive')).toBeInTheDocument()
+  })
+
 })
