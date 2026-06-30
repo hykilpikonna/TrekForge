@@ -4,10 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildGoogleMapsMobilePlaceDetailsRequest,
+  buildGoogleMapsMobileReviewListRequest,
   fetchGoogleMapsMobilePlaceDetails,
+  fetchGoogleMapsMobileRichPlaceDetails,
   parseGoogleMapsMobileRichPlaceDetailsResponse,
   parseGoogleMapsMobilePlacePhotosResponse,
   parseGoogleMapsMobilePlaceDetailsResponse,
+  parseGoogleMapsMobileReviewListResponse,
 } from '../../../src/services/googleMapsMobilePlaceDetails';
 
 const ftid = '0x60188d6f41f03f85:0xe25bfe624782e3c9';
@@ -194,7 +197,48 @@ function review(text: string, rating: number, author: string): Buffer {
   ]);
 }
 
-function sampleMobileRichPlaceResponse(): Buffer {
+function ugcReview(text: string, rating: number, author: string, idx: number): Buffer {
+  const publishedMicros = Date.UTC(2026, 5, 27, 10, idx) * 1000;
+  return messageField(1, [
+    messageField(1, [
+      stringField(1, `review-id-${idx}`),
+      messageField(2, [
+        varintField(3, publishedMicros),
+        varintField(4, publishedMicros),
+        messageField(5, [
+          messageField(1, [
+            stringField(4, `https://gz0.googleusercontent.com/a-/avatar-${idx}=s120-c-rp-mo-ba12-br100`),
+            stringField(5, author),
+            stringField(6, `https://www.google.com/maps/contrib/${idx}?hl=en-US`),
+          ]),
+        ]),
+        stringField(7, `${idx} months ago`),
+      ]),
+      messageField(3, [
+        messageField(1, [varintField(1, rating)]),
+        messageField(2, [
+          stringField(1, text),
+          stringField(2, 'en'),
+        ]),
+      ]),
+      messageField(5, [
+        messageField(4, [
+          stringField(1, `https://www.google.com/maps/reviews/data=!4m8!review-${idx}`),
+        ]),
+      ]),
+    ]),
+  ]);
+}
+
+function sampleMobileReviewListResponse(nextPageToken: string | null = 'next-token:16'): Buffer {
+  return Buffer.concat([
+    ugcReview('Paged review one.', 5, 'Nora', 1),
+    ugcReview('Paged review two.', 4, 'Owen', 2),
+    ...(nextPageToken ? [stringField(2, nextPageToken)] : []),
+  ]);
+}
+
+function sampleMobileRichPlaceResponse(reviewPageToken?: string): Buffer {
   const richPlace = messageField(1, [
     stringField(2, ftid),
     stringField(3, 'Inuyama Castle'),
@@ -205,6 +249,7 @@ function sampleMobileRichPlaceResponse(): Buffer {
     ]),
     messageField(81, [
       review('Great view over the river.', 5, 'Mika'),
+      ...(reviewPageToken ? [stringField(2, reviewPageToken)] : []),
     ]),
     stringField(97, 'https://gz0.googleusercontent.com/gps-cs-s/PHOTO_ONE=w203-h100-k-no-pi0-ya5.1-ro-0-fo100:6'),
   ]);
@@ -296,6 +341,76 @@ describe('googleMapsMobilePlaceDetails helper', () => {
       attribution: null,
       source: 'google_maps_mobile',
     });
+  });
+
+  it('builds and parses paginated mobile review list requests', () => {
+    const built = buildGoogleMapsMobileReviewListRequest({
+      ftid,
+      pageToken: 'CjEIARIpCgoAP7_LAY-D____EhBm4maQDMXTEVU3ducAAAAAGgn92SwCaP3HwMoYACIA:8',
+      language: 'en-US',
+    });
+
+    expect(built.endpoint).toContain('MobileMapsUgcPostService/ListUgcPosts');
+    expect(built.body).toHaveLength(191);
+    expect(built.body.indexOf(Buffer.from(ftid))).toBeGreaterThan(0);
+    expect(built.body.indexOf(Buffer.from('CjEIARIpCgoAP7_LAY-D'))).toBeGreaterThan(0);
+    expect(built.headers['content-type']).toBe('application/x-protobuf');
+    expect(built.headers['x-goog-api-key']).toBeTruthy();
+    expect(built.headers.cookie).toBeUndefined();
+    expect(built.headers.authorization).toBeUndefined();
+
+    const page = parseGoogleMapsMobileReviewListResponse(sampleMobileReviewListResponse());
+    expect(page.next_page_token).toBe('next-token:16');
+    expect(page.reviews).toEqual([
+      {
+        author: 'Nora',
+        rating: 5,
+        text: 'Paged review one.',
+        time: '1 months ago',
+        published_at: '2026-06-27T10:01:00.000Z',
+        photo: 'https://gz0.googleusercontent.com/a-/avatar-1=s120-c-rp-mo-ba12-br100',
+        uri: 'https://www.google.com/maps/reviews/data=!4m8!review-1',
+        language: 'en',
+      },
+      {
+        author: 'Owen',
+        rating: 4,
+        text: 'Paged review two.',
+        time: '2 months ago',
+        published_at: '2026-06-27T10:02:00.000Z',
+        photo: 'https://gz0.googleusercontent.com/a-/avatar-2=s120-c-rp-mo-ba12-br100',
+        uri: 'https://www.google.com/maps/reviews/data=!4m8!review-2',
+        language: 'en',
+      },
+    ]);
+  });
+
+  it('fetches additional review pages when rich details include a cursor', async () => {
+    const firstPageToken = 'CjEIARIpCgoAP7_LAY-D____EhBm4maQDMXTEVU3ducAAAAAGgn92SwCaP3HwMoYACIA:8';
+    const richResponse = sampleMobileRichPlaceResponse(firstPageToken);
+    const reviewPage = sampleMobileReviewListResponse(null);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        arrayBuffer: async () => richResponse.buffer.slice(richResponse.byteOffset, richResponse.byteOffset + richResponse.byteLength),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        arrayBuffer: async () => reviewPage.buffer.slice(reviewPage.byteOffset, reviewPage.byteOffset + reviewPage.byteLength),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const details = await fetchGoogleMapsMobileRichPlaceDetails({ ftid, language: 'en-US,en;q=0.9' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('MobileMapsUgcPostService/ListUgcPosts');
+    expect(details.reviews).toHaveLength(3);
+    expect((details.reviews[1] as any).text).toBe('Paged review one.');
+    expect((details.reviews[2] as any).text).toBe('Paged review two.');
   });
 
   it('does not cap mobile rich reviews at five', () => {
