@@ -568,7 +568,9 @@ describe('PlaceInspector', () => {
 
     const firstPhoto = (await screen.findAllByAltText('Photo Gallery'))[0];
     await user.click(firstPhoto.closest('button')!);
-    expect(await screen.findByText('1 / 2')).toBeTruthy();
+    const counter = await screen.findByText('1 / 2');
+    expect(counter).toBeTruthy();
+    expect(counter.closest('[data-testid="inspector-scroll"]')).toBeNull();
 
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     expect(await screen.findByText('2 / 2')).toBeTruthy();
@@ -594,7 +596,9 @@ describe('PlaceInspector', () => {
     expect(screen.queryByText('Fourth review.')).toBeNull();
 
     await user.click(firstReview.closest('button')!);
-    expect(await screen.findByRole('dialog', { name: 'Reviews' })).toBeTruthy();
+    const dialog = await screen.findByRole('dialog', { name: 'Reviews' });
+    expect(dialog).toBeTruthy();
+    expect(dialog.closest('[data-testid="inspector-scroll"]')).toBeNull();
     expect(await screen.findByText('Fourth review.')).toBeTruthy();
     expect(screen.getAllByText('4 reviews').length).toBeGreaterThan(0);
   });

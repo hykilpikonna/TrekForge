@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import ReactDOM from 'react-dom'
 import { avatarSrc } from '../../utils/avatarSrc'
 import { openFile } from '../../utils/fileDownload'
 import Markdown from 'react-markdown'
@@ -685,12 +686,15 @@ function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; de
         </div>
       </div>
       {lightboxIndex !== null && (
-        <PhotoLightbox
-          key={`${place.id}-${lightboxIndex}`}
-          photos={lightboxPhotos}
-          startIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-        />
+        ReactDOM.createPortal(
+          <PhotoLightbox
+            key={`${place.id}-${lightboxIndex}`}
+            photos={lightboxPhotos}
+            startIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />,
+          document.body,
+        )
       )}
     </>
   )
@@ -891,13 +895,13 @@ function ReviewsPanel({ reviews, onClose, t }: {
   onClose: () => void
   t: TFunction
 }) {
-  return (
+  return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/45 p-3 sm:items-center" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t('inspector.reviews')}
-        className="flex max-h-[min(680px,calc(100vh-32px))] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl bg-surface-elevated shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
+        className="flex max-h-[min(680px,calc(100vh-32px))] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl bg-surface-elevated shadow-[0_18px_60px_rgba(0,0,0,0.28)] [backdrop-filter:blur(28px)_saturate(180%)] [-webkit-backdrop-filter:blur(28px)_saturate(180%)]"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-3 border-b border-edge-faint px-4 py-3">
@@ -959,7 +963,8 @@ function ReviewsPanel({ reviews, onClose, t }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
