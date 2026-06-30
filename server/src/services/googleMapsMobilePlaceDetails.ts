@@ -27,8 +27,21 @@ export interface GoogleMapsMobileRichPlaceDetails {
   popular_times: GoogleMapsPreviewPopularTime[] | null;
   popular_status: string | null;
   reviews: unknown[];
+  next_reviews_page_token?: string | null;
   photos: GoogleMapsMobilePlacePhoto[];
   summary: string | null;
+}
+
+export interface GoogleMapsMobilePlaceReviewsRequest {
+  ftid: string;
+  pageToken: string;
+  language?: string;
+  timeoutMs?: number;
+}
+
+export interface GoogleMapsMobileReviewListPage {
+  reviews: unknown[];
+  next_page_token: string | null;
 }
 
 interface NormalizedRequest {
@@ -53,9 +66,13 @@ interface ProtoField {
 }
 
 const GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT = 'https://mobilemaps.googleapis.com/glm/mmap';
+const GOOGLE_MAPS_MOBILE_UGC_POSTS_ENDPOINT =
+  'https://mobilemaps-pa-gz.googleapis.com/$rpc/google.internal.mothership.maps.mobilemaps.ugcpost.v1.MobileMapsUgcPostService/ListUgcPosts?frontend=boq';
 const DEFAULT_LANGUAGE = 'en-US,en;q=0.9';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 30_000;
+const MAX_REVIEW_PAGES = 3;
+const MAX_MOBILE_REVIEWS = 32;
 const DAY_MINUTES = 24 * 60;
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -70,6 +87,11 @@ const PLACE_DETAILS_FIELD_MASK = Buffer.from(
   'hex',
 );
 const RICH_PLACE_PHOTOS_TEMPLATE_FTID = '0x351545d4efdf5d53:0xd7b655e89ee76487';
+const GOOGLE_MAPS_MOBILE_API_KEY = 'AIzaSyCkzRZrDx_ICh-dev88AVfxafYxBm6Q0XA';
+const GOOGLE_MAPS_MOBILE_CLIENT_DATA_BIN =
+  'GuMBrLIM6beoEsnSzyKX4PUstIX2LMqV9iyXg/csop33LNee9yzwkvgs16X4LNup+CyjtfgsrvD4LOGR+Sy0lvksp5r5LKma+Sy6pfks/6r5LJKx+SyKs/ks/7z5LMe++SzLv/ksrMb5LNbN+SzW2fksn/j5LIb/+Sy3m/osw776LKj4+izHh/ssgZD7LIK6+yyR36Mv7b6nL7j0hTCD54cw+vCHMMWliDDl+IgwvYWJMISGiTDin4kw8qeJMKnTiTCp04kwiumJMOjA4zHPteUxpZCxMrzavzLx+sYy9frGMvn6xjKjvcoy8AMCiAQAkgQSMjUuNDcuMC44MzU0MjkzMDAwoAT0A6oEAMAEAsgEDw==';
+const GOOGLE_MAPS_MOBILE_GMM_CLIENT_BIN =
+  'CgJKUBIPY29tLmdvb2dsZS5NYXBzGhIyNS40Ny4wLjgzMzU0MjkzMDAiDmlvczppUGhvbmUxNiwxKgYxOC43LjIyDGlPUy1BcHBTdG9yZTgAWAKCAQIQA9IB0AE1MzI9dXJ3dFhqYThWVl91NXdDc0RyQXNRdnlKOVliUEZ0RURlZHp0RkhWY2V3UFh1Y2FuSzFBY2dvSzB4SlR5MW1UYmFWTFFROHViX3R3YW45NmpzRFprNno2VzNrYkFCdlVZeDBjM1hxMWdwRFAwbDJmT2tuZFZzRnc2YThzWVAtNWc4S3ZnenA4QkpfakFnTnZQY2JwbjNVSTVpOGw1aWZMelFvMmZFSFhadE83UTZZRnVLRWxETWVJd2xHczMtTG83SE5yaUpVTFVJTVdr6gEEMTE5MYICAkpQkAICoAIAqgISMjUuNDcuMC44MzU0MjkzMDAwuAL0A8ACAQ==';
 const RICH_PLACE_PHOTOS_REQUEST_BASE64 = [
   'ABhGn1Se+1h53QAFZW4tVVMADmlvczppUGhvbmUxNiwxABIyNS40Ny4wLjgzMzU0MjkzMDAADGlPUy1BcHBTdG9yZQA+AAAC',
   'XAoEMTE5MSABKg9jb20uZ29vZ2xlLk1hcHMyAkpQOAFC0AE1MzI9dXJ3dFhqYThWVl91NXdDc0RyQXNRdnlKOVliUEZ0RURl',
@@ -360,6 +382,90 @@ function buildMobileMmapRichPhotosRequest(request: NormalizedRequest): BuiltMobi
   };
 }
 
+function normalizeReviewListRequest(input: GoogleMapsMobilePlaceReviewsRequest): NormalizedRequest & { pageToken: string } {
+  const request = normalizeRequest(input);
+  const pageToken = nonEmptyString(input.pageToken);
+  if (!pageToken) throw makeHttpError(400, 'Google Maps mobile review list requires a page token');
+  return { ...request, pageToken };
+}
+
+function reviewListContextMessage(ftid: string): Buffer {
+  return messageField(1, [
+    stringField(1, ftid),
+    messageField(6, [
+      messageField(1, [varintField(1, 2)]),
+      messageField(4, [varintField(1, 1)]),
+      messageField(5, [varintField(1, 3)]),
+      messageField(5, [varintField(1, 4)]),
+      messageField(5, [varintField(1, 5)]),
+    ]),
+    messageField(7, [varintField(1, 3)]),
+  ]);
+}
+
+function reviewListOptionsMessage(): Buffer {
+  return messageField(8, [
+    varintField(1, 0),
+    varintField(2, 1),
+    varintField(3, 1),
+    varintField(5, 1),
+    varintField(7, 1),
+    messageField(11, [
+      varintField(1, 1),
+      varintField(2, 1),
+      messageField(4, [varintField(1, 3)]),
+      messageField(4, [varintField(1, 4)]),
+      messageField(4, [varintField(1, 5)]),
+      messageField(4, [varintField(1, 6)]),
+      messageField(4, [varintField(1, 7)]),
+      varintField(5, 1),
+    ]),
+  ]);
+}
+
+function buildReviewListPayload(ftid: string, pageToken: string): Buffer {
+  return Buffer.concat([
+    reviewListContextMessage(ftid),
+    messageField(2, [
+      varintField(1, 8),
+      stringField(2, pageToken),
+    ]),
+    stringField(5, '8Y'),
+    reviewListOptionsMessage(),
+    messageField(12, [varintField(1, 0)]),
+  ]);
+}
+
+function buildMobileReviewListHeaders(request: NormalizedRequest, bodyLength: number): Record<string, string> {
+  return {
+    'content-type': 'application/x-protobuf',
+    accept: '*/*',
+    'accept-encoding': 'gzip, deflate, br',
+    'accept-language': request.language,
+    'x-client-data-bin': GOOGLE_MAPS_MOBILE_CLIENT_DATA_BIN,
+    'x-gmm-client-bin': GOOGLE_MAPS_MOBILE_GMM_CLIENT_BIN,
+    'x-goog-api-key': GOOGLE_MAPS_MOBILE_API_KEY,
+    'x-goog-request-params': 'frontend=boq',
+    'x-server-timeout': '15.000000',
+    'user-agent': 'grpc-objc/1.77.0-dev (GTMSessionFetcher;)',
+    'content-length': String(bodyLength),
+    'x-client-time-format-bin': 'CAI=',
+    'x-goog-ext-353267353-bin': 'IOTDCA==',
+  };
+}
+
+export function buildGoogleMapsMobileReviewListRequest(
+  input: GoogleMapsMobilePlaceReviewsRequest,
+): BuiltMobilePlaceDetailsRequest {
+  const request = normalizeReviewListRequest(input);
+  const body = buildReviewListPayload(request.ftid, request.pageToken);
+  return {
+    endpoint: GOOGLE_MAPS_MOBILE_UGC_POSTS_ENDPOINT,
+    body,
+    headers: buildMobileReviewListHeaders(request, body.length),
+  };
+}
+
 export function buildGoogleMapsMobilePlaceDetailsRequest(
   input: GoogleMapsMobilePlaceDetailsRequest,
 ): BuiltMobilePlaceDetailsRequest {
@@ -474,10 +580,12 @@ export function parseGoogleMapsMobileRichPlaceDetailsResponse(
   const placeFields = placeMessage ? tryParseMessage(placeMessage) : null;
 
   const popularTimesMessage = placeFields ? firstMessage(placeFields, 57) : null;
+  const reviewsMessage = placeFields ? firstMessage(placeFields, 81) : null;
   return {
     popular_times: parseMobilePopularTimes(popularTimesMessage),
     popular_status: parseMobilePopularStatus(popularTimesMessage),
-    reviews: placeFields ? parseMobileReviews(firstMessage(placeFields, 81)) : [],
+    reviews: parseMobileReviews(reviewsMessage),
+    next_reviews_page_token: extractReviewPageToken(reviewsMessage) ?? extractReviewPageToken(decoded.protobuf),
     photos,
     summary: null,
   };
@@ -689,6 +797,16 @@ function publishedAtFromMillis(value: number | null): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function publishedAtFromGoogleTimestamp(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value) || value <= 0) return null;
+  const millis = value > 1_000_000_000_000_000
+    ? value / 1000
+    : value > 1_000_000_000_000
+      ? value
+      : value * 1000;
+  return publishedAtFromMillis(millis);
+}
+
 function parseMobileReviews(reviewsMessage: Buffer | null): unknown[] {
   if (!reviewsMessage) return [];
   const fields = tryParseMessage(reviewsMessage);
@@ -716,6 +834,121 @@ function parseMobileReviews(reviewsMessage: Buffer | null): unknown[] {
   }
 
   return reviews;
+}
+
+function extractReviewPageToken(buffer: Buffer | null): string | null {
+  if (!buffer) return null;
+  const tokenPattern = /\b(Cj[A-Za-z0-9_-]{20,}:[0-9]{1,5})\b/g;
+  let bestToken: string | null = null;
+  let bestOffset = -1;
+
+  for (const text of collectText(buffer)) {
+    tokenPattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = tokenPattern.exec(text)) !== null) {
+      const offset = Number(match[1].split(':').pop());
+      if (Number.isInteger(offset) && offset >= bestOffset) {
+        bestOffset = offset;
+        bestToken = match[1];
+      }
+    }
+  }
+
+  return bestToken;
+}
+
+function parseUgcReviewAuthor(authorMessage: Buffer | null): {
+  author: string | null;
+  photo: string | null;
+  uri: string | null;
+  time: string | null;
+  published_at: string | null;
+} {
+  if (!authorMessage) return { author: null, photo: null, uri: null, time: null, published_at: null };
+  const fields = tryParseMessage(authorMessage);
+  if (!fields) return { author: null, photo: null, uri: null, time: null, published_at: null };
+  const profileContainer = firstMessage(fields, 5);
+  const profileContainerFields = profileContainer ? tryParseMessage(profileContainer) : null;
+  const profileMessage = profileContainerFields ? firstMessage(profileContainerFields, 1) : null;
+  const profileFields = profileMessage ? tryParseMessage(profileMessage) : null;
+
+  return {
+    author: profileFields ? fieldStrings(profileFields, 5)[0] ?? null : null,
+    photo: profileFields ? fieldStrings(profileFields, 4)[0] ?? null : null,
+    uri: profileFields ? fieldStrings(profileFields, 6)[0] ?? fieldStrings(profileFields, 9)[0] ?? null : null,
+    time: fieldStrings(fields, 7)[0] ?? null,
+    published_at: publishedAtFromGoogleTimestamp(firstVarint(fields, 4) ?? firstVarint(fields, 3)),
+  };
+}
+
+function parseUgcReviewContent(contentMessage: Buffer | null): {
+  rating: number | null;
+  text: string | null;
+  language: string | null;
+} {
+  if (!contentMessage) return { rating: null, text: null, language: null };
+  const fields = tryParseMessage(contentMessage);
+  if (!fields) return { rating: null, text: null, language: null };
+  const ratingMessage = firstMessage(fields, 1);
+  const ratingFields = ratingMessage ? tryParseMessage(ratingMessage) : null;
+  const textMessage = firstMessage(fields, 2);
+  const textFields = textMessage ? tryParseMessage(textMessage) : null;
+
+  return {
+    rating: ratingFields ? firstVarint(ratingFields, 1) : null,
+    text: textFields ? fieldStrings(textFields, 1)[0] ?? null : null,
+    language: textFields ? fieldStrings(textFields, 2)[0] ?? null : null,
+  };
+}
+
+function parseUgcReviewUri(actionsMessage: Buffer | null): string | null {
+  if (!actionsMessage) return null;
+  const fields = tryParseMessage(actionsMessage);
+  if (!fields) return null;
+  const reviewUrlMessage = firstMessage(fields, 4);
+  const reviewUrlFields = reviewUrlMessage ? tryParseMessage(reviewUrlMessage) : null;
+  const urls = reviewUrlFields ? fieldStrings(reviewUrlFields, 1) : [];
+  return urls.find((url) => /\/maps\/reviews\//.test(url)) ?? urls[0] ?? null;
+}
+
+function parseUgcPostReview(postMessage: Buffer): unknown | null {
+  const postFields = tryParseMessage(postMessage);
+  if (!postFields) return null;
+  const reviewMessage = firstMessage(postFields, 1) ?? postMessage;
+  const reviewFields = tryParseMessage(reviewMessage);
+  if (!reviewFields) return null;
+
+  const authorInfo = parseUgcReviewAuthor(firstMessage(reviewFields, 2));
+  const content = parseUgcReviewContent(firstMessage(reviewFields, 3));
+  const text = nonEmptyString(content.text);
+  const author = nonEmptyString(authorInfo.author);
+  if (!text && !author && content.rating === null) return null;
+
+  return {
+    author,
+    rating: content.rating,
+    text,
+    time: nonEmptyString(authorInfo.time),
+    published_at: authorInfo.published_at,
+    photo: nonEmptyString(authorInfo.photo),
+    uri: parseUgcReviewUri(firstMessage(reviewFields, 5)) ?? nonEmptyString(authorInfo.uri),
+    language: nonEmptyString(content.language),
+  };
+}
+
+export function parseGoogleMapsMobileReviewListResponse(
+  responseBody: Buffer | ArrayBuffer,
+): GoogleMapsMobileReviewListPage {
+  const body = responseBufferFrom(responseBody);
+  const fields = parseMessage(body);
+  const reviews = allMessages(fields, 1)
+    .map(parseUgcPostReview)
+    .filter((review): review is Record<string, unknown> => Boolean(review));
+
+  return {
+    reviews,
+    next_page_token: fieldStrings(fields, 2)[0] ?? null,
+  };
 }
 
 function parseLatLng(coordsMessage: Buffer | null): { lat: number | null; lng: number | null } {
@@ -816,6 +1049,64 @@ export async function fetchGoogleMapsMobilePlacePhotos(
   return details.photos;
 }
 
+export async function fetchGoogleMapsMobileReviewList(
+  input: GoogleMapsMobilePlaceReviewsRequest,
+): Promise<GoogleMapsMobileReviewListPage> {
+  const request = normalizeReviewListRequest(input);
+  const built = buildGoogleMapsMobileReviewListRequest(input);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), request.timeoutMs);
+  try {
+    const response = await fetch(built.endpoint, {
+      method: 'POST',
+      headers: built.headers,
+      body: built.body,
+      signal: controller.signal,
+    });
+    const body = Buffer.from(await response.arrayBuffer());
+    if (!response.ok) {
+      throw makeHttpError(
+        response.status,
+        `Google Maps mobile review list failed with ${response.status} ${response.statusText}`,
+      );
+    }
+    return parseGoogleMapsMobileReviewListResponse(body);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw makeHttpError(504, 'Google Maps mobile review list request timed out');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchAdditionalMobileReviews(
+  request: NormalizedRequest,
+  initialPageToken: string | null | undefined,
+  initialReviewCount: number,
+): Promise<unknown[]> {
+  const reviews: unknown[] = [];
+  const seenTokens = new Set<string>();
+  let pageToken = initialPageToken ?? null;
+
+  for (let page = 0; pageToken && page < MAX_REVIEW_PAGES && initialReviewCount + reviews.length < MAX_MOBILE_REVIEWS; page += 1) {
+    if (seenTokens.has(pageToken)) break;
+    seenTokens.add(pageToken);
+
+    const reviewPage = await fetchGoogleMapsMobileReviewList({
+      ftid: request.ftid,
+      pageToken,
+      language: request.language,
+      timeoutMs: request.timeoutMs,
+    });
+    reviews.push(...reviewPage.reviews);
+    pageToken = reviewPage.next_page_token;
+  }
+
+  return reviews.slice(0, Math.max(0, MAX_MOBILE_REVIEWS - initialReviewCount));
+}
+
 export async function fetchGoogleMapsMobileRichPlaceDetails(
   input: GoogleMapsMobilePlaceDetailsRequest,
 ): Promise<GoogleMapsMobileRichPlaceDetails> {
@@ -845,6 +1136,22 @@ export async function fetchGoogleMapsMobileRichPlaceDetails(
           );
         }
         const details = parseGoogleMapsMobileRichPlaceDetailsResponse(body);
+        if (details.next_reviews_page_token) {
+          try {
+            const additionalReviews = await fetchAdditionalMobileReviews(
+              request,
+              details.next_reviews_page_token,
+              details.reviews.length,
+            );
+            if (additionalReviews.length > 0) {
+              details.reviews = [...details.reviews, ...additionalReviews].slice(0, MAX_MOBILE_REVIEWS);
+            }
+          } catch (err) {
+            console.warn(
+              `Google Maps mobile review list failed for ${request.ftid}: ${err instanceof Error ? err.message : 'unknown error'}`,
+            );
+          }
+        }
         richPlaceDetailsResponseCache.set(cacheKey, details);
         if (richPlaceDetailsResponseCache.size > 200) {
           const oldest = richPlaceDetailsResponseCache.keys().next().value;

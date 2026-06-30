@@ -190,7 +190,7 @@ function localLanguageForCountry(countryCode?: string | null): string | null {
 
 const GOOGLE_FTID_RE = GOOGLE_MAPS_FTID_RE;
 const DETAILS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DETAILS_CACHE_SCHEMA_VERSION = 10;
+const DETAILS_CACHE_SCHEMA_VERSION = 11;
 
 // Extracts a Google Maps feature id (ftid, 0x..:0x..) from a URL's ?ftid= param.
 // The Places API (New) googleMapsUri is usually a cid-style URL (https://maps.google.com/?cid=NNN)

@@ -1101,7 +1101,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
       name: 'Cached Castle',
       source: 'google',
       business_status: 'CLOSED_TEMPORARILY',
-      cache_schema_version: 10,
+      cache_schema_version: 11,
     };
     mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
     const fetchMock = vi.fn();
@@ -1191,7 +1191,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     ]);
     expect(place.business_status).toBe('OPERATIONAL');
     expect(place.source).toBe('google');
-    expect(place.cache_schema_version).toBe(10);
+    expect(place.cache_schema_version).toBe(11);
     expect(place.reviews).toHaveLength(0);
     expect(place.summary).toBeNull();
   });
@@ -1213,7 +1213,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
     expect((result.place as any).google_ftid).toBe(ftid);
   });
 
-  it('MAPS-041b3: returns fresh schema-v10 Google place details cache without refetching', async () => {
+  it('MAPS-041b3: returns fresh schema-v11 Google place details cache without refetching', async () => {
     const cachedPlace = {
       google_place_id: 'ChIJCached',
       name: 'Cached Museum',
@@ -1221,7 +1221,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
         { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
       ],
       business_status: 'OPERATIONAL',
-      cache_schema_version: 10,
+      cache_schema_version: 11,
     };
     mockDbGet.mockReturnValueOnce({ payload_json: JSON.stringify(cachedPlace), fetched_at: Date.now() });
     const fetchMock = vi.fn();
@@ -1275,7 +1275,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((result.place as any).business_status).toBe('CLOSED_PERMANENTLY');
-    expect((result.place as any).cache_schema_version).toBe(10);
+    expect((result.place as any).cache_schema_version).toBe(11);
   });
 
   it('MAPS-041b6: fills missing preview weekly hours from mobile place details', async () => {
@@ -1778,7 +1778,7 @@ describe('getPlaceDetails (fetch stubbed)', () => {
       { open: { day: 1, hour: 10, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } },
     ]);
     expect((result.place as any).business_status).toBe('OPERATIONAL');
-    expect((result.place as any).cache_schema_version).toBe(10);
+    expect((result.place as any).cache_schema_version).toBe(11);
   });
 });
 

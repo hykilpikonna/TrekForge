@@ -52,7 +52,7 @@ function setSessionCache(key, value) {
 function usePlaceDetails(googlePlaceId, googleFtid, osmId, language) {
   const [details, setDetails] = useState(null)
   const detailId = googlePlaceId || googleFtid || osmId
-  const cacheKey = `gdetails_v9_expanded_${detailId}_${language}`
+  const cacheKey = `gdetails_v11_expanded_${detailId}_${language}`
   useEffect(() => {
     if (!detailId) { setDetails(null); return }
     if (detailsCache.has(cacheKey)) { setDetails(detailsCache.get(cacheKey)); return }
