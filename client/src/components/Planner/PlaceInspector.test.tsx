@@ -562,15 +562,30 @@ describe('PlaceInspector', () => {
         ],
       },
     } as any);
-    const p = buildPlace({ id: 209, name: 'Photo Gallery', google_ftid: '0x123:0x456' } as any);
+    const p = buildPlace({
+      id: 209,
+      name: 'Photo Gallery',
+      google_ftid: '0x123:0x456',
+      image_url: '/api/maps/place-photo/0x123%3A0x456/bytes',
+    } as any);
 
     render(<PlaceInspector {...defaultProps} place={p} />);
 
-    const firstPhoto = (await screen.findAllByAltText('Photo Gallery'))[0];
+    await waitFor(() => {
+      expect(document.querySelectorAll('button img[alt="Photo Gallery"]')).toHaveLength(2);
+    });
+    const photos = Array.from(document.querySelectorAll<HTMLImageElement>('button img[alt="Photo Gallery"]'));
+    expect(photos.map(photo => photo.getAttribute('src'))).toEqual([
+      'https://gz0.googleusercontent.com/gps-cs-s/one=w640-h426-k-no',
+      'https://gz0.googleusercontent.com/gps-cs-s/two=w640-h426-k-no',
+    ]);
+    const firstPhoto = photos[0];
+    expect(firstPhoto.getAttribute('src')).toBe('https://gz0.googleusercontent.com/gps-cs-s/one=w640-h426-k-no');
     await user.click(firstPhoto.closest('button')!);
     const counter = await screen.findByText('1 / 2');
     expect(counter).toBeTruthy();
     expect(counter.closest('[data-testid="inspector-scroll"]')).toBeNull();
+    expect(document.querySelector('img[src="https://gz0.googleusercontent.com/gps-cs-s/one=w2048-h2048-k-no"]')).toBeTruthy();
 
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     expect(await screen.findByText('2 / 2')).toBeTruthy();
