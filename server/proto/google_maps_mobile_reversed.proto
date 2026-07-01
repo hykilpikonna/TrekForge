@@ -1,0 +1,255 @@
+syntax = "proto2";
+
+package trek.google.maps.mobile.reversed;
+
+message MmapPlaceDetailsChunk {
+  optional MmapPlaceDetailsFeatureEnvelope feature = 1;
+  optional bytes field_mask = 2;
+  optional MmapPlaceDetailsRenderingContext rendering_context = 3;
+  optional bool include_place = 5;
+}
+
+message MmapPlaceDetailsFeatureEnvelope {
+  optional MmapPlaceDetailsFeatureId feature_id = 1;
+}
+
+message MmapPlaceDetailsFeatureId {
+  optional string ftid = 1;
+}
+
+message MmapPlaceDetailsRenderingContext {
+  optional MmapPlaceDetailsSurface surface = 4;
+}
+
+message MmapPlaceDetailsSurface {
+  optional uint32 surface_id = 2;
+}
+
+message MmapDirectionsChunk {
+  optional DirectionsRouteRequest route_request = 1;
+  repeated uint32 requested_route_section = 2;
+  repeated uint32 requested_result_mode = 4;
+  optional bool include_route_details = 7;
+  optional bool include_alternates = 8;
+}
+
+message DirectionsRouteRequest {
+  repeated DirectionsWaypoint waypoint = 1;
+  optional uint32 travel_mode = 5;
+  optional DirectionsRouteOptions route_options = 6;
+  optional uint32 unknown_7 = 7;
+  optional bool include_traffic = 14;
+  optional DirectionsRouteFlags route_flags = 15;
+  optional bool include_steps = 16;
+  optional uint32 unknown_25 = 25;
+  optional DirectionsSmallPair unknown_34 = 34;
+  repeated DirectionsSmallPair unknown_37 = 37;
+}
+
+message DirectionsWaypoint {
+  optional string query = 1;
+  optional string data_id = 2;
+  optional DirectionsLatLng coordinates = 3;
+  optional string display_text = 4;
+  optional uint32 unknown_6 = 6;
+  optional string place_id = 19;
+}
+
+message DirectionsLatLng {
+  optional double lat = 3;
+  optional double lng = 4;
+}
+
+message DirectionsRouteOptions {
+  optional DirectionsRoutePreferences route_preferences = 2;
+  optional bool avoid_ferries = 7;
+  optional DirectionsDepartureTime departure_time = 23;
+}
+
+message DirectionsRoutePreferences {
+  optional bool avoid_highways = 1;
+  optional bool avoid_tolls = 2;
+}
+
+message DirectionsDepartureTime {
+  optional uint32 unknown_1 = 1;
+  optional uint32 time_kind = 2;
+  optional uint32 google_maps_epoch_seconds = 3;
+}
+
+message DirectionsRouteFlags {
+  optional uint32 unknown_3 = 3;
+}
+
+message DirectionsSmallPair {
+  optional uint32 first = 1;
+  optional uint32 second = 2;
+}
+
+message MmapRichPlaceMediaChunk {
+  optional string ftid = 1;
+  optional string display_context = 2;
+  optional RichPlaceCameraContext camera_context = 3;
+  repeated uint32 requested_section = 4;
+  optional bytes compact_options = 5;
+  optional bytes thumbnail_size = 6;
+  optional bytes viewport_options = 7;
+  optional bytes rendering_context = 9;
+  optional RichPlaceLatLng location = 10;
+  optional RichPlaceDataRequest data_request = 12;
+  optional string repeated_display_context = 37;
+  optional MmapPlaceDetailsFeatureEnvelope feature = 38;
+}
+
+message RichPlaceCameraContext {
+  optional bytes camera = 1;
+  optional bytes viewport = 2;
+  optional bytes dimensions = 3;
+  optional float zoom = 4;
+  optional bytes padding = 6;
+}
+
+message RichPlaceLatLng {
+  optional double lng = 2;
+  optional double lat = 3;
+}
+
+message RichPlaceDataRequest {
+  // Large place-page module selector. Many nested field names are not recovered,
+  // but the SDK exposes the top-level request and dynamic FTID fields.
+  optional bytes module_mask = 1;
+  optional bool unknown_9 = 9;
+  optional bytes unknown_11 = 11;
+  optional bool unknown_17 = 17;
+  optional bytes photo_module_options = 20;
+  optional bytes reviews_module_options = 72;
+  optional bytes popular_times_options = 80;
+  optional bytes media_options = 93;
+}
+
+message ListUgcPostsRequest {
+  optional FilterOptions filter = 1;
+  optional PaginationOptions pagination = 2;
+  optional SortCriteria sort_criteria = 3;
+
+  optional bytes logging_params = 5;
+
+  optional DataToFetchOptions data_to_fetch_options = 8;
+  optional SummaryOptions summary_options = 12;
+
+  enum SortCriteria {
+    UNKNOWN_SORT_CRITERIA = 0;
+    NEWEST_FIRST = 3;
+    QUALITY_SCORE_LANGUAGE_PROMOTED = 6;
+    STAR_RATING_HIGH_THEN_QUALITY = 7;
+    STAR_RATING_LOW_THEN_QUALITY = 8;
+    STAR_RATING_HIGH_THEN_NEWEST = 12;
+    STAR_RATING_LOW_THEN_NEWEST = 13;
+    QUALITY_SCORE_LANGUAGE_FREE = 14;
+  }
+
+  message FilterOptions {
+    repeated string feature_id = 1;
+
+    // oneof post_filter
+    optional string filter_text = 3;
+    optional AssociatedTopicFilter associated_topic_filter = 5;
+    optional AssociatedUgcPostFilter associated_ugc_post_filter = 13;
+
+    optional PostFormatPredicate allowed_post_format = 6;
+    optional UserPredicate user = 7;
+  }
+
+  message UserPredicate {
+    optional UserType user_type = 1;
+    optional string specified_user_obfuscated_gaia_id = 3;
+
+    enum UserType {
+      UNKNOWN_USER_TYPE = 0;
+      ANY_USER = 1;
+      OWNER = 2;
+      SPECIFIED_USER = 3;
+    }
+  }
+
+  message ContentTypePredicate {
+    optional ContentType content_type = 1;
+
+    enum ContentType {
+      UNKNOWN_CONTENT_TYPE = 0;
+    }
+  }
+
+  message PostFormatPredicate {
+    repeated PostFormatValue must_have = 1;
+    repeated PostFormatValue post_type = 4;
+    repeated PostFormatValue match_any = 5;
+  }
+
+  // Repeated PostFormatPredicate entries are tiny nested messages with one enum
+  // field. Enum value names are not recovered, so the SDK keeps the numeric value.
+  message PostFormatValue {
+    optional uint32 value = 1;
+  }
+
+  message AssociatedTopicFilter {
+    optional string topic_id = 1;
+  }
+
+  message AssociatedUgcPostFilter {
+    optional uint32 filter_logic = 1;
+  }
+
+  message PaginationOptions {
+    optional uint32 page_size = 1;
+    optional string continuation_token = 2;
+  }
+
+  message DataToFetchOptions {
+    optional uint32 unknown_1 = 1;
+    optional bool include_author = 2;
+    optional bool include_content = 3;
+    optional bool include_reactions = 5;
+    optional bool include_place_context = 7;
+    optional ReviewDataToFetchOptions review_data_to_fetch_options = 11;
+    optional bool include_unknown_12 = 12;
+  }
+
+  message ReviewDataToFetchOptions {
+    optional bool include_rating = 1;
+    optional bool include_text = 2;
+    repeated PostFormatValue post_format = 4;
+    optional bool include_summary = 5;
+  }
+
+  message SummaryOptions {
+    optional bool enable_topic_summary = 1;
+  }
+}
+
+message ListUgcPostsResponse {
+  repeated bytes post = 1;
+  optional string continuation_token = 2;
+  optional bytes metadata = 3;
+  optional TopicSummary topic_summary = 5;
+}
+
+message TopicSummary {
+  optional string text = 1;
+  optional string version = 2;
+  optional string report_url = 3;
+  optional uint32 associated_review_count = 4;
+  repeated string highlights = 5;
+  optional string ved = 6;
+  repeated SourcingUserAvatar sourcing_user_avatar = 7;
+  optional Topic topic = 8;
+
+  message SourcingUserAvatar {
+    optional string profile_photo_url = 1;
+  }
+
+  message Topic {
+    optional string concept_id = 1;
+    optional string topic_name = 2;
+  }
+}

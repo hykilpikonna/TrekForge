@@ -1,5 +1,18 @@
-import { gunzipSync } from 'node:zlib';
+import {
+  type ProtoField,
+  allProtoMessages as allMessages,
+  firstProtoMessage as firstMessage,
+  firstProtoVarint as firstVarint,
+  isProtoText as isText,
+  parseProtoMessage as parseMessage,
+  protoFieldStrings as fieldStrings,
+  readVarint,
+  tryParseProtoMessage as tryParseMessage,
+} from './googleMapsMobile/protobuf';
+import { GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT, buildMmapDirectionsRequestBody } from './googleMapsMobile/reversedProto';
+
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import tzLookup from 'tz-lookup';
 
 export type GoogleMapsMobileDirectionsLocation =
@@ -135,15 +148,6 @@ interface BuiltMobileRequest {
   departureTime: GoogleMapsMobileDirectionsResult['departureTime'];
 }
 
-interface ProtoField {
-  field: number;
-  wire: number;
-  value: number | Buffer;
-  tagPos: number;
-  end: number;
-}
-
-const GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT = 'https://mobilemaps.googleapis.com/glm/mmap';
 const DEFAULT_LANGUAGE = 'en-US,en;q=0.9';
 const DEFAULT_REGION = 'JP';
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -153,14 +157,6 @@ const TIME_KIND_DEPART_AT = 2;
 const RESPONSE_CACHE_MAX = 200;
 const responseCache = new Map<string, Buffer>();
 const inFlightResponses = new Map<string, Promise<Buffer>>();
-
-// Captured iOS Google Maps 25.47 client envelope plus chunk 0x003e client metadata.
-// The route chunk (0x008e) is generated per request below.
-const MOBILE_MMAP_PREFIX_AND_CLIENT_CHUNK_BASE64 =
-  'ABhGn1Se+1h53QAFZW4tVVMADmlvczppUGhvbmUxNiwxABIyNS40Ny4wLjgzMzU0MjkzMDAADGlPUy1BcHBTdG9yZQA+AAAGEQoEMTE5MSABKg9jb20uZ29vZ2xlLk1hcHMyAkpQOAFC0AE1MzI9T3BjNldVbVNXMVhReXJTVmpuS1pHUF96Q0l2YldTbFpYY3pJcmFIeWhIMmo1czRjR1hqdWZxZE9qZ1B2NEpmalpjYXFPMmlaemFfc3Jab3FtWEdSQ2czSm8wc0NoQUFTTk5aMzBOeVpELVdETGUwUjFab1VOeENCQ0pQblJpcTc4Tlk0OVRhdUNCaHd4dTBMbU1KQ2pvcm43ZkducEJMa2FVSXZUbWptQ2hZa0MtWVBCdUFGV0gtSjc2OHhPZmN1Sk1FU3gwNmo2VDI5qAEAsAEEwAEByAEB2gEGMTguNy4ygAIBiAIBmgMCEAPaA+wB6beoEsnSzyKX4PUstIX2LMqV9iyXg/csop33LNee9yzwkvgs16X4LNup+CyjtfgsrvD4LOGR+Sy0lvksp5r5LKma+Sy6pfks/6r5LJKx+SyKs/ks/7z5LMe++SzLv/ksrMb5LNbN+SzW2fksn/j5LIb/+Sy3m/osw776LKj4+izHh/ssgZD7LIK6+yzUyPsskd+jL+2+py+49IUw9uGHMIPnhzD68IcwxaWIMNLoiDDT6Igw5fiIML6FiTCChokw4p+JMISoiTCx04kw6MDjMc+15TGlkLEyvNq/MvH6xjL1+sYy+frGMqO9yjLwAwKCBKgHQ0FNU3R3VU54QVBrekVnRjlZY0RzWlBsRXR0TnBLVUdpU253Qlp3MDBoTFBDZ1RnQVFUWEJZd0NCTTRHQktrTUJNSUY2d2pZRHdURUR3Nm5BQVRwQm93Q0JQOEZCSVlQQkpvQ0JJTUlCSk12Qk1NWEJMY0Z3Z1FFNU15OEVRU2tEZ2I2QkFhb0JRU0VFd1NNQ3dUY0RBU3dCQVNwQUFTRUJxVVVCR2tFeHhDMkhGVUVwQUlFX2dZRTB3a0VzQThFdHcwRW9RWUVxaFFFeVFVRXloY0VFQVNpQlFTT0N3U3NEQVNoQmdTLUJnVFlBUVNhQlFTTUR3VExDN3NDQk9VREJETUVyd1lFQ0FUNUJBVGtEZ1RqQk1FTUF2QUdCTGNHQktRRzN3VUV2Z09PRHdiRkFRZmpBQVRtQXdhRUFBU29Ed1JEQk5zTkJJVUVCTEVFcUFBRWtBYTRBd1RHQ0FUMERBUWpCTDhHQkpBQkJMMEFCTDhHQkk4QkE4QUFCSzRCQkJFRTF3UUVfQjhGM2dVRThnQUVtUWEwQlFST19BTUdzQVlFQWdXX0FBYkZBQVdqQlZjRXJ3TUZKZ1VfQkxnRC1nTUZ2d1VFTFFXZUJRWFVCQVh0QkFYWkF3WHZBd1NEQlFDdUFMMERCU0VGMWdrRnR3RUFBSHNGakFNRkF3VURCUU1GQXdVREJRTUY2QVlGM1FGeEJZVUNCZE1HQllJRkFBQUE1Z1d5QmdiTURBU0pBZ09HQUFTMkJnWEVCQVV0QmFnRkJNRUZCYVVHQmFzRUJiTUVCYk1OQlh4d0JWQUZ6d0VHNVFZRkFBWE5Bd1dMRFFVREJmTUZCZjROQlZFRmxnWUZnZ1lGbkFVRkt3V3NEUVVEQmFBR0JmZ0xaZ1dSQmdkZUJhdVhpd1FGdEFNRjlRVjZCdWdHVHdYUkJRVzBBZ1hCREFVREJiZ0ZCWjBXMGdhZEJmb0NZQVhWRGFzT0JyOENCWWdCQlFYSENRVUxCY2dCcndMQkNMOFFxZ3lHRVFYTkZRT0tBUWFPRVFVVmFPNndyeFhZbmFBWHlvcWhEWnNpa2hmTGFvMGRzd2FmYy1FVmhBUEFESTA4dFNiQ0R3YVhETU1DbFFId0J2TU93QWJqQUs0QS1BelBHZUVCdHh1TUpPTS0zeENITFltaXJ3WGMyQVROc2xtNjZnYUxBdkVPelRPYmZZS20zUWJoOHdiUzNVeVJ6UW16cHdBRUJLN0ZCQT09iAQAkgQSMjUuNDcuMC44MzM1NDI5MzAwoAT0A6oEAMAEAsgED9IEOEFkSlZFYXRmSzhkbFQ0ZnY3alY2TkJ1MU80ejhmTUlTRmMtcS10YTdIcE9lYmI1bFBqenZpT0xI';
-
-const BASE_ROUTE_OPTIONS_MESSAGE_BASE64 =
-  'CkFABkgBcgIIAnICCAGIAQGQAQCiARoKCggBEAEYASABKAESCggBEAEYASABKAEwAcABAcABAtABAeABAfgBAYACARI7KgQwAlACQACgAQPQAQHaAQwQARgBIAEoAjABOAHoAQH6AQQIARABkgICCADqAgIIAeoCAggC6gICCAMgAUABgAEBigGKAQgGEAQYASABKAEwADgBQABQAVgBanQKFAoSCAASBggCEAYYARIGCAMQBhgBCiQKIggDEgYIAhABGAASBggLEAEYABIGCAgQARgAEgYIBBABGAAKBAoCCAIKDAoKCAESBggLEAYYAAoECgIICAoECgIIBBAAGAAiEgoOCAAdAACAPyUAAIA/KAQQAagBAbABAMIBCggACAMIBBgBGADQAQHYAQHwAQHiAgQSAhAB6gIGCgQIARABugMICgQIARABEAHCAwIQAZAEAJgEAbgEAcAEAcgEAdAEAeAEAfIEBAgCGAGABQGIBQGaBQIIAaAFAaoFAggAugUGCAEQARgBwgUCEAHQBQE=';
 
 function makeHttpError(status: number, message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status });
@@ -305,154 +301,6 @@ function normalizeGoogleMapsMobileDirectionsRequest(
   };
 }
 
-function varint(value: number): Buffer {
-  let n = BigInt(Math.floor(value));
-  const bytes: number[] = [];
-  do {
-    let byte = Number(n & 0x7fn);
-    n >>= 7n;
-    if (n) byte |= 0x80;
-    bytes.push(byte);
-  } while (n);
-  return Buffer.from(bytes);
-}
-
-function readVarint(buffer: Buffer, pos: number, end = buffer.length): [number, number] {
-  let value = 0n;
-  let shift = 0n;
-  let index = pos;
-  while (index < end) {
-    const byte = buffer[index++];
-    value |= BigInt(byte & 0x7f) << shift;
-    if (!(byte & 0x80)) return [Number(value), index];
-    shift += 7n;
-  }
-  throw new Error('Unterminated protobuf varint');
-}
-
-function tag(field: number, wire: number): Buffer {
-  return varint(field * 8 + wire);
-}
-
-function delimited(buffer: Buffer): Buffer {
-  return Buffer.concat([varint(buffer.length), buffer]);
-}
-
-function varintField(field: number, value: number): Buffer {
-  return Buffer.concat([tag(field, 0), varint(value)]);
-}
-
-function stringField(field: number, value: string): Buffer {
-  return Buffer.concat([tag(field, 2), delimited(Buffer.from(value, 'utf8'))]);
-}
-
-function bytesField(field: number, value: Buffer): Buffer {
-  return Buffer.concat([tag(field, 2), delimited(value)]);
-}
-
-function messageField(field: number, parts: Buffer[]): Buffer {
-  return bytesField(field, Buffer.concat(parts));
-}
-
-function doubleField(field: number, value: number): Buffer {
-  const buffer = Buffer.alloc(8);
-  buffer.writeDoubleLE(value, 0);
-  return Buffer.concat([tag(field, 1), buffer]);
-}
-
-function skipField(buffer: Buffer, pos: number, end: number, wire: number): number {
-  if (wire === 0) return readVarint(buffer, pos, end)[1];
-  if (wire === 1) return pos + 8 <= end ? pos + 8 : Infinity;
-  if (wire === 2) {
-    const [length, valuePos] = readVarint(buffer, pos, end);
-    return valuePos + length <= end ? valuePos + length : Infinity;
-  }
-  if (wire === 5) return pos + 4 <= end ? pos + 4 : Infinity;
-  return Infinity;
-}
-
-function parseMessage(buffer: Buffer, start = 0, end = buffer.length): ProtoField[] {
-  const fields: ProtoField[] = [];
-  let pos = start;
-  while (pos < end) {
-    const tagPos = pos;
-    const [tagValue, valuePos] = readVarint(buffer, pos, end);
-    pos = valuePos;
-    const field = Math.floor(tagValue / 8);
-    const wire = tagValue % 8;
-    if (field <= 0) throw new Error('Invalid protobuf field number');
-
-    let value: number | Buffer;
-    if (wire === 0) {
-      const [varintValue, next] = readVarint(buffer, pos, end);
-      value = varintValue;
-      pos = next;
-    } else if (wire === 1) {
-      const next = skipField(buffer, pos, end, wire);
-      if (!Number.isFinite(next)) throw new Error('Invalid fixed64 protobuf field');
-      value = buffer.subarray(pos, next);
-      pos = next;
-    } else if (wire === 2) {
-      const [length, dataPos] = readVarint(buffer, pos, end);
-      const next = dataPos + length;
-      if (next > end) throw new Error('Invalid length-delimited protobuf field');
-      value = buffer.subarray(dataPos, next);
-      pos = next;
-    } else if (wire === 5) {
-      const next = skipField(buffer, pos, end, wire);
-      if (!Number.isFinite(next)) throw new Error('Invalid fixed32 protobuf field');
-      value = buffer.subarray(pos, next);
-      pos = next;
-    } else {
-      throw new Error(`Unsupported protobuf wire type ${wire}`);
-    }
-
-    fields.push({ field, wire, value, tagPos, end: pos });
-  }
-  return fields;
-}
-
-function tryParseMessage(buffer: Buffer): ProtoField[] | null {
-  try {
-    return parseMessage(buffer);
-  } catch {
-    return null;
-  }
-}
-
-function isText(buffer: Buffer): boolean {
-  if (buffer.length === 0) return false;
-  const text = buffer.toString('utf8');
-  if (text.includes('\uFFFD')) return false;
-  for (const char of text) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code !== 9 && code !== 10 && code !== 13 && code < 32) return false;
-  }
-  return true;
-}
-
-function fieldStrings(fields: ProtoField[], field: number): string[] {
-  return fields
-    .filter((entry) => entry.field === field && entry.wire === 2 && Buffer.isBuffer(entry.value) && isText(entry.value))
-    .map((entry) => (entry.value as Buffer).toString('utf8'));
-}
-
-function firstVarint(fields: ProtoField[], field: number): number | null {
-  const found = fields.find((entry) => entry.field === field && entry.wire === 0 && typeof entry.value === 'number');
-  return typeof found?.value === 'number' ? found.value : null;
-}
-
-function firstMessage(fields: ProtoField[], field: number): Buffer | null {
-  const found = fields.find((entry) => entry.field === field && entry.wire === 2 && Buffer.isBuffer(entry.value));
-  return Buffer.isBuffer(found?.value) ? found.value : null;
-}
-
-function allMessages(fields: ProtoField[], field: number): Buffer[] {
-  return fields
-    .filter((entry) => entry.field === field && entry.wire === 2 && Buffer.isBuffer(entry.value))
-    .map((entry) => entry.value as Buffer);
-}
-
 function safeTimeZone(location: NormalizedLocation, request: NormalizedRequest): string {
   const explicit = request.options.timeZone;
   if (explicit) return explicit;
@@ -548,131 +396,18 @@ function buildDepartureTime(request: NormalizedRequest): GoogleMapsMobileDirecti
   };
 }
 
-function waypoint(location: NormalizedLocation): Buffer {
-  const parts = [stringField(1, location.text)];
-  if (location.dataId) parts.push(stringField(2, location.dataId));
-  if (finiteNumber(location.lat) && finiteNumber(location.lng)) {
-    parts.push(messageField(3, [doubleField(3, location.lat), doubleField(4, location.lng)]));
-  }
-  parts.push(stringField(4, location.text), varintField(6, 0));
-  if (location.placeId) parts.push(stringField(19, location.placeId));
-  return messageField(1, parts);
-}
-
-function replaceOrInsertFields(message: Buffer, replacements: Map<number, Buffer>): Buffer {
-  if (!replacements.size) return message;
-  const fields = parseMessage(message);
-  const replacementNumbers = [...replacements.keys()].sort((a, b) => a - b);
-  const parts: Buffer[] = [];
-  const inserted = new Set<number>();
-
-  for (const field of fields) {
-    for (const fieldNumber of replacementNumbers) {
-      if (!inserted.has(fieldNumber) && fieldNumber < field.field) {
-        parts.push(replacements.get(fieldNumber)!);
-        inserted.add(fieldNumber);
-      }
-    }
-    if (replacements.has(field.field)) {
-      if (!inserted.has(field.field)) {
-        parts.push(replacements.get(field.field)!);
-        inserted.add(field.field);
-      }
-      continue;
-    }
-    parts.push(message.subarray(field.tagPos, field.end));
-  }
-
-  for (const fieldNumber of replacementNumbers) {
-    if (!inserted.has(fieldNumber)) parts.push(replacements.get(fieldNumber)!);
-  }
-  return Buffer.concat(parts);
-}
-
-function routePreferenceOptionsWithAvoids(base: Buffer, options: NormalizedRequest['options']): Buffer {
-  const replacements = new Map<number, Buffer>();
-  if (options.avoidHighways) replacements.set(1, varintField(1, 1));
-  if (options.avoidTolls) replacements.set(2, varintField(2, 1));
-  return replaceOrInsertFields(base, replacements);
-}
-
-function routeOptionsWithAdjustments(
-  departureTime: GoogleMapsMobileDirectionsResult['departureTime'],
-  options: NormalizedRequest['options'],
-): Buffer {
-  const base = Buffer.from(BASE_ROUTE_OPTIONS_MESSAGE_BASE64, 'base64');
-  const replacements = new Map<number, Buffer>();
-
-  if (options.avoidHighways || options.avoidTolls) {
-    const routePreferenceField = firstMessage(parseMessage(base), 2);
-    if (!routePreferenceField) throw new Error('Captured mobile route options are missing route preferences');
-    replacements.set(2, bytesField(2, routePreferenceOptionsWithAvoids(routePreferenceField, options)));
-  }
-
-  if (options.avoidFerries) {
-    replacements.set(7, varintField(7, 1));
-  }
-
-  if (departureTime) {
-    replacements.set(
-      23,
-      messageField(23, [
-        varintField(1, 0),
-        varintField(2, departureTime.timeKindEnum),
-        varintField(3, departureTime.googleMapsEpochSeconds),
-      ]),
-    );
-  }
-
-  return replaceOrInsertFields(base, replacements);
-}
-
-function smallKV(field: number, first: number, second: number): Buffer {
-  return messageField(field, [varintField(1, first), varintField(2, second)]);
-}
-
-function buildRoutePayload(
-  request: NormalizedRequest,
-  departureTime: GoogleMapsMobileDirectionsResult['departureTime'],
-) {
-  const route = messageField(1, [
-    waypoint(request.from),
-    waypoint(request.to),
-    varintField(5, 5),
-    messageField(6, [routeOptionsWithAdjustments(departureTime, request.options)]),
-    varintField(7, 0),
-    varintField(14, 1),
-    messageField(15, [varintField(3, 0)]),
-    varintField(16, 1),
-    varintField(25, 0),
-    smallKV(34, 10, 2),
-    smallKV(37, 3, 4),
-    smallKV(37, 4, 6),
-  ]);
-
-  return Buffer.concat([
-    route,
-    varintField(2, 18),
-    varintField(2, 12),
-    varintField(2, 13),
-    varintField(4, 1),
-    varintField(4, 3),
-    varintField(7, 1),
-    varintField(8, 1),
-  ]);
-}
-
 function buildMobileMmapRequest(request: NormalizedRequest): BuiltMobileRequest {
   const departureTime = buildDepartureTime(request);
-  const routePayload = buildRoutePayload(request, departureTime);
-  const routeHeader = Buffer.alloc(6);
-  routeHeader.writeUInt16BE(142, 0);
-  routeHeader.writeUInt32BE(routePayload.length, 2);
-  const body = Buffer.concat([
-    Buffer.from(MOBILE_MMAP_PREFIX_AND_CLIENT_CHUNK_BASE64, 'base64'),
-    routeHeader,
-    routePayload,
-  ]);
+  const body = buildMmapDirectionsRequestBody({
+    from: request.from,
+    to: request.to,
+    routeOptions: {
+      avoidFerries: request.options.avoidFerries,
+      avoidHighways: request.options.avoidHighways,
+      avoidTolls: request.options.avoidTolls,
+      departureTime,
+    },
+  });
   return {
     endpoint: GOOGLE_MAPS_MOBILE_MMAP_ENDPOINT,
     body,
