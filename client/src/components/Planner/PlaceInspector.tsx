@@ -148,18 +148,92 @@ function photoUrlFromRecord(photo: unknown): string | null {
   return null
 }
 
-function uniquePhotoUrls(...sources: Array<string | null | undefined | any[]>): string[] {
-  const urls: string[] = []
+function largeGooglePhotoUrl(url: string): string {
+  const cleaned = url.trim().replace(/[:;),\]]+\d*$/g, '')
+  let parsed: URL
+  try {
+    parsed = new URL(cleaned)
+  } catch {
+    return url
+  }
+
+  if (!parsed.hostname.endsWith('googleusercontent.com')) return url
+  if (!/(?:^|\/)(?:gps|gpms|grass)-cs-s\//.test(parsed.pathname)) return url
+  if (/\/a-|photo\.jpg|=mm|manifest|googlevideo/i.test(cleaned)) return url
+
+  const variantIndex = cleaned.lastIndexOf('=')
+  if (variantIndex <= cleaned.lastIndexOf('/')) return url
+  return `${cleaned.slice(0, variantIndex)}=w2048-h2048-k-no`
+}
+
+function fullPhotoUrlFromRecord(photo: unknown): string | null {
+  if (!photo || typeof photo !== 'object') return null
+  const record = photo as Record<string, unknown>
+  for (const key of ['full_url', 'fullUrl', 'large_url', 'largeUrl', 'original_url', 'originalUrl']) {
+    const value = cleanText(record[key])
+    if (value) return value
+  }
+  const previewUrl = photoUrlFromRecord(photo)
+  return previewUrl ? largeGooglePhotoUrl(previewUrl) : null
+}
+
+function photoIdentityKey(url: string): string {
+  const cleaned = url.trim().replace(/[:;),\]]+\d*$/g, '')
+  try {
+    const parsed = new URL(cleaned)
+    if (parsed.hostname.endsWith('googleusercontent.com')) {
+      const pathKey = `${parsed.origin}${parsed.pathname}`
+      const variantIndex = pathKey.lastIndexOf('=')
+      return variantIndex > pathKey.lastIndexOf('/') ? pathKey.slice(0, variantIndex) : pathKey
+    }
+    parsed.hash = ''
+    parsed.search = ''
+    return parsed.toString()
+  } catch {
+    return cleaned.replace(/[?#].*$/, '').replace(/=[^=/?#]+$/, '')
+  }
+}
+
+function photoCandidateFromValue(value: unknown): { previewUrl: string; fullUrl: string } | null {
+  const previewUrl = typeof value === 'string' ? cleanText(value) : photoUrlFromRecord(value)
+  if (!previewUrl) return null
+  const fullUrl = typeof value === 'string' ? largeGooglePhotoUrl(previewUrl) : fullPhotoUrlFromRecord(value) || largeGooglePhotoUrl(previewUrl)
+  return { previewUrl, fullUrl }
+}
+
+function uniquePhotoCandidates(...sources: Array<string | null | undefined | unknown[]>): Array<{ previewUrl: string; fullUrl: string }> {
+  const photos: Array<{ previewUrl: string; fullUrl: string }> = []
   const seen = new Set<string>()
   for (const source of sources) {
-    const values = Array.isArray(source) ? source.map(item => typeof item === 'string' ? cleanText(item) : photoUrlFromRecord(item)) : [cleanText(source)]
+    const values = Array.isArray(source) ? source : [source]
     for (const value of values) {
-      if (!value || seen.has(value)) continue
-      seen.add(value)
-      urls.push(value)
+      const photo = photoCandidateFromValue(value)
+      if (!photo) continue
+      const key = photoIdentityKey(photo.previewUrl)
+      if (seen.has(key)) continue
+      seen.add(key)
+      photos.push(photo)
     }
   }
-  return urls
+  return photos
+}
+
+function mergePhotoCandidates(...sources: Array<Array<{ previewUrl: string; fullUrl: string }>>): Array<{ previewUrl: string; fullUrl: string }> {
+  const photos: Array<{ previewUrl: string; fullUrl: string }> = []
+  const seen = new Set<string>()
+  for (const source of sources) {
+    for (const photo of source) {
+      const key = photoIdentityKey(photo.previewUrl)
+      if (seen.has(key)) continue
+      seen.add(key)
+      photos.push(photo)
+    }
+  }
+  return photos
+}
+
+function isPlacePhotoProxyUrl(url: string): boolean {
+  return /(^|\/)api\/maps\/place-photo\/.+\/bytes(?:$|[?#])/.test(url)
 }
 
 function uniqueNameParts(...values) {
@@ -632,11 +706,15 @@ function InfoBlockLabel({ icon, title, htmlFor }: InfoBlockHeaderProps & { htmlF
 function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; details: Record<string, unknown> | null; photoCount: number; t: TFunction }) {
   const [photoUrl, setPhotoUrl] = useState(place.image_url || null)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  const directPhotoUrls = uniquePhotoUrls(Array.isArray(details?.photos) ? details.photos : [])
-  const photoUrls = uniquePhotoUrls(place.image_url, directPhotoUrls, photoUrl)
-  const lightboxPhotos = photoUrls.map((url, index) => ({
-    id: `${place.id}-${index}-${url}`,
-    src: url,
+  const directPhotoRecords = Array.isArray(details?.photos) ? details.photos : []
+  const directPhotoCandidates = uniquePhotoCandidates(directPhotoRecords)
+  const directPhotoUrlCount = directPhotoCandidates.length
+  const fallbackPhotoCandidates = uniquePhotoCandidates(place.image_url, photoUrl)
+    .filter(photo => directPhotoUrlCount === 0 || !isPlacePhotoProxyUrl(photo.previewUrl))
+  const photoCandidates = mergePhotoCandidates(directPhotoCandidates, fallbackPhotoCandidates)
+  const lightboxPhotos = photoCandidates.map((photo, index) => ({
+    id: `${place.id}-${index}-${photo.fullUrl}`,
+    src: photo.fullUrl,
     caption: place.name,
   }))
   const photoId = cleanText(details?.google_place_id)
@@ -651,31 +729,31 @@ function PlacePhotoPreview({ place, details, photoCount, t }: { place: Place; de
   useEffect(() => {
     let cancelled = false
     setPhotoUrl(place.image_url || null)
-    if (place.image_url || directPhotoUrls.length > 0 || !photoId) return () => { cancelled = true }
+    if (place.image_url || directPhotoUrlCount > 0 || !photoId) return () => { cancelled = true }
     mapsApi.placePhoto(photoId, photoLat ?? undefined, photoLng ?? undefined, photoName)
       .then(data => {
         if (!cancelled && data?.photoUrl) setPhotoUrl(data.photoUrl)
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [photoId, place.id, place.image_url, photoLat, photoLng, photoName, directPhotoUrls.length])
+  }, [photoId, place.id, place.image_url, photoLat, photoLng, photoName, directPhotoUrlCount])
 
-  if (photoUrls.length === 0) return null
-  const displayedPhotoCount = Math.max(photoCount, photoUrls.length)
+  if (photoCandidates.length === 0) return null
+  const displayedPhotoCount = Math.max(photoCount, photoCandidates.length)
 
   return (
     <>
       <div className="shrink-0 overflow-hidden rounded-lg border border-edge-faint bg-surface-hover">
         <div className="flex snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain p-2 [-webkit-overflow-scrolling:touch]">
-          {photoUrls.map((url, index) => (
+          {photoCandidates.map((photo, index) => (
             <button
-              key={url}
+              key={photo.previewUrl}
               type="button"
-              aria-label={t('inspector.openPhoto', { index: index + 1, count: photoUrls.length })}
+              aria-label={t('inspector.openPhoto', { index: index + 1, count: photoCandidates.length })}
               onClick={() => setLightboxIndex(index)}
               className="relative h-[126px] flex-[0_0_min(72vw,210px)] shrink-0 snap-start overflow-hidden rounded-[7px] border-0 bg-surface-hover p-0 text-left"
             >
-              <img src={url} alt={place.name} loading={index === 0 ? 'eager' : 'lazy'} className="block h-full w-full object-cover transition-transform duration-150 hover:scale-[1.02]" />
+              <img src={photo.previewUrl} alt={place.name} loading={index === 0 ? 'eager' : 'lazy'} className="block h-full w-full object-cover transition-transform duration-150 hover:scale-[1.02]" />
               {index === 0 && displayedPhotoCount > 1 && (
                 <div className="absolute bottom-[7px] right-[7px] inline-flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.58)] px-[7px] py-[3px] text-[11px] font-semibold text-white">
                   <ImageIcon size={12} /> {t('inspector.photosCount', { count: displayedPhotoCount })}
