@@ -1,4 +1,4 @@
-// FE-COMP-LIGHTBOX-001 to FE-COMP-LIGHTBOX-008
+// FE-COMP-LIGHTBOX-001 to FE-COMP-LIGHTBOX-009
 
 vi.mock('../../api/websocket', () => ({
   connect: vi.fn(),
@@ -10,7 +10,7 @@ vi.mock('../../api/websocket', () => ({
   removeListener: vi.fn(),
 }));
 
-import { render, screen, fireEvent } from '../../../tests/helpers/render';
+import { render, screen, fireEvent, waitFor } from '../../../tests/helpers/render';
 import { resetAllStores } from '../../../tests/helpers/store';
 import PhotoLightbox from './PhotoLightbox';
 
@@ -22,6 +22,10 @@ const samplePhotos = [
 
 beforeEach(() => {
   resetAllStores();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('PhotoLightbox', () => {
@@ -94,5 +98,29 @@ describe('PhotoLightbox', () => {
     // The first button in the top bar is the close (X) button
     buttons[0].click();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('FE-COMP-LIGHTBOX-009: preloads adjacent photos while navigating', async () => {
+    const preloaded: string[] = [];
+    class MockImage {
+      decoding = '';
+      set src(value: string) {
+        preloaded.push(value);
+      }
+    }
+    vi.stubGlobal('Image', MockImage);
+
+    const onClose = vi.fn();
+    render(<PhotoLightbox photos={samplePhotos} onClose={onClose} />);
+
+    await waitFor(() => {
+      expect(preloaded).toContain('/photos/2.jpg');
+    });
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(preloaded).toContain('/photos/3.jpg');
+    });
   });
 });

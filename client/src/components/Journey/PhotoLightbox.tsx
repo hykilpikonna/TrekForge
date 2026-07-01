@@ -21,6 +21,7 @@ interface Props {
 export default function PhotoLightbox({ photos, startIndex = 0, onClose }: Props) {
   const [idx, setIdx] = useState(startIndex)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const preloadedImages = useRef<Map<string, HTMLImageElement>>(new Map())
 
   const photo = photos[idx]
   const hasPrev = idx > 0
@@ -38,6 +39,20 @@ export default function PhotoLightbox({ photos, startIndex = 0, onClose }: Props
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [prev, next, onClose])
+
+  useEffect(() => {
+    if (typeof Image === 'undefined') return
+    const preload = (candidate?: LightboxPhoto) => {
+      if (!candidate?.src || preloadedImages.current.has(candidate.src)) return
+      const image = new Image()
+      image.decoding = 'async'
+      image.src = candidate.src
+      preloadedImages.current.set(candidate.src, image)
+    }
+
+    preload(photos[idx + 1])
+    preload(photos[idx - 1])
+  }, [idx, photos])
 
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0]
