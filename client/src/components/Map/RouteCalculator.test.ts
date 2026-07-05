@@ -411,12 +411,19 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
   })
 
-  it('FE-COMP-ROUTECALCULATOR-023b: Google Maps mobile routing reports no-route errors without OSRM fallback', async () => {
+  it('FE-COMP-ROUTECALCULATOR-023b: Google Maps mobile non-driving routes use preview without OSRM fallback', async () => {
     let mobileCalls = 0
+    let previewCalls = 0
     let osrmCalls = 0
     server.use(
       http.post('/api/maps/directions-mobile', () => {
         mobileCalls += 1
+        return HttpResponse.json({ routes: [] })
+      }),
+      http.post('/api/maps/directions-preview', async ({ request }) => {
+        previewCalls += 1
+        const body = await request.json() as any
+        expect(body.mode).toBe('walking')
         return HttpResponse.json({ routes: [] })
       }),
       http.get(`${OSRM_WALKING_BASE}/:coords`, () => {
@@ -434,7 +441,8 @@ describe('calculateRouteWithLegs persistent cache', () => {
       profile: 'walking',
     })).rejects.toThrow('No route found')
 
-    expect(mobileCalls).toBe(2)
+    expect(mobileCalls).toBe(0)
+    expect(previewCalls).toBe(2)
     expect(osrmCalls).toBe(0)
   })
 
@@ -626,7 +634,7 @@ describe('calculateRouteWithLegs persistent cache', () => {
     })
   })
 
-  it('FE-COMP-ROUTECALCULATOR-025: mobile transit routing uses only mobile directions', async () => {
+  it('FE-COMP-ROUTECALCULATOR-025: mobile-provider transit routing uses preview directions', async () => {
     let mobileCalls = 0
     let previewCalls = 0
     let osrmCalls = 0
@@ -635,9 +643,41 @@ describe('calculateRouteWithLegs persistent cache', () => {
         osrmCalls += 1
         return HttpResponse.json(buildOsrmRouteResponse())
       }),
-      http.post('/api/maps/directions-preview', () => {
+      http.post('/api/maps/directions-preview', async ({ request }) => {
         previewCalls += 1
-        return HttpResponse.json({ routes: [] })
+        const body = await request.json() as any
+        expect(body.mode).toBe('transit')
+        expect(body.time).toEqual({ kind: 'departAtLocal', localDateTime: '2026-12-01T09:00' })
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 2300, text: '2.3 km' },
+              duration: { seconds: 960, text: '16 min' },
+              overviewGeometry: [
+                { lat: body.origin.lat, lng: body.origin.lng },
+                { lat: 48.858, lng: 2.356 },
+                { lat: body.destination.lat, lng: body.destination.lng },
+              ],
+              legs: [
+                {
+                  distance: { meters: 300, text: '300 m' },
+                  duration: { seconds: 180, text: '3 min' },
+                  steps: [{ duration: { seconds: 180, text: '3 min' }, distance: { meters: 300, text: '300 m' } }],
+                },
+                {
+                  distance: { meters: 2000, text: '2 km' },
+                  duration: { seconds: 780, text: '13 min' },
+                  transit: {
+                    lineName: 'Metro 2',
+                    serviceShortName: 'M2',
+                    departureStop: { name: 'Opera' },
+                    arrivalStop: { name: 'Nation' },
+                  },
+                },
+              ],
+            },
+          ],
+        })
       }),
       http.post('/api/maps/directions-mobile', async ({ request }) => {
         mobileCalls += 1
@@ -666,8 +706,8 @@ describe('calculateRouteWithLegs persistent cache', () => {
       departureLocalDateTime: '2026-12-01T09:00',
     })
 
-    expect(mobileCalls).toBe(1)
-    expect(previewCalls).toBe(0)
+    expect(mobileCalls).toBe(0)
+    expect(previewCalls).toBe(1)
     expect(osrmCalls).toBe(0)
     expect(result.coordinates).toEqual([[wp1.lat, wp1.lng], [48.858, 2.356], [wp2.lat, wp2.lng]])
     expect(result.legs[0]).toMatchObject({
@@ -675,17 +715,65 @@ describe('calculateRouteWithLegs persistent cache', () => {
       durationText: '16 min',
       distance: 2300,
       distanceText: '2.3 km',
+      walkingText: '3 min',
     })
-    expect(result.legs[0].steps).toBeUndefined()
+    expect(result.legs[0].steps?.some(step => step.mode === 'transit')).toBe(true)
   })
 
-  it('FE-COMP-ROUTECALCULATOR-025b: mobile transit caches alternatives without preview refresh', async () => {
+  it('FE-COMP-ROUTECALCULATOR-025b: mobile-provider transit caches preview alternatives', async () => {
     let mobileCalls = 0
     let previewCalls = 0
     server.use(
-      http.post('/api/maps/directions-preview', () => {
+      http.post('/api/maps/directions-preview', async ({ request }) => {
         previewCalls += 1
-        return HttpResponse.json({ routes: [] })
+        const body = await request.json() as any
+        expect(body.mode).toBe('transit')
+        return HttpResponse.json({
+          routes: [
+            {
+              distance: { meters: 1200, text: '1.2 km' },
+              duration: { seconds: 600, text: '10 min' },
+              overviewGeometry: [
+                { lat: body.origin.lat, lng: body.origin.lng },
+                { lat: 48.858, lng: 2.356 },
+                { lat: body.destination.lat, lng: body.destination.lng },
+              ],
+              legs: [
+                {
+                  distance: { meters: 1200, text: '1.2 km' },
+                  duration: { seconds: 600, text: '10 min' },
+                  transit: {
+                    lineName: 'Metro 2',
+                    serviceShortName: 'M2',
+                    departureStop: { name: 'Opera' },
+                    arrivalStop: { name: 'Nation' },
+                  },
+                },
+              ],
+            },
+            {
+              distance: { meters: 2100, text: '2.1 km' },
+              duration: { seconds: 780, text: '13 min' },
+              overviewGeometry: [
+                { lat: body.origin.lat, lng: body.origin.lng },
+                { lat: 48.859, lng: 2.357 },
+                { lat: body.destination.lat, lng: body.destination.lng },
+              ],
+              legs: [
+                {
+                  distance: { meters: 2100, text: '2.1 km' },
+                  duration: { seconds: 780, text: '13 min' },
+                  transit: {
+                    lineName: 'Metro 4',
+                    serviceShortName: 'M4',
+                    departureStop: { name: 'Chatelet' },
+                    arrivalStop: { name: 'Bastille' },
+                  },
+                },
+              ],
+            },
+          ],
+        })
       }),
       http.post('/api/maps/directions-mobile', async ({ request }) => {
         mobileCalls += 1
@@ -736,9 +824,9 @@ describe('calculateRouteWithLegs persistent cache', () => {
       durationText: '13 min',
       distanceText: '2.1 km',
     })
-    expect(refreshed.legs[0].steps).toBeUndefined()
-    expect(mobileCalls).toBe(1)
-    expect(previewCalls).toBe(0)
+    expect(refreshed.legs[0].steps?.some(step => step.mode === 'transit')).toBe(true)
+    expect(mobileCalls).toBe(0)
+    expect(previewCalls).toBe(1)
   })
 })
 

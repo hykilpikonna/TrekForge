@@ -117,19 +117,28 @@ function firstDouble(fields: ProtoField[], field: number): number | null {
   return found && Buffer.isBuffer(found.value) ? found.value.readDoubleLE(0) : null;
 }
 
-function extractMobileRouteOptions(body: Buffer): Buffer {
+function extractMobileRouteFields(body: Buffer): ProtoField[] {
   for (let pos = 0; pos + 6 <= body.length; pos++) {
     if (body.readUInt16BE(pos) !== 142) continue;
     const length = body.readUInt32BE(pos + 2);
     if (length <= 0 || pos + 6 + length > body.length) continue;
     const root = parseMessage(body.subarray(pos + 6, pos + 6 + length));
-    const route = parseMessage(firstMessage(root, 1));
-    return firstMessage(route, 6);
+    return parseMessage(firstMessage(root, 1));
   }
   throw new Error('Missing type 142 route chunk');
 }
 
-function extractMobileRouteWaypoints(body: Buffer): Array<{ text: string | null; lat: number | null; lng: number | null }> {
+function extractMobileRouteOptions(body: Buffer): Buffer {
+  return firstMessage(extractMobileRouteFields(body), 6);
+}
+
+function extractMobileRouteMode(body: Buffer): number | null {
+  return firstVarint(extractMobileRouteFields(body), 5);
+}
+
+function extractMobileRouteWaypoints(
+  body: Buffer,
+): Array<{ text: string | null; lat: number | null; lng: number | null }> {
   for (let pos = 0; pos + 6 <= body.length; pos++) {
     if (body.readUInt16BE(pos) !== 142) continue;
     const length = body.readUInt32BE(pos + 2);
@@ -261,7 +270,7 @@ describe('googleMapsMobileDirections wrapper', () => {
     expect(firstVarint(departure, 3)).toBe(1782211200);
   });
 
-  it('encodes avoid options using the captured mobile route option fields', () => {
+  it('encodes avoid options using the mobile route option fields', () => {
     function routeOptionsFor(options: { avoidTolls?: boolean; avoidHighways?: boolean; avoidFerries?: boolean }) {
       return parseMessage(
         extractMobileRouteOptions(
@@ -292,6 +301,55 @@ describe('googleMapsMobileDirections wrapper', () => {
     expect(firstVarint(avoidFerriesPreferences, 1)).toBeNull();
     expect(firstVarint(avoidFerriesPreferences, 2)).toBeNull();
     expect(firstVarint(avoidFerries, 7)).toBe(1);
+  });
+
+  it('encodes the mobile driving route profile', () => {
+    function routeModeFor(mode?: 'driving' | 'walking' | 'bicycling' | 'transit') {
+      return extractMobileRouteMode(
+        buildGoogleMapsMobileDirectionsRequest({
+          from: 'Tokyo Station',
+          to: 'Fushimi Station Nagoya',
+          options: mode ? { mode } : {},
+        }).body,
+      );
+    }
+
+    expect(routeModeFor()).toBe(5);
+    expect(routeModeFor('driving')).toBe(5);
+  });
+
+  it('rejects non-driving mobile route profiles', () => {
+    expect(() =>
+      buildGoogleMapsMobileDirectionsRequest({
+        from: 'Tokyo Station',
+        to: 'Fushimi Station Nagoya',
+        options: { mode: 'transit' },
+      }),
+    ).toThrow('Google Maps mobile directions currently supports driving routes only');
+    expect(() =>
+      buildGoogleMapsMobileDirectionsRequest({
+        from: 'Tokyo Station',
+        to: 'Fushimi Station Nagoya',
+        options: { mode: 'walking' },
+      }),
+    ).toThrow('Google Maps mobile directions currently supports driving routes only');
+    expect(() =>
+      buildGoogleMapsMobileDirectionsRequest({
+        from: 'Tokyo Station',
+        to: 'Fushimi Station Nagoya',
+        options: { mode: 'bicycling' },
+      }),
+    ).toThrow('Google Maps mobile directions currently supports driving routes only');
+  });
+
+  it('rejects unknown mobile route profiles', () => {
+    expect(() =>
+      buildGoogleMapsMobileDirectionsRequest({
+        from: 'Tokyo Station',
+        to: 'Fushimi Station Nagoya',
+        options: { mode: 'flying' as never },
+      }),
+    ).toThrow('options.mode must be driving, bicycling, walking, or transit');
   });
 
   it('normalizes numeric coordinate text before building the mobile route payload', () => {

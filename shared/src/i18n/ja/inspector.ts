@@ -21,8 +21,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'バリアフリー',
   'inspector.accessible': '利用しやすい',
   'inspector.accessibilityLimited': 'バリアフリー制限あり',
+  'inspector.phone': '電話',
   'inspector.reviews': '口コミ',
+  'inspector.reviewsCount': '{count}件の口コミ',
+  'inspector.viewAllReviews': '{count}件の口コミをすべて表示',
+  'inspector.openReview': '口コミを開く',
   'inspector.popularTimes': '混雑する時間帯',
   'inspector.photosCount': '{count}枚の写真',
+  'inspector.openPhoto': '写真 {index}/{count} を開く',
 };
 export default inspector;

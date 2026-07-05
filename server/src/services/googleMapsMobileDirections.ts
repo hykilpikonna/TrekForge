@@ -35,6 +35,8 @@ export type GoogleMapsMobileDirectionsDepartureTime =
   | { kind: 'departAtLocal'; localDateTime: string; timeZone?: string }
   | { kind: 'raw'; googleMapsEpochSeconds: number; timeZone?: string };
 
+export type GoogleMapsMobileDirectionsMode = 'driving' | 'bicycling' | 'walking' | 'transit';
+
 export interface GoogleMapsMobileDirectionsOptions {
   language?: string;
   region?: string;
@@ -42,6 +44,7 @@ export interface GoogleMapsMobileDirectionsOptions {
   timeoutMs?: number;
   includeRaw?: boolean;
   includeDebug?: boolean;
+  mode?: GoogleMapsMobileDirectionsMode;
   avoidTolls?: boolean;
   avoidHighways?: boolean;
   avoidFerries?: boolean;
@@ -150,6 +153,7 @@ interface BuiltMobileRequest {
 
 const DEFAULT_LANGUAGE = 'en-US,en;q=0.9';
 const DEFAULT_REGION = 'JP';
+const DEFAULT_MODE: GoogleMapsMobileDirectionsMode = 'driving';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 30_000;
 const MAX_LOCATION_TEXT_LENGTH = 500;
@@ -192,6 +196,15 @@ function optionalString(value: unknown, field: string): string | undefined {
   if (typeof value !== 'string') throw makeHttpError(400, `${field} must be a string`);
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function validateMode(value: unknown): GoogleMapsMobileDirectionsMode {
+  const mode = optionalString(value, 'options.mode') ?? DEFAULT_MODE;
+  if (mode === 'driving') return mode;
+  if (mode === 'bicycling' || mode === 'walking' || mode === 'transit') {
+    throw makeHttpError(400, 'Google Maps mobile directions currently supports driving routes only');
+  }
+  throw makeHttpError(400, 'options.mode must be driving, bicycling, walking, or transit');
 }
 
 function validateLocation(value: unknown, field: string): NormalizedLocation {
@@ -294,6 +307,7 @@ function normalizeGoogleMapsMobileDirectionsRequest(
       timeoutMs,
       includeRaw: optionsBody.includeRaw === true,
       includeDebug: optionsBody.includeDebug === true,
+      mode: validateMode(optionsBody.mode),
       avoidTolls: optionsBody.avoidTolls === true,
       avoidHighways: optionsBody.avoidHighways === true,
       avoidFerries: optionsBody.avoidFerries === true,

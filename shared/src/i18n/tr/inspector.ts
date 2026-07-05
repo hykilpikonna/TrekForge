@@ -21,8 +21,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Erişilebilirlik',
   'inspector.accessible': 'Erişilebilir',
   'inspector.accessibilityLimited': 'Sınırlı erişilebilirlik',
+  'inspector.phone': 'Telefon',
   'inspector.reviews': 'Yorumlar',
+  'inspector.reviewsCount': '{count} yorum',
+  'inspector.viewAllReviews': 'Tüm {count} yorumu görüntüle',
+  'inspector.openReview': 'Yorumu aç',
   'inspector.popularTimes': 'Popüler saatler',
   'inspector.photosCount': '{count} fotoğraf',
+  'inspector.openPhoto': '{count} fotoğraftan {index}. fotoğrafı aç',
 };
 export default inspector;

@@ -21,8 +21,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': '无障碍设施',
   'inspector.accessible': '无障碍',
   'inspector.accessibilityLimited': '无障碍设施有限',
+  'inspector.phone': '电话',
   'inspector.reviews': '评价',
+  'inspector.reviewsCount': '{count} 条评价',
+  'inspector.viewAllReviews': '查看全部 {count} 条评价',
+  'inspector.openReview': '打开评价',
   'inspector.popularTimes': '热门时段',
   'inspector.photosCount': '{count} 张照片',
+  'inspector.openPhoto': '打开第 {index} 张照片，共 {count} 张',
 };
 export default inspector;

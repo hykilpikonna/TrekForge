@@ -81,6 +81,8 @@ describe('googleMapsMobile reversed proto SDK', () => {
     expect(firstProtoVarint(fields, 8)).toBe(1);
 
     const routeFields = parseProtoMessage(route!);
+    expect(firstProtoVarint(routeFields, 5)).toBe(5);
+
     const options = firstProtoMessage(routeFields, 6);
     const optionFields = parseProtoMessage(options!);
     const preferences = firstProtoMessage(optionFields, 2);
