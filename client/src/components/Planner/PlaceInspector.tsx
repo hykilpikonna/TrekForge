@@ -1399,12 +1399,6 @@ function PlaceInspectorHeader({ openNow, place, category, t, editingName, nameIn
                 <span className="text-content-muted" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{displayAddress}</span>
               </div>
             )}
-            {place.place_time && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
-                <Clock size={10} color="var(--text-faint)" style={{ flexShrink: 0 }} />
-                <span className="text-content-muted" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))' }}>{formatTime(place.place_time, locale, timeFormat)}{place.end_time ? ` – ${formatTime(place.end_time, locale, timeFormat)}` : ''}</span>
-              </div>
-            )}
             {place.lat && place.lng && (
               <div className="hidden sm:block text-content-faint" style={{ fontSize: 'calc(11px * var(--fs-scale-caption, 1))', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                 {Number(place.lat).toFixed(6)}, {Number(place.lng).toFixed(6)}

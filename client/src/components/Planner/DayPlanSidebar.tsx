@@ -834,27 +834,32 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, assignments, dayNotes, reservations, transportPosVersion])
 
-  // Days whose inline route legs should be computed & shown. Desktop: the selected
-  // day while the Route toggle is on. Mobile: each expanded day the user tapped
-  // "Route" on — shown inline so seeing distances between places doesn't require
-  // selecting the day, which would close the mobile sheet (#1374).
-  const routeDayIds = useMemo<number[]>(() => (
-    showRouteToolsWhenExpanded
-      ? days.filter(d => expandedRouteDayIds.has(d.id) && expandedDays.has(d.id)).map(d => d.id)
-      : (routeShown && selectedDayId ? [selectedDayId] : [])
-  ), [showRouteToolsWhenExpanded, expandedRouteDayIds, expandedDays, days, routeShown, selectedDayId])
+  // Days whose inline route legs should be computed & shown. The global Route
+  // toggle renders route legs for every day; on mobile, tapping a day's Route
+  // button adds that expanded day without selecting it (#1374).
+  const routeDayIds = useMemo<number[]>(() => {
+    const ids = new Set<number>()
+    if (routeShown) days.forEach(day => ids.add(day.id))
+    if (showRouteToolsWhenExpanded) {
+      days.forEach(day => {
+        if (expandedRouteDayIds.has(day.id) && expandedDays.has(day.id)) ids.add(day.id)
+      })
+    }
+    return days.map(day => day.id).filter(id => ids.has(id))
+  }, [showRouteToolsWhenExpanded, expandedRouteDayIds, expandedDays, days, routeShown])
   const routeDayKey = routeDayIds.join(',')
+  const hasActiveRoutes = routeDayIds.length > 0
 
   // Per-segment travel times shown as connectors between a day's located stops.
   // Groups located places into runs (split at transports), one cached OSRM call per
   // run keyed by the start place's assignment id, plus the hotel bookend legs. Shares
-  // RouteCalculator's cache with the map. Runs for every day in routeDayIds — one
-  // selected day on desktop, each Route-toggled day on mobile (#1374).
+  // RouteCalculator's cache with the map. Runs for every day in routeDayIds:
+  // all days for the global Route toggle, plus each Route-toggled mobile day.
   useEffect(() => {
-    if (!routeShown && activeSelectedRouteKey) selectRouteDetails(null)
-  // selectRouteDetails is recreated every render; routeShown drives this cleanup.
+    if (!hasActiveRoutes && activeSelectedRouteKey) selectRouteDetails(null)
+  // selectRouteDetails is recreated every render; active route visibility drives this cleanup.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeShown, activeSelectedRouteKey])
+  }, [hasActiveRoutes, activeSelectedRouteKey])
 
   useEffect(() => {
     if (legsAbortRef.current) legsAbortRef.current.abort()
@@ -1918,10 +1923,10 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
             (routeBookends?.evening?.place_lat != null && routeBookends?.evening?.place_lng != null)
           )
           const routeToolsRoutable = da.length >= 2 || (loc != null && hasRouteBookend)
-          // Is this day's inline route currently on? Mobile toggles it per day (its
-          // own expandedRouteDayIds entry); desktop uses the global Route toggle on
-          // the selected day (#1374).
-          const routeActive = showRouteToolsWhenExpanded ? expandedRouteDayIds.has(day.id) : (routeShown && isSelected)
+          // Is this day's inline route currently on? The global Route toggle shows
+          // route legs across the plan; mobile can also toggle a single expanded day
+          // without selecting it (#1374).
+          const routeActive = routeShown || (showRouteToolsWhenExpanded && expandedRouteDayIds.has(day.id))
           const isDragTarget = dragOverDayId === day.id
           const merged = mergedItemsMap[day.id] || []
           const dayNoteUi = noteUi[day.id]

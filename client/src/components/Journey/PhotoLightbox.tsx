@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
-import VideoPlayer from './VideoPlayer'
+
+const VideoPlayer = lazy(() => import('./VideoPlayer'))
 
 interface LightboxPhoto {
   id: string
@@ -126,7 +127,9 @@ export default function PhotoLightbox({ photos, startIndex = 0, onClose }: Props
 
         {/* Photo or video */}
         {photo.mediaType === 'video' ? (
-          <VideoPlayer key={photo.id} src={photo.src} />
+          <Suspense fallback={<video src={photo.src} playsInline controls preload="metadata" />}>
+            <VideoPlayer key={photo.id} src={photo.src} />
+          </Suspense>
         ) : (
           <img
             key={photo.id}
