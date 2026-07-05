@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Aksesibilitas',
   'inspector.accessible': 'Dapat diakses',
   'inspector.accessibilityLimited': 'Aksesibilitas terbatas',
+  'inspector.phone': 'Telepon',
   'inspector.reviews': 'Ulasan',
+  'inspector.reviewsCount': '{count} ulasan',
+  'inspector.viewAllReviews': 'Lihat semua {count} ulasan',
+  'inspector.openReview': 'Buka ulasan',
   'inspector.popularTimes': 'Waktu populer',
   'inspector.photosCount': '{count} foto',
+  'inspector.openPhoto': 'Buka foto {index} dari {count}',
 };
 export default inspector;

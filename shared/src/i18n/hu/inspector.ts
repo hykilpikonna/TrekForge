@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Akadálymentesség',
   'inspector.accessible': 'Akadálymentes',
   'inspector.accessibilityLimited': 'Korlátozott akadálymentesség',
+  'inspector.phone': 'Telefon',
   'inspector.reviews': 'Vélemények',
+  'inspector.reviewsCount': '{count} vélemény',
+  'inspector.viewAllReviews': 'Az összes {count} vélemény megtekintése',
+  'inspector.openReview': 'Vélemény megnyitása',
   'inspector.popularTimes': 'Népszerű időszakok',
   'inspector.photosCount': '{count} fotó',
+  'inspector.openPhoto': '{index}. fotó megnyitása / {count}',
 };
 export default inspector;

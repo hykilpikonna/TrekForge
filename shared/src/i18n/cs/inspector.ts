@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Přístupnost',
   'inspector.accessible': 'Přístupné',
   'inspector.accessibilityLimited': 'Omezená přístupnost',
+  'inspector.phone': 'Telefon',
   'inspector.reviews': 'Recenze',
+  'inspector.reviewsCount': '{count} recenzí',
+  'inspector.viewAllReviews': 'Zobrazit všech {count} recenzí',
+  'inspector.openReview': 'Otevřít recenzi',
   'inspector.popularTimes': 'Oblíbené časy',
   'inspector.photosCount': '{count} fotek',
+  'inspector.openPhoto': 'Otevřít fotku {index} z {count}',
 };
 export default inspector;

@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': '접근성',
   'inspector.accessible': '접근 가능',
   'inspector.accessibilityLimited': '접근성 제한',
+  'inspector.phone': '전화',
   'inspector.reviews': '리뷰',
+  'inspector.reviewsCount': '리뷰 {count}개',
+  'inspector.viewAllReviews': '리뷰 {count}개 모두 보기',
+  'inspector.openReview': '리뷰 열기',
   'inspector.popularTimes': '인기 시간대',
   'inspector.photosCount': '사진 {count}장',
+  'inspector.openPhoto': '사진 {count}장 중 {index}번째 열기',
 };
 export default inspector;

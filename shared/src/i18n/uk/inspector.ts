@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Доступність',
   'inspector.accessible': 'Доступно',
   'inspector.accessibilityLimited': 'Обмежена доступність',
+  'inspector.phone': 'Телефон',
   'inspector.reviews': 'Відгуки',
+  'inspector.reviewsCount': '{count} відгуків',
+  'inspector.viewAllReviews': 'Переглянути всі відгуки: {count}',
+  'inspector.openReview': 'Відкрити відгук',
   'inspector.popularTimes': 'Популярні години',
   'inspector.photosCount': '{count} фото',
+  'inspector.openPhoto': 'Відкрити фото {index} з {count}',
 };
 export default inspector;

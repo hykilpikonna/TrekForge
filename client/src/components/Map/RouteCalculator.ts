@@ -504,7 +504,12 @@ export async function calculateRouteWithLegs(
   }
 
   const coords = waypoints.map((p) => `${p.lng},${p.lat}`).join(';')
-  const effectiveProvider: RoutingProvider = profile === 'transit' && provider === 'osrm' ? 'google_maps' : provider
+  const effectiveProvider: RoutingProvider =
+    profile === 'transit' && provider === 'osrm'
+      ? 'google_maps'
+      : provider === 'google_maps_mobile' && profile !== 'driving'
+        ? 'google_maps'
+        : provider
   // The cached result carries formatted leg distances, so the active distance unit is
   // part of the key — otherwise switching km↔mi would return stale text (#1300).
   const distanceUnit = getDistanceUnit()
