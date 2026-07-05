@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Προσβασιμότητα',
   'inspector.accessible': 'Προσβάσιμο',
   'inspector.accessibilityLimited': 'Περιορισμένη προσβασιμότητα',
+  'inspector.phone': 'Τηλέφωνο',
   'inspector.reviews': 'Κριτικές',
+  'inspector.reviewsCount': '{count} κριτικές',
+  'inspector.viewAllReviews': 'Προβολή όλων των {count} κριτικών',
+  'inspector.openReview': 'Άνοιγμα κριτικής',
   'inspector.popularTimes': 'Δημοφιλείς ώρες',
   'inspector.photosCount': '{count} φωτογραφίες',
+  'inspector.openPhoto': 'Άνοιγμα φωτογραφίας {index} από {count}',
 };
 export default inspector;

@@ -24,8 +24,13 @@ const inspector: TranslationStrings = {
   'inspector.accessibility': 'Accessibilità',
   'inspector.accessible': 'Accessibile',
   'inspector.accessibilityLimited': 'Accessibilità limitata',
+  'inspector.phone': 'Telefono',
   'inspector.reviews': 'Recensioni',
+  'inspector.reviewsCount': '{count} recensioni',
+  'inspector.viewAllReviews': 'Vedi tutte le {count} recensioni',
+  'inspector.openReview': 'Apri recensione',
   'inspector.popularTimes': 'Orari più frequentati',
   'inspector.photosCount': '{count} foto',
+  'inspector.openPhoto': 'Apri foto {index} di {count}',
 };
 export default inspector;

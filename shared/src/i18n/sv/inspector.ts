@@ -21,5 +21,16 @@ const inspector: TranslationStrings = {
   'inspector.editRes': 'Redigera bokning',
   'inspector.participants': 'Deltagare',
   'inspector.trackStats': 'Spåra statistik',
+  'inspector.accessibility': 'Tillgänglighet',
+  'inspector.accessible': 'Tillgänglig',
+  'inspector.accessibilityLimited': 'Begränsad tillgänglighet',
+  'inspector.phone': 'Telefon',
+  'inspector.reviews': 'Recensioner',
+  'inspector.reviewsCount': '{count} recensioner',
+  'inspector.viewAllReviews': 'Visa alla {count} recensioner',
+  'inspector.openReview': 'Öppna recension',
+  'inspector.popularTimes': 'Populära tider',
+  'inspector.photosCount': '{count} foton',
+  'inspector.openPhoto': 'Öppna foto {index} av {count}',
 };
 export default inspector;
