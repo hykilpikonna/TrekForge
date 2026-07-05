@@ -154,6 +154,7 @@ export default function MapSettingsTab(): React.ReactElement {
   const [mapboxStyle, setMapboxStyle] = useState<string>(styleForProvider(initialProvider, slotStyle(initialProvider, settings)))
   const [mapbox3d, setMapbox3d] = useState<boolean>(settings.mapbox_3d_enabled !== false)
   const [mapboxQuality, setMapboxQuality] = useState<boolean>(settings.mapbox_quality_mode === true)
+  const [mapIconClustering, setMapIconClustering] = useState<boolean>(settings.map_icon_clustering_enabled !== false)
   const [defaultLat, setDefaultLat] = useState<number | string>(settings.default_lat || 48.8566)
   const [defaultLng, setDefaultLng] = useState<number | string>(settings.default_lng || 2.3522)
   const [defaultZoom, setDefaultZoom] = useState<number | string>(settings.default_zoom || 10)
@@ -166,6 +167,7 @@ export default function MapSettingsTab(): React.ReactElement {
     setMapboxStyle(styleForProvider(nextProvider, slotStyle(nextProvider, settings)))
     setMapbox3d(settings.mapbox_3d_enabled !== false)
     setMapboxQuality(settings.mapbox_quality_mode === true)
+    setMapIconClustering(settings.map_icon_clustering_enabled !== false)
     setDefaultLat(settings.default_lat || 48.8566)
     setDefaultLng(settings.default_lng || 2.3522)
     setDefaultZoom(settings.default_zoom || 10)
@@ -209,6 +211,7 @@ export default function MapSettingsTab(): React.ReactElement {
         ...stylePatch,
         mapbox_3d_enabled: mapbox3d,
         mapbox_quality_mode: mapboxQuality,
+        map_icon_clustering_enabled: mapIconClustering,
         default_lat: parseFloat(String(defaultLat)),
         default_lng: parseFloat(String(defaultLng)),
         default_zoom: parseInt(String(defaultZoom)),
@@ -400,6 +403,20 @@ export default function MapSettingsTab(): React.ReactElement {
           )}
         </div>
       )}
+
+      <div className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+        <div className="flex-1">
+          <div className="text-sm font-medium text-slate-900 dark:text-white">{t('settings.mapIconGrouping')}</div>
+          <div className="text-xs text-slate-500 mt-0.5">
+            {t('settings.mapIconGroupingHint')}
+          </div>
+        </div>
+        <ToggleSwitch
+          on={mapIconClustering}
+          onToggle={() => setMapIconClustering(v => !v)}
+          label={t('settings.mapIconGrouping')}
+        />
+      </div>
 
       {/* Default map position — applies regardless of provider */}
       <div className="grid grid-cols-2 gap-3">

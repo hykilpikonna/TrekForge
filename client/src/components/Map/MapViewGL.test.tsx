@@ -281,6 +281,31 @@ describe('MapViewGL', () => {
     expect(glMap.addLayer).toHaveBeenCalledWith(expect.objectContaining({ id: 'trip-place-clusters-count' }))
   })
 
+  it('FE-COMP-MAPVIEWGL-005b: renders all rich markers and clears clusters when grouping is disabled', async () => {
+    glMap.on.mockImplementation((event: string, handlerOrLayer: unknown) => {
+      if (event === 'load' && typeof handlerOrLayer === 'function') (handlerOrLayer as () => void)()
+      return glMap
+    })
+    const clusterSource = { setData: vi.fn() }
+    glMap.getSource.mockImplementation((id: string) => id === 'trip-place-clusters' ? clusterSource : null)
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        map_icon_clustering_enabled: false,
+      },
+    } as any)
+    const mapboxgl = (await import('mapbox-gl')).default
+
+    render(<MapViewGL places={[
+      buildMapPlace({ id: 1, lat: 48.8584, lng: 2.2945 }),
+      buildMapPlace({ id: 2, lat: 48.86, lng: 2.337 }),
+    ]} fitKey={1} />)
+    await act(async () => {})
+
+    expect(clusterSource.setData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] })
+    expect((mapboxgl.Marker as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2)
+  })
+
   function touchEvent(type: string, touches: Array<{ clientX: number; clientY: number }>) {
     const ev = new Event(type, { bubbles: true })
     Object.defineProperty(ev, 'touches', { value: touches })

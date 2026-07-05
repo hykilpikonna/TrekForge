@@ -35,6 +35,9 @@ const settings: TranslationStrings = {
   'settings.mapHighQuality': 'High Quality Mode',
   'settings.mapHighQualityHint': 'Antialiasing + globe projection for sharper edges and a realistic world view.',
   'settings.mapHighQualityWarning': 'May impact performance on lower-end devices.',
+  'settings.mapIconGrouping': 'Group nearby map icons',
+  'settings.mapIconGroupingHint':
+    'Combine nearby place icons into a count while zoomed out. Turn this off to show every icon separately.',
   'settings.mapTipLabel': 'Tip:',
   'settings.mapTip':
     'right-click and drag to rotate/pitch the map. Middle-click to add a place (right-click is reserved for rotation).',

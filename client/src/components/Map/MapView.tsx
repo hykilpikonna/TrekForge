@@ -359,6 +359,7 @@ function MapContextMenuHandler({ onContextMenu }: { onContextMenu: ((e: L.Leafle
 // Module-level photo cache shared with PlaceAvatar
 import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs } from '../../services/photoService'
 import { useAuthStore } from '../../store/authStore'
+import { useSettingsStore } from '../../store/settingsStore'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import LocationButton from './LocationButton'
 import { buildDisplayRouteLineSegments, buildRouteTransferPoints } from './routeLineSegments'
@@ -494,6 +495,7 @@ export const MapView = memo(function MapView({
   onPoiClick,
   onViewportChange,
 }: any) {
+  const markerClusteringEnabled = useSettingsStore(s => s.settings.map_icon_clustering_enabled !== false)
   const poiMarkers = useMemo(() => (pois as Poi[]).map((poi: Poi) => (
     <Marker
       key={`poi-${poi.osm_id}`}
@@ -727,20 +729,22 @@ export const MapView = memo(function MapView({
       <ViewportController onViewportChange={onViewportChange} />
       <LeafletLocationLayer position={userPosition} mode={trackingMode} />
 
-      <MarkerClusterGroup
-        chunkedLoading
-        chunkInterval={30}
-        chunkDelay={0}
-        maxClusterRadius={30}
-        disableClusteringAtZoom={11}
-        spiderfyOnMaxZoom
-        showCoverageOnHover={false}
-        zoomToBoundsOnClick
-        animate={false}
-        iconCreateFunction={clusterIconCreateFunction}
-      >
-        {markers}
-      </MarkerClusterGroup>
+      {markerClusteringEnabled ? (
+        <MarkerClusterGroup
+          chunkedLoading
+          chunkInterval={30}
+          chunkDelay={0}
+          maxClusterRadius={30}
+          disableClusteringAtZoom={11}
+          spiderfyOnMaxZoom
+          showCoverageOnHover={false}
+          zoomToBoundsOnClick
+          animate={false}
+          iconCreateFunction={clusterIconCreateFunction}
+        >
+          {markers}
+        </MarkerClusterGroup>
+      ) : markers}
 
       {/* Apple-Maps style: darker casing under a bright core, rounded. */}
       {routeLineSegments.flatMap((seg, i) => seg.coordinates.length > 1 ? [

@@ -13,8 +13,9 @@ interface CollectionMapProps {
 }
 
 /**
- * Map view — reuses the trip map stack (MapViewAuto → Leaflet / GL with marker
- * clustering). One of the three list views; clicking a marker selects the place.
+ * Map view — reuses the trip map stack (MapViewAuto -> Leaflet / GL, including
+ * the user's marker grouping preference). One of the three list views; clicking
+ * a marker selects the place.
  * The parent `.col-mapwrap` supplies the rounded, bordered box + height, so this
  * just fills it.
  */

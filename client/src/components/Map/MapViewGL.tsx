@@ -35,12 +35,13 @@ function categoryIconSvg(iconName: string | null | undefined, size: number): str
 // HTML photo markers *and* cluster them natively, so we feed the place points
 // into a clustered GeoJSON source. The cluster bubbles render as GL circles +
 // a count label; the individual rich HTML markers are then only drawn for the
-// points the source reports as currently unclustered. Grouping is always on,
-// matching the Leaflet map's MarkerClusterGroup.
+// points the source reports as currently unclustered. When the user disables
+// grouping, the cluster source is kept empty and every rich marker renders.
 const PLACE_CLUSTER_SOURCE_ID = 'trip-place-clusters'
 const PLACE_CLUSTER_CIRCLE_LAYER_ID = 'trip-place-clusters-circle'
 const PLACE_CLUSTER_COUNT_LAYER_ID = 'trip-place-clusters-count'
 const PLACE_UNCLUSTERED_LAYER_ID = 'trip-place-unclustered-hit'
+const EMPTY_PLACE_CLUSTER_DATA = { type: 'FeatureCollection' as const, features: [] }
 
 type PlaceWithCoords = Place & { lat: number; lng: number }
 
@@ -232,6 +233,7 @@ export function MapViewGL({
   const mapboxToken = useSettingsStore(s => s.settings.mapbox_access_token || '')
   const mapbox3d = useSettingsStore(s => s.settings.mapbox_3d_enabled !== false)
   const mapboxQuality = useSettingsStore(s => s.settings.mapbox_quality_mode === true)
+  const markerClusteringEnabled = useSettingsStore(s => s.settings.map_icon_clustering_enabled !== false)
   const showEndpointLabels = useSettingsStore(s => s.settings.map_booking_labels) === true
   const mapLang = useSettingsStore(s => s.settings.language)
   const isMapLibre = glProvider === 'maplibre-gl'
@@ -831,6 +833,11 @@ export function MapViewGL({
     }
 
     const source = map.getSource(PLACE_CLUSTER_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined
+    if (!markerClusteringEnabled) {
+      if (source && typeof source.setData === 'function') source.setData(EMPTY_PLACE_CLUSTER_DATA as any)
+      reconcileMarkers(validPlaces)
+      return
+    }
     if (!source || typeof map.querySourceFeatures !== 'function') {
       // No cluster source (e.g. style without it / test env): fall back to the
       // original behaviour and draw a marker for every place.
@@ -876,7 +883,7 @@ export function MapViewGL({
       map.off('zoomend', scheduleReconcile)
       map.off('idle', scheduleReconcile)
     }
-  }, [places, selectedPlaceId, dayOrderMap, photoUrls, mapReady, glProvider])
+  }, [places, selectedPlaceId, dayOrderMap, photoUrls, mapReady, glProvider, markerClusteringEnabled])
 
   // Reconcile OSM "explore" POI markers (imperative, kept separate from the
   // planned-place markers so they don't cluster or get confused with them).

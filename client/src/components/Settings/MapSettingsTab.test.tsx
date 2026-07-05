@@ -108,6 +108,7 @@ describe('MapSettingsTab', () => {
     expect(updateSettings).toHaveBeenCalledTimes(1);
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       map_tile_url: expect.any(String),
+      map_icon_clustering_enabled: expect.any(Boolean),
       default_lat: expect.any(Number),
       default_lng: expect.any(Number),
       default_zoom: expect.any(Number),
@@ -125,6 +126,7 @@ describe('MapSettingsTab', () => {
     await user.click(screen.getByText('Save Map'));
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       map_tile_url: '',
+      map_icon_clustering_enabled: true,
       default_lat: 48.8566,
       default_lng: 2.3522,
       default_zoom: 10,
@@ -183,5 +185,28 @@ describe('MapSettingsTab', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('40')).toBeInTheDocument();
     });
+  });
+
+  it('FE-COMP-MAP-018: shows the map icon grouping toggle', () => {
+    render(<MapSettingsTab />);
+    expect(screen.getByText('Group nearby map icons')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Group nearby map icons' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('FE-COMP-MAP-019: saving persists disabled map icon grouping', async () => {
+    const user = userEvent.setup();
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+    seedStore(useSettingsStore, {
+      settings: buildSettings({ map_icon_clustering_enabled: true }),
+      updateSettings,
+    });
+    render(<MapSettingsTab />);
+
+    await user.click(screen.getByRole('button', { name: 'Group nearby map icons' }));
+    await user.click(screen.getByText('Save Map'));
+
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      map_icon_clustering_enabled: false,
+    }));
   });
 });
