@@ -8,9 +8,14 @@
 1. **Automatic Time Scheduling & Calendar Mode**: If you set when you want to wake up each day and how long you want to spend on each location, it will calculate the start and end time for you automatically.
    * **Time-aware, Traffic-aware Routing**: Route time are vastly different if you depart at different hour, due to traffic. This fork automatically account for that.
    * **Opening/Closing Hours**: It will automatically warn you if your planned location falls outside of the opening hours.
-2. **Transit Routing**: Routing can use public transit now
+2. <s>**Transit Routing**: Routing can use public transit now.</s> Upstream now includes public transit routing.
 3. **Toll/Ticket Fees**: It will display toll/ticket fees for each route, and you can set if you want to avoid tolls.
-4. **Custom Categories & Emojis**: Can add custom categories for places and emojis representing them.
+4. <s>**Custom Categories**: Can add custom categories for places and choose their colors/icons.</s> Upstream now supports custom category colors/icons.
+5. **Category Emojis & Google List Import Categories**: Categories can still use emoji icons, and Google Maps list imports can create a category from the list title using the list emoji.
+6. **Enhanced Place Details (PR #4)**: The place inspector shows richer Google place data, including expanded photos, reviews, phone/website details, accessibility/business metadata, and summaries.
+   * **Popular Times**: Google popular-times data is shown in the inspector and highlights the hours that overlap with the scheduled visit.
+   * **Reviews View**: Reviews can be opened in a dedicated panel, with paginated Google review loading where available.
+   * **Photo Viewer**: Place photo galleries can be opened at full size, with adjacent photo preloading for smoother browsing.
 
 <img width="2035" height="1894" alt="image" src="https://github.com/user-attachments/assets/b58039a3-f988-457a-9a17-0dab73696cee" />
 
