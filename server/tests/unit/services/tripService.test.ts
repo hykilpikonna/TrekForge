@@ -510,16 +510,14 @@ describe('exportICS', () => {
     expect(ics).not.toContain('SUMMARY:Timeless Flight');
   });
 
-  it('TRIP-SVC-012: timed assignment gets a TZID derived from the place coordinates', () => {
+  it('TRIP-SVC-012: scheduled assignment gets a TZID derived from the place coordinates', () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Tokyo Trip' });
     const day = createDay(testDb, trip.id, { date: '2025-06-02' });
     // Tokyo coordinates → Asia/Tokyo via tz-lookup.
     const place = createPlace(testDb, trip.id, { name: 'Senso-ji', lat: 35.7148, lng: 139.7967 });
-    const assignment = createDayAssignment(testDb, day.id, place.id);
-    testDb
-      .prepare('UPDATE day_assignments SET assignment_time=? WHERE id=?')
-      .run('09:00', assignment.id);
+    createDayAssignment(testDb, day.id, place.id);
+    testDb.prepare('UPDATE days SET wake_up_time=? WHERE id=?').run('09:00', day.id);
 
     const { ics } = exportICS(trip.id);
 

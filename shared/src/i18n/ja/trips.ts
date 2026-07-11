@@ -12,6 +12,17 @@ const trips: TranslationStrings = {
   'trips.reminderCustom': 'カスタム',
   'trips.reminderDaysBefore': '出発前',
   'trips.reminderDisabledHint': '旅行のリマインダーは無効です。管理 > 設定 > 通知から有効にしてください。',
+  'trips.scheduleMargin': 'Schedule margin', // en-fallback
+  'trips.scheduleMarginHint': 'Buffer added after each scheduled place and route segment.', // en-fallback
+  'trips.scheduleMarginInvalid': 'Enter a margin like 0m, 15m, or 1h', // en-fallback
+  'trips.routingProvider': 'Estimated Driving Time', // en-fallback
+  'trips.routingProviderOsrm': 'OSRM', // en-fallback
+  'trips.routingProviderGoogle': 'Google Maps', // en-fallback
+  'trips.routingProviderHint': 'Choose the provider used for driving-time estimates between scheduled places.', // en-fallback
+  'trips.routingOptimism': 'Optimism', // en-fallback
+  'trips.routingOptimismHint': "0 uses Google Maps' slowest traffic estimate, 1 uses the fastest, and 0.33 leans cautious.", // en-fallback
+  'trips.routingPessimistic': 'Pessimistic', // en-fallback
+  'trips.routingOptimistic': 'Optimistic', // en-fallback
   'trips.routingAvoid': 'Avoid', // en-fallback
   'trips.routingAvoidTolls': 'Tolls', // en-fallback
   'trips.routingAvoidHighways': 'Highways', // en-fallback
