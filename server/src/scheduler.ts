@@ -67,7 +67,11 @@ async function runBackup(): Promise<void> {
 
   try {
     // Flush WAL to main DB file before archiving
-    try { const { db } = require('./db/database'); db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
+    try {
+      const { db } = require('./db/database');
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      db.exec('PRAGMA trekforge.wal_checkpoint(TRUNCATE)');
+    } catch (e) {}
 
     await new Promise<void>((resolve, reject) => {
       const output = fs.createWriteStream(outputPath);
@@ -77,6 +81,8 @@ async function runBackup(): Promise<void> {
       archive.pipe(output);
       const dbPath = path.join(dataDir, 'travel.db');
       if (fs.existsSync(dbPath)) archive.file(dbPath, { name: 'travel.db' });
+      const forgeDbPath = path.join(dataDir, 'trekforge.db');
+      if (fs.existsSync(forgeDbPath)) archive.file(forgeDbPath, { name: 'trekforge.db' });
       if (fs.existsSync(uploadsDir)) archive.directory(uploadsDir, 'uploads');
       archive.finalize();
     });

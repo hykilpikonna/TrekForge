@@ -4,6 +4,8 @@ import path from 'path';
 const dataDir = path.join(__dirname, '../../data');
 const dbPath = path.join(dataDir, 'travel.db');
 const baselinePath = path.join(dataDir, 'travel-baseline.db');
+const forgeDbPath = path.join(dataDir, 'trekforge.db');
+const forgeBaselinePath = path.join(dataDir, 'trekforge-baseline.db');
 
 function resetDemoUser(): void {
   if (!fs.existsSync(baselinePath)) {
@@ -34,9 +36,13 @@ function resetDemoUser(): void {
   // Restore baseline
   try {
     fs.copyFileSync(baselinePath, dbPath);
+    if (fs.existsSync(forgeBaselinePath)) fs.copyFileSync(forgeBaselinePath, forgeDbPath);
+    else fs.rmSync(forgeDbPath, { force: true });
     // Remove WAL/SHM files if they exist (stale from old connection)
     try { fs.unlinkSync(dbPath + '-wal'); } catch (e) {}
     try { fs.unlinkSync(dbPath + '-shm'); } catch (e) {}
+    try { fs.unlinkSync(forgeDbPath + '-wal'); } catch (e) {}
+    try { fs.unlinkSync(forgeDbPath + '-shm'); } catch (e) {}
   } catch (e: unknown) {
     console.error('[Demo Reset] Failed to restore baseline:', e instanceof Error ? e.message : e);
     reinitialize();
@@ -73,8 +79,10 @@ function saveBaseline(): void {
 
   // Flush WAL so baseline file is self-contained
   try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
+  try { db.exec('PRAGMA trekforge.wal_checkpoint(TRUNCATE)'); } catch (e) {}
 
   fs.copyFileSync(dbPath, baselinePath);
+  if (fs.existsSync(forgeDbPath)) fs.copyFileSync(forgeDbPath, forgeBaselinePath);
   console.log('[Demo] Baseline saved');
 }
 

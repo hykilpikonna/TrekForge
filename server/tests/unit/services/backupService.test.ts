@@ -475,6 +475,31 @@ describe('BACKUP-036 createBackup', () => {
     );
   });
 
+  it('BACKUP-036d2 — snapshots and includes the TrekForge sidecar when it exists', async () => {
+    fsMock.existsSync.mockImplementation((p: string) => String(p).endsWith('trekforge.db'));
+    fsMock.mkdirSync.mockReturnValue(undefined);
+
+    const writableEvents: Record<string, Function> = {};
+    fsMock.createWriteStream.mockReturnValue({
+      on: vi.fn((event: string, cb: Function) => {
+        writableEvents[event] = cb;
+      }),
+    });
+
+    archiverInstanceMock.on.mockImplementation(() => {});
+    archiverInstanceMock.pipe.mockReturnValue(undefined);
+    archiverInstanceMock.finalize.mockImplementation(() => {
+      writableEvents['close']?.();
+    });
+    archiverMock.mockReturnValue(archiverInstanceMock);
+    fsMock.statSync.mockReturnValue({ size: 1024, birthtime: new Date('2026-04-06T12:00:00Z') });
+
+    await createBackup();
+
+    expect(dbMock.db.exec).toHaveBeenCalledWith(expect.stringContaining('VACUUM trekforge INTO'));
+    expect(archiverInstanceMock.file).toHaveBeenCalledWith(expect.any(String), { name: 'trekforge.db' });
+  });
+
   it('BACKUP-036e — includes uploads but excludes the re-derivable photo caches', async () => {
     fsMock.existsSync.mockImplementation((p: string) => {
       if (String(p).endsWith('uploads')) return true;

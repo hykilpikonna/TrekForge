@@ -90,12 +90,6 @@ function createTables(db: Database.Database): void {
       is_archived INTEGER DEFAULT 0,
       reminder_days INTEGER DEFAULT 3,
       feed_token TEXT,
-      schedule_margin_minutes INTEGER DEFAULT 0,
-      routing_provider TEXT DEFAULT 'osrm',
-      routing_optimism REAL DEFAULT 0.33,
-      routing_avoid_tolls INTEGER DEFAULT 0,
-      routing_avoid_highways INTEGER DEFAULT 0,
-      routing_avoid_ferries INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -107,7 +101,6 @@ function createTables(db: Database.Database): void {
       date TEXT,
       notes TEXT,
       title TEXT,
-      wake_up_time TEXT DEFAULT '08:00',
       UNIQUE(trip_id, day_number)
     );
 
@@ -168,9 +161,6 @@ function createTables(db: Database.Database): void {
       place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
       order_index INTEGER DEFAULT 0,
       notes TEXT,
-      duration_minutes INTEGER DEFAULT 60,
-      margin_before_minutes INTEGER DEFAULT 0,
-      margin_after_minutes INTEGER DEFAULT 0,
       reservation_status TEXT DEFAULT 'none',
       reservation_notes TEXT,
       reservation_datetime TEXT,

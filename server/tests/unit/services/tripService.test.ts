@@ -32,6 +32,7 @@ vi.mock('../../../src/config', () => ({
 
 import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
+import { setDayWakeUpTime } from '../../../src/db/trekforge';
 import { resetTestDb } from '../../helpers/test-db';
 import { createUser, createTrip, createReservation, createPlace, createDay, createDayAssignment, createDayNote, addTripMember } from '../../helpers/factories';
 import { exportICS, generateDays, deleteOldCover, updateTrip, transferOwnership, createGuest, renameGuest, deleteGuest, listMembers, addMember } from '../../../src/services/tripService';
@@ -517,7 +518,7 @@ describe('exportICS', () => {
     // Tokyo coordinates → Asia/Tokyo via tz-lookup.
     const place = createPlace(testDb, trip.id, { name: 'Senso-ji', lat: 35.7148, lng: 139.7967 });
     createDayAssignment(testDb, day.id, place.id);
-    testDb.prepare('UPDATE days SET wake_up_time=? WHERE id=?').run('09:00', day.id);
+    setDayWakeUpTime(testDb, day.id, '09:00');
 
     const { ics } = exportICS(trip.id);
 

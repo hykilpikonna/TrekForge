@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import { encryptMfaSecret } from '../../src/services/mfaCrypto';
 import { encrypt_api_key } from '../../src/services/apiKeyCrypto';
+import { initializeTrekForgeDb, setTripSettings } from '../../src/db/trekforge';
 
 let _userSeq = 0;
 let _tripSeq = 0;
@@ -104,23 +105,20 @@ export function createTrip(
     routing_avoid_ferries: boolean | number;
   }> = {}
 ): TestTrip {
+  initializeTrekForgeDb(db);
   _tripSeq++;
   const title = overrides.title ?? `Test Trip ${_tripSeq}`;
   const result = db.prepare(
-    'INSERT INTO trips (user_id, title, description, start_date, end_date, schedule_margin_minutes, routing_provider, routing_optimism, routing_avoid_tolls, routing_avoid_highways, routing_avoid_ferries) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(
-    userId,
-    title,
-    overrides.description ?? null,
-    overrides.start_date ?? null,
-    overrides.end_date ?? null,
-    overrides.schedule_margin_minutes ?? 0,
-    overrides.routing_provider ?? 'osrm',
-    overrides.routing_optimism ?? 0.33,
-    overrides.routing_avoid_tolls ? 1 : 0,
-    overrides.routing_avoid_highways ? 1 : 0,
-    overrides.routing_avoid_ferries ? 1 : 0,
-  );
+    'INSERT INTO trips (user_id, title, description, start_date, end_date) VALUES (?, ?, ?, ?, ?)'
+  ).run(userId, title, overrides.description ?? null, overrides.start_date ?? null, overrides.end_date ?? null);
+  setTripSettings(db, result.lastInsertRowid, {
+    schedule_margin_minutes: overrides.schedule_margin_minutes ?? 0,
+    routing_provider: overrides.routing_provider ?? 'osrm',
+    routing_optimism: overrides.routing_optimism ?? 0.33,
+    routing_avoid_tolls: overrides.routing_avoid_tolls ? 1 : 0,
+    routing_avoid_highways: overrides.routing_avoid_highways ? 1 : 0,
+    routing_avoid_ferries: overrides.routing_avoid_ferries ? 1 : 0,
+  });
 
   // Auto-generate days if dates are provided
   if (overrides.start_date && overrides.end_date) {
@@ -134,7 +132,12 @@ export function createTrip(
     }
   }
 
-  return db.prepare('SELECT * FROM trips WHERE id = ?').get(result.lastInsertRowid) as TestTrip;
+  return db.prepare(`
+    SELECT t.*, tf.schedule_margin_minutes, tf.routing_provider, tf.routing_optimism,
+      tf.routing_avoid_tolls, tf.routing_avoid_highways, tf.routing_avoid_ferries
+    FROM trips t JOIN trekforge.trip_settings tf ON tf.trip_id = t.id
+    WHERE t.id = ?
+  `).get(result.lastInsertRowid) as TestTrip;
 }
 
 // ---------------------------------------------------------------------------

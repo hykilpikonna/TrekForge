@@ -170,6 +170,7 @@ export async function createBackup(): Promise<BackupInfo> {
   const outputPath = path.join(backupsDir, filename);
   const pdataSnap = path.join(backupsDir, `.plugins-snap-${timestamp}`);
   const dbSnap = path.join(backupsDir, `.travel-snap-${timestamp}.db`);
+  const forgeSnap = path.join(backupsDir, `.trekforge-snap-${timestamp}.db`);
 
   try {
     try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
@@ -200,6 +201,19 @@ export async function createBackup(): Promise<BackupInfo> {
           // than drop the core DB from the backup entirely.
         }
         archive.file(dbToArchive, { name: 'travel.db' });
+      }
+
+      const forgePath = path.join(dataDir, 'trekforge.db');
+      if (fs.existsSync(forgePath)) {
+        let forgeToArchive = forgePath;
+        try {
+          if (fs.existsSync(forgeSnap)) fs.rmSync(forgeSnap, { force: true });
+          db.exec(`VACUUM trekforge INTO '${forgeSnap.replace(/'/g, "''")}'`);
+          forgeToArchive = forgeSnap;
+        } catch (e) {
+          try { db.exec('PRAGMA trekforge.wal_checkpoint(TRUNCATE)'); } catch (checkpointError) {}
+        }
+        archive.file(forgeToArchive, { name: 'trekforge.db' });
       }
 
       // Bundle the at-rest encryption key so the backup is self-contained: the
@@ -287,6 +301,7 @@ export async function createBackup(): Promise<BackupInfo> {
     // complete).
     fs.rmSync(pdataSnap, { recursive: true, force: true });
     fs.rmSync(dbSnap, { force: true });
+    fs.rmSync(forgeSnap, { force: true });
   }
 }
 
@@ -311,6 +326,7 @@ export async function restoreFromZip(zipPath: string): Promise<RestoreResult> {
     // running total crosses the cap. Each entry's resolved path is also confined to
     // extractDir (a `../` entry that escaped the root — zip-slip — is refused).
     const directory = await unzipper.Open.file(zipPath);
+    const archiveHasForgeDb = directory.files.some((entry) => entry.type !== 'Directory' && entry.path === 'trekforge.db');
     const claimedSize = directory.files.reduce((sum, f) => sum + (f.uncompressedSize || 0), 0);
     if (claimedSize > MAX_BACKUP_DECOMPRESSED_SIZE) {
       return { success: false, error: 'Backup exceeds the maximum decompressed size.', status: 400 };
@@ -354,6 +370,7 @@ export async function restoreFromZip(zipPath: string): Promise<RestoreResult> {
     }
 
     const extractedDb = path.join(extractDir, 'travel.db');
+    const extractedForgeDb = path.join(extractDir, 'trekforge.db');
     if (!fs.existsSync(extractedDb)) {
       fs.rmSync(extractDir, { recursive: true, force: true });
       return { success: false, error: 'Invalid backup: travel.db not found', status: 400 };
@@ -387,6 +404,23 @@ export async function restoreFromZip(zipPath: string): Promise<RestoreResult> {
       uploadedDb?.close();
     }
 
+    if (archiveHasForgeDb && fs.existsSync(extractedForgeDb)) {
+      let uploadedForgeDb: InstanceType<typeof Database> | null = null;
+      try {
+        uploadedForgeDb = new Database(extractedForgeDb, { readonly: true });
+        const integrity = uploadedForgeDb.prepare('PRAGMA integrity_check').get() as { integrity_check: string };
+        if (integrity.integrity_check !== 'ok') {
+          fs.rmSync(extractDir, { recursive: true, force: true });
+          return { success: false, error: `TrekForge sidecar failed integrity check: ${integrity.integrity_check}`, status: 400 };
+        }
+      } catch (err) {
+        fs.rmSync(extractDir, { recursive: true, force: true });
+        return { success: false, error: 'Uploaded TrekForge sidecar is not a valid SQLite database', status: 400 };
+      } finally {
+        uploadedForgeDb?.close();
+      }
+    }
+
     closeDb();
 
     try {
@@ -402,6 +436,22 @@ export async function restoreFromZip(zipPath: string): Promise<RestoreResult> {
         try { fs.unlinkSync(dbDest + ext); } catch (e) {}
       }
       fs.renameSync(dbTmp, dbDest);
+
+      const forgeDest = path.join(dataDir, 'trekforge.db');
+      const forgeTmp = forgeDest + '.restore-tmp';
+      try { fs.unlinkSync(forgeTmp); } catch (e) {}
+      for (const ext of ['-wal', '-shm']) {
+        try { fs.unlinkSync(forgeDest + ext); } catch (e) {}
+      }
+      if (archiveHasForgeDb && fs.existsSync(extractedForgeDb)) {
+        fs.copyFileSync(extractedForgeDb, forgeTmp);
+        fs.renameSync(forgeTmp, forgeDest);
+      } else {
+        // Older backups predate the sidecar. Removing the current one prevents
+        // settings from the pre-restore dataset leaking into restored trips;
+        // reinitialize() imports any legacy columns present in travel.db.
+        fs.rmSync(forgeDest, { force: true });
+      }
 
       // Restore the bundled at-rest encryption key (if the archive carries one)
       // so the restored DB's encrypted secrets can be decrypted. Only the file

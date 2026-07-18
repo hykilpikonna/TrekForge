@@ -1,23 +1,27 @@
 import { db } from '../db/database';
 import { loadTagsByPlaceIds, loadParticipantsByAssignmentIds, formatAssignmentWithPlace } from './queryHelpers';
 import { AssignmentRow, DayAssignment } from '../types';
+import { initializeTrekForgeDb, pruneTrekForgeData, setAssignmentSettings } from '../db/trekforge';
+
+initializeTrekForgeDb(db);
 
 export function getAssignmentWithPlace(assignmentId: number | bigint) {
   const a = db.prepare(`
     SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
       da.assignment_time, da.assignment_end_time,
-      COALESCE(da.margin_before_minutes, 0) as margin_before_minutes,
-      COALESCE(da.margin_after_minutes, 0) as margin_after_minutes,
+      COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
+      COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
       NULL as place_time,
       NULL as end_time,
-      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
+      COALESCE(afs.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.osm_id, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
     JOIN places p ON da.place_id = p.id
+    LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
     LEFT JOIN categories c ON p.category_id = c.id
     WHERE da.id = ?
   `).get(assignmentId) as AssignmentRow | undefined;
@@ -86,18 +90,19 @@ export function listDayAssignments(dayId: string | number) {
   const assignments = db.prepare(`
     SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
       da.assignment_time, da.assignment_end_time,
-      COALESCE(da.margin_before_minutes, 0) as margin_before_minutes,
-      COALESCE(da.margin_after_minutes, 0) as margin_after_minutes,
+      COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
+      COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
       NULL as place_time,
       NULL as end_time,
-      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
+      COALESCE(afs.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.osm_id, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
     JOIN places p ON da.place_id = p.id
+    LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
     LEFT JOIN categories c ON p.category_id = c.id
     WHERE da.day_id = ?
     ORDER BY da.order_index ASC, da.created_at ASC
@@ -130,8 +135,13 @@ export function createAssignment(dayId: string | number, placeId: string | numbe
     | undefined;
 
   const result = db.prepare(
-    'INSERT INTO day_assignments (day_id, place_id, order_index, notes, duration_minutes) VALUES (?, ?, ?, ?, ?)'
-  ).run(dayId, placeId, orderIndex, notes || null, placeDuration?.duration_minutes ?? 60);
+    'INSERT INTO day_assignments (day_id, place_id, order_index, notes) VALUES (?, ?, ?, ?)'
+  ).run(dayId, placeId, orderIndex, notes || null);
+  setAssignmentSettings(db, result.lastInsertRowid, {
+    duration_minutes: placeDuration?.duration_minutes ?? 60,
+    margin_before_minutes: 0,
+    margin_after_minutes: 0,
+  });
 
   return getAssignmentWithPlace(result.lastInsertRowid);
 }
@@ -144,6 +154,7 @@ export function assignmentExistsInDay(id: string | number, dayId: string | numbe
 
 export function deleteAssignment(id: string | number) {
   db.prepare('DELETE FROM day_assignments WHERE id = ?').run(id);
+  pruneTrekForgeData(db);
 }
 
 export function reorderAssignments(dayId: string | number, orderedIds: number[]) {
@@ -194,17 +205,31 @@ export function updateTime(
   id: string | number,
   durationMinutes?: number | null,
 ) {
-  const current = db.prepare('SELECT duration_minutes FROM day_assignments WHERE id = ?').get(id) as
-    | { duration_minutes: number | null }
+  const current = db.prepare(`
+    SELECT COALESCE(afs.duration_minutes, p.duration_minutes, 60) AS duration_minutes,
+      COALESCE(afs.margin_before_minutes, 0) AS margin_before_minutes,
+      COALESCE(afs.margin_after_minutes, 0) AS margin_after_minutes
+    FROM day_assignments da
+    JOIN places p ON p.id = da.place_id
+    LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
+    WHERE da.id = ?
+  `).get(id) as
+    | { duration_minutes: number | null; margin_before_minutes: number; margin_after_minutes: number }
     | undefined;
   const nextDuration = normalizeDurationMinutes(durationMinutes) ?? current?.duration_minutes ?? 60;
   db.prepare(`
     UPDATE day_assignments
     SET assignment_time = NULL,
-        assignment_end_time = NULL,
-        duration_minutes = ?
+        assignment_end_time = NULL
     WHERE id = ?
-  `).run(nextDuration, id);
+  `).run(id);
+  if (current) {
+    setAssignmentSettings(db, id, {
+      duration_minutes: nextDuration,
+      margin_before_minutes: current.margin_before_minutes,
+      margin_after_minutes: current.margin_after_minutes,
+    });
+  }
 
   return getAssignmentWithPlace(Number(id));
 }

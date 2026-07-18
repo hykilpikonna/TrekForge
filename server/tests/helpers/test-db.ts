@@ -15,11 +15,11 @@
  *   beforeEach(() => resetTestDb(testDb));
  *   afterAll(() => testDb.close());
  */
-
 import Database from 'better-sqlite3';
 import type { INestApplication } from '@nestjs/common';
 import { createTables } from '../../src/db/schema';
 import { runMigrations } from '../../src/db/migrations';
+import { initializeTrekForgeDb } from '../../src/db/trekforge';
 import { AuthPublicController } from '../../src/nest/auth/auth-public.controller';
 import type { RateLimitService } from '../../src/nest/auth/rate-limit.service';
 
@@ -158,6 +158,7 @@ export function createTestDb(): Database.Database {
   db.exec('PRAGMA foreign_keys = ON');
   createTables(db);
   runMigrations(db);
+  initializeTrekForgeDb(db);
   seedDefaults(db);
   return db;
 }
@@ -175,6 +176,10 @@ export function resetTestDb(db: Database.Database): void {
     if (existingTables.has(table)) {
       db.exec(`DELETE FROM "${table}"`);
     }
+  }
+  const attached = (db.prepare('PRAGMA database_list').all() as Array<{ name: string }>).some((row) => row.name === 'trekforge');
+  if (attached) {
+    db.exec('DELETE FROM trekforge.assignment_settings; DELETE FROM trekforge.day_settings; DELETE FROM trekforge.trip_settings;');
   }
   db.exec('PRAGMA foreign_keys = ON');
   seedDefaults(db);

@@ -4,6 +4,7 @@ import fs from 'fs';
 import { createTables } from './schema';
 import { runMigrations } from './migrations';
 import { runSeeds } from './seeds';
+import { initializeTrekForgeDb, prepareLegacyForkUpgrade, resolveTrekForgeDbPath } from './trekforge';
 import { Place, Tag } from '../types';
 
 // In test mode each vitest worker gets an isolated in-memory DB so that
@@ -29,6 +30,7 @@ if (isTest) {
 }
 
 let _db: Database.Database | null = null;
+const trekForgeDbPath = resolveTrekForgeDbPath(dbPath);
 
 function initDb(): void {
   if (_db) {
@@ -43,7 +45,9 @@ function initDb(): void {
   _db.exec('PRAGMA foreign_keys = ON');
 
   createTables(_db);
+  prepareLegacyForkUpgrade(_db);
   runMigrations(_db);
+  initializeTrekForgeDb(_db, dbPath);
 
   runSeeds(_db);
 }
@@ -74,6 +78,7 @@ if (process.env.DEMO_MODE?.toLowerCase() === 'true') {
 function closeDb(): void {
   if (_db) {
     try { _db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
+    try { _db.exec('PRAGMA trekforge.wal_checkpoint(TRUNCATE)'); } catch (e) {}
     try { _db.close(); } catch (e) {}
     _db = null;
     console.log('[DB] Database connection closed');
@@ -151,4 +156,4 @@ try {
   console.error('[DB] Flight endpoint backfill failed:', err);
 }
 
-export { db, closeDb, reinitialize, getPlaceWithTags, canAccessTrip, isOwner };
+export { db, dbPath, trekForgeDbPath, closeDb, reinitialize, getPlaceWithTags, canAccessTrip, isOwner };

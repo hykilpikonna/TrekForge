@@ -13,12 +13,21 @@ import { listReservations, loadEndpointsByTrip, resyncReservationDays } from './
 import { listNotes as listCollabNotes } from './collabService';
 import { shiftOwnerEntriesForTripWindow } from './vacayService';
 import { resolveTimeZone } from './timezoneService';
+import { initializeTrekForgeDb, pruneTrekForgeData, setAssignmentSettings, setDayWakeUpTime, setTripSettings } from '../db/trekforge';
+
+initializeTrekForgeDb(db);
 
 export const MS_PER_DAY = 86400000;
 export const MAX_TRIP_DAYS = 365;
 
 export const TRIP_SELECT = `
   SELECT t.*,
+    COALESCE(tf.schedule_margin_minutes, 0) as schedule_margin_minutes,
+    COALESCE(tf.routing_provider, 'osrm') as routing_provider,
+    COALESCE(tf.routing_optimism, 0.33) as routing_optimism,
+    COALESCE(tf.routing_avoid_tolls, 0) as routing_avoid_tolls,
+    COALESCE(tf.routing_avoid_highways, 0) as routing_avoid_highways,
+    COALESCE(tf.routing_avoid_ferries, 0) as routing_avoid_ferries,
     (SELECT COUNT(*) FROM days d WHERE d.trip_id = t.id) as day_count,
     (SELECT COUNT(*) FROM places p WHERE p.trip_id = t.id) as place_count,
     CASE WHEN t.user_id = :userId THEN 1 ELSE 0 END as is_owner,
@@ -26,6 +35,19 @@ export const TRIP_SELECT = `
     (SELECT COUNT(*) FROM trip_members tm WHERE tm.trip_id = t.id) as shared_count
   FROM trips t
   JOIN users u ON u.id = t.user_id
+  LEFT JOIN trekforge.trip_settings tf ON tf.trip_id = t.id
+`;
+
+const TRIP_WITH_SETTINGS_SELECT = `
+  SELECT t.*,
+    COALESCE(tf.schedule_margin_minutes, 0) as schedule_margin_minutes,
+    COALESCE(tf.routing_provider, 'osrm') as routing_provider,
+    COALESCE(tf.routing_optimism, 0.33) as routing_optimism,
+    COALESCE(tf.routing_avoid_tolls, 0) as routing_avoid_tolls,
+    COALESCE(tf.routing_avoid_highways, 0) as routing_avoid_highways,
+    COALESCE(tf.routing_avoid_ferries, 0) as routing_avoid_ferries
+  FROM trips t
+  LEFT JOIN trekforge.trip_settings tf ON tf.trip_id = t.id
 `;
 
 // ── Access helpers ────────────────────────────────────────────────────────
@@ -75,6 +97,7 @@ export function generateDays(tripId: number | bigint | string, startDate: string
     }
     const remaining = db.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY day_number').all(tripId) as { id: number }[];
     renumber(remaining);
+    pruneTrekForgeData(db);
     return;
   }
 
@@ -152,6 +175,7 @@ export function generateDays(tripId: number | bigint | string, startDate: string
   // Final renumber to compact and eliminate any gaps/negatives
   const remaining = db.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY day_number').all(tripId) as { id: number }[];
   renumber(remaining);
+  pruneTrekForgeData(db);
 }
 
 // ── Trip CRUD ─────────────────────────────────────────────────────────────
@@ -229,11 +253,19 @@ export function createTrip(userId: number, data: CreateTripData, maxDays?: numbe
   const routingAvoidFerries = normalizeRoutingAvoidFlag(data.routing_avoid_ferries, 0);
 
   const result = db.prepare(`
-    INSERT INTO trips (user_id, title, description, start_date, end_date, currency, reminder_days, schedule_margin_minutes, routing_provider, routing_optimism, routing_avoid_tolls, routing_avoid_highways, routing_avoid_ferries)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, data.title, data.description || null, data.start_date || null, data.end_date || null, data.currency || 'EUR', rd, scheduleMargin, routingProvider, routingOptimism, routingAvoidTolls, routingAvoidHighways, routingAvoidFerries);
+    INSERT INTO trips (user_id, title, description, start_date, end_date, currency, reminder_days)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(userId, data.title, data.description || null, data.start_date || null, data.end_date || null, data.currency || 'EUR', rd);
 
   const tripId = result.lastInsertRowid;
+  setTripSettings(db, tripId, {
+    schedule_margin_minutes: scheduleMargin,
+    routing_provider: routingProvider,
+    routing_optimism: routingOptimism,
+    routing_avoid_tolls: routingAvoidTolls,
+    routing_avoid_highways: routingAvoidHighways,
+    routing_avoid_ferries: routingAvoidFerries,
+  });
   generateDays(tripId, data.start_date || null, data.end_date || null, maxDays, data.day_count);
 
   const trip = db.prepare(`${TRIP_SELECT} WHERE t.id = :tripId`).get({ userId, tripId });
@@ -278,7 +310,7 @@ export interface UpdateTripResult {
 }
 
 export function updateTrip(tripId: string | number, userId: number, data: UpdateTripData, userRole: string): UpdateTripResult {
-  const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(tripId) as Trip & { reminder_days?: number } | undefined;
+  const trip = db.prepare(`${TRIP_WITH_SETTINGS_SELECT} WHERE t.id = ?`).get(tripId) as Trip & { reminder_days?: number } | undefined;
   if (!trip) throw new NotFoundError('Trip not found');
 
   const { title, description, start_date, end_date, currency, is_archived, cover_image, reminder_days, schedule_margin_minutes, routing_provider, routing_optimism, routing_avoid_tolls, routing_avoid_highways, routing_avoid_ferries } = data;
@@ -324,11 +356,17 @@ export function updateTrip(tripId: string | number, userId: number, data: Update
 
   db.prepare(`
     UPDATE trips SET title=?, description=?, start_date=?, end_date=?,
-      currency=?, is_archived=?, cover_image=?, reminder_days=?, schedule_margin_minutes=?,
-      routing_provider=?, routing_optimism=?, routing_avoid_tolls=?, routing_avoid_highways=?, routing_avoid_ferries=?,
-      updated_at=CURRENT_TIMESTAMP
+      currency=?, is_archived=?, cover_image=?, reminder_days=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=?
-  `).run(newTitle, newDesc, newStart || null, newEnd || null, newCurrency, newArchived, newCover, newReminder, newScheduleMargin, newRoutingProvider, newRoutingOptimism, newRoutingAvoidTolls, newRoutingAvoidHighways, newRoutingAvoidFerries, tripId);
+  `).run(newTitle, newDesc, newStart || null, newEnd || null, newCurrency, newArchived, newCover, newReminder, tripId);
+  setTripSettings(db, tripId, {
+    schedule_margin_minutes: newScheduleMargin,
+    routing_provider: newRoutingProvider,
+    routing_optimism: newRoutingOptimism,
+    routing_avoid_tolls: newRoutingAvoidTolls,
+    routing_avoid_highways: newRoutingAvoidHighways,
+    routing_avoid_ferries: newRoutingAvoidFerries,
+  });
 
   if (trip.start_date && trip.end_date && newStart && newStart !== trip.start_date)
     shiftOwnerEntriesForTripWindow(trip.user_id, trip.start_date, trip.end_date, newStart);
@@ -418,6 +456,7 @@ export function deleteTrip(tripId: string | number, userId: number, userRole: st
   `).run(tripId);
 
   db.prepare('DELETE FROM trips WHERE id = ?').run(tripId);
+  pruneTrekForgeData(db);
 
   return { tripId: Number(tripId), title: trip.title, ownerId: trip.user_id, isAdminDelete, ownerEmail };
 }
@@ -441,7 +480,7 @@ export function updateCoverImage(tripId: string | number, coverUrl: string) {
 }
 
 export function getTripRaw(tripId: string | number): Trip | undefined {
-  return db.prepare('SELECT * FROM trips WHERE id = ?').get(tripId) as Trip | undefined;
+  return db.prepare(`${TRIP_WITH_SETTINGS_SELECT} WHERE t.id = ?`).get(tripId) as Trip | undefined;
 }
 
 export function getTripOwner(tripId: string | number): { user_id: number } | undefined {
@@ -723,7 +762,7 @@ function buildVTimezone(zone: string, yyyymmdd: string): string {
 }
 
 export function exportICS(tripId: string | number): { ics: string; filename: string } {
-  const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(tripId) as any;
+  const trip = db.prepare(`${TRIP_WITH_SETTINGS_SELECT} WHERE t.id = ?`).get(tripId) as any;
   if (!trip) throw new NotFoundError('Trip not found');
 
   const reservations = db
@@ -811,16 +850,24 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
   }
 
   // Days with assignments and notes
-  const days = db.prepare('SELECT * FROM days WHERE trip_id = ? ORDER BY day_number ASC').all(tripId) as any[];
+  const days = db.prepare(`
+    SELECT d.*, CASE WHEN ds.day_id IS NULL THEN '08:00' ELSE ds.wake_up_time END AS wake_up_time
+    FROM days d LEFT JOIN trekforge.day_settings ds ON ds.day_id = d.id
+    WHERE d.trip_id = ? ORDER BY d.day_number ASC
+  `).all(tripId) as any[];
   for (const day of days) {
     if (!day.date) continue;
 
     const assignments = db.prepare(`
-      SELECT da.*, p.name as place_name, p.address as place_address,
+      SELECT da.*, COALESCE(afs.duration_minutes, p.duration_minutes, 60) AS duration_minutes,
+        COALESCE(afs.margin_before_minutes, 0) AS margin_before_minutes,
+        COALESCE(afs.margin_after_minutes, 0) AS margin_after_minutes,
+        p.name as place_name, p.address as place_address,
         p.lat as place_lat, p.lng as place_lng,
         p.duration_minutes as place_duration_minutes
       FROM day_assignments da
       JOIN places p ON da.place_id = p.id
+      LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
       WHERE da.day_id = ?
       ORDER BY da.order_index ASC, da.created_at ASC
     `).all(day.id) as any[];
@@ -973,15 +1020,15 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
  * Returns the new trip's ID.
  */
 export function copyTripById(sourceTripId: string | number, newOwnerId: number, title?: string): number {
-  const src = db.prepare('SELECT * FROM trips WHERE id = ?').get(sourceTripId) as any;
+  const src = db.prepare(`${TRIP_WITH_SETTINGS_SELECT} WHERE t.id = ?`).get(sourceTripId) as any;
   if (!src) throw new NotFoundError('Trip not found');
 
   const newTitle = title || src.title;
 
   const fn = db.transaction(() => {
     const tripResult = db.prepare(`
-      INSERT INTO trips (user_id, title, description, start_date, end_date, currency, cover_image, is_archived, reminder_days, schedule_margin_minutes, routing_provider, routing_optimism, routing_avoid_tolls, routing_avoid_highways, routing_avoid_ferries)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO trips (user_id, title, description, start_date, end_date, currency, cover_image, is_archived, reminder_days)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
     `).run(
       newOwnerId,
       newTitle,
@@ -991,20 +1038,27 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
       src.currency,
       src.cover_image,
       src.reminder_days ?? 3,
-      src.schedule_margin_minutes ?? 0,
-      normalizeRoutingProvider(src.routing_provider, 'osrm'),
-      normalizeRoutingOptimism(src.routing_optimism, 0.33),
-      normalizeRoutingAvoidFlag(src.routing_avoid_tolls, 0),
-      normalizeRoutingAvoidFlag(src.routing_avoid_highways, 0),
-      normalizeRoutingAvoidFlag(src.routing_avoid_ferries, 0),
     );
     const newTripId = tripResult.lastInsertRowid;
+    setTripSettings(db, newTripId, {
+      schedule_margin_minutes: src.schedule_margin_minutes ?? 0,
+      routing_provider: normalizeRoutingProvider(src.routing_provider, 'osrm'),
+      routing_optimism: normalizeRoutingOptimism(src.routing_optimism, 0.33),
+      routing_avoid_tolls: normalizeRoutingAvoidFlag(src.routing_avoid_tolls, 0),
+      routing_avoid_highways: normalizeRoutingAvoidFlag(src.routing_avoid_highways, 0),
+      routing_avoid_ferries: normalizeRoutingAvoidFlag(src.routing_avoid_ferries, 0),
+    });
 
-    const oldDays = db.prepare('SELECT * FROM days WHERE trip_id = ? ORDER BY day_number').all(sourceTripId) as any[];
+    const oldDays = db.prepare(`
+      SELECT d.*, CASE WHEN ds.day_id IS NULL THEN '08:00' ELSE ds.wake_up_time END AS wake_up_time
+      FROM days d LEFT JOIN trekforge.day_settings ds ON ds.day_id = d.id
+      WHERE d.trip_id = ? ORDER BY d.day_number
+    `).all(sourceTripId) as any[];
     const dayMap = new Map<number, number | bigint>();
-    const insertDay = db.prepare('INSERT INTO days (trip_id, day_number, date, notes, title, wake_up_time) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertDay = db.prepare('INSERT INTO days (trip_id, day_number, date, notes, title) VALUES (?, ?, ?, ?, ?)');
     for (const d of oldDays) {
-      const r = insertDay.run(newTripId, d.day_number, d.date, d.notes, d.title, d.wake_up_time ?? '08:00');
+      const r = insertDay.run(newTripId, d.day_number, d.date, d.notes, d.title);
+      setDayWakeUpTime(db, r.lastInsertRowid, d.wake_up_time ?? '08:00');
       dayMap.set(d.id, r.lastInsertRowid);
     }
 
@@ -1034,25 +1088,35 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
     }
 
     const oldAssignments = db.prepare(`
-      SELECT da.* FROM day_assignments da JOIN days d ON d.id = da.day_id WHERE d.trip_id = ?
+      SELECT da.*, COALESCE(afs.duration_minutes, p.duration_minutes, 60) AS duration_minutes,
+        COALESCE(afs.margin_before_minutes, 0) AS margin_before_minutes,
+        COALESCE(afs.margin_after_minutes, 0) AS margin_after_minutes
+      FROM day_assignments da
+      JOIN days d ON d.id = da.day_id
+      JOIN places p ON p.id = da.place_id
+      LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
+      WHERE d.trip_id = ?
     `).all(sourceTripId) as any[];
     const assignmentMap = new Map<number, number | bigint>();
     const insertAssignment = db.prepare(`
       INSERT INTO day_assignments (
-        day_id, place_id, order_index, notes, duration_minutes,
-        margin_before_minutes, margin_after_minutes,
+        day_id, place_id, order_index, notes,
         reservation_status, reservation_notes, reservation_datetime, assignment_time, assignment_end_time
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const a of oldAssignments) {
       const newDayId = dayMap.get(a.day_id);
       const newPlaceId = placeMap.get(a.place_id);
       if (newDayId && newPlaceId) {
-        const r = insertAssignment.run(newDayId, newPlaceId, a.order_index, a.notes, a.duration_minutes ?? 60,
-          a.margin_before_minutes ?? 0, a.margin_after_minutes ?? 0,
+        const r = insertAssignment.run(newDayId, newPlaceId, a.order_index, a.notes,
           a.reservation_status, a.reservation_notes, a.reservation_datetime,
           null, null);
+        setAssignmentSettings(db, r.lastInsertRowid, {
+          duration_minutes: a.duration_minutes ?? 60,
+          margin_before_minutes: a.margin_before_minutes ?? 0,
+          margin_after_minutes: a.margin_after_minutes ?? 0,
+        });
         assignmentMap.set(a.id, r.lastInsertRowid);
       }
     }
@@ -1160,7 +1224,7 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
 // ── Trip summary (used by MCP get_trip_summary tool) ──────────────────────
 
 export function getTripSummary(tripId: number, viewerUserId?: number) {
-  const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(tripId) as Record<string, unknown> | undefined;
+  const trip = db.prepare(`${TRIP_WITH_SETTINGS_SELECT} WHERE t.id = ?`).get(tripId) as Record<string, unknown> | undefined;
   if (!trip) return null;
 
   const ownerRow = getTripOwner(tripId);

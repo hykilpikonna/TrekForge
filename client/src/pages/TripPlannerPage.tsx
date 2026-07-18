@@ -765,8 +765,6 @@ export default function TripPlannerPage(): React.ReactElement | null {
                           onBulkChangeCategory={(ids, catId) => confirmChangeCategory(ids, catId)}
                           days={days}
                           isMobile
-                          onCategoryFilterChange={setMapCategoryFilter}
-                          onPlacesFilterChange={setMapPlacesFilter}
                           pushUndo={pushUndo}
                           initialScrollTop={mobilePlacesScrollTopRef.current}
                           onScrollTopChange={(top) => { mobilePlacesScrollTopRef.current = top }}

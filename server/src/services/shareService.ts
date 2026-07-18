@@ -3,6 +3,9 @@ import crypto from 'crypto';
 import { loadTagsByPlaceIds } from './queryHelpers';
 import { serveFilePath } from './placePhotoCache';
 import { getUserSettings } from './settingsService';
+import { initializeTrekForgeDb } from '../db/trekforge';
+
+initializeTrekForgeDb(db);
 
 const PLACE_PHOTO_PROXY_PREFIX = '/api/maps/place-photo/';
 
@@ -115,7 +118,11 @@ export function getSharedTripData(token: string): Record<string, any> | null {
   if (!trip) return null;
 
   // Days with assignments
-  const days = db.prepare('SELECT * FROM days WHERE trip_id = ? ORDER BY day_number ASC').all(tripId) as any[];
+  const days = db.prepare(`
+    SELECT d.*, CASE WHEN ds.day_id IS NULL THEN '08:00' ELSE ds.wake_up_time END AS wake_up_time
+    FROM days d LEFT JOIN trekforge.day_settings ds ON ds.day_id = d.id
+    WHERE d.trip_id = ? ORDER BY d.day_number ASC
+  `).all(tripId) as any[];
   const dayIds = days.map(d => d.id);
 
   let assignments: Record<number, any[]> = {};
@@ -128,13 +135,14 @@ export function getSharedTripData(token: string): Record<string, any> | null {
         p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
         NULL as place_time,
         NULL as end_time,
-        COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes,
-        COALESCE(da.margin_before_minutes, 0) as margin_before_minutes,
-        COALESCE(da.margin_after_minutes, 0) as margin_after_minutes,
+        COALESCE(afs.duration_minutes, p.duration_minutes, 60) as duration_minutes,
+        COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
+        COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
         p.notes as place_notes, p.image_url, p.transport_mode,
         c.name as category_name, c.color as category_color, c.icon as category_icon
       FROM day_assignments da
       JOIN places p ON da.place_id = p.id
+      LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE da.day_id IN (${ph})
       ORDER BY da.order_index ASC, da.created_at ASC

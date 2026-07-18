@@ -16,7 +16,10 @@ import {
 import { enrichImportedPlaces, type EnrichablePlace } from './placeEnrichment';
 import * as placePhotoCache from './placePhotoCache';
 import { searchUnsplashPhotos, getUnsplashKey } from './unsplashService';
+import { initializeTrekForgeDb, pruneTrekForgeData } from '../db/trekforge';
 import { type UpdateConflict, isUpdateConflict } from './conflictResult';
+
+initializeTrekForgeDb(db);
 
 // Reclaim a deleted place's cached marker photo if nothing else references it.
 // The cache key is the Google place_id, or — for coordinate-only places — the
@@ -319,6 +322,7 @@ export function deletePlace(tripId: string, placeId: string): boolean {
   ).get(placeId, tripId) as { google_place_id: string | null; image_url: string | null } | undefined;
   if (!place) return false;
   db.prepare('DELETE FROM places WHERE id = ?').run(placeId);
+  pruneTrekForgeData(db);
   reclaimPhotoCache(place.google_place_id, place.image_url);
   return true;
 }
@@ -339,6 +343,7 @@ export function deletePlacesMany(tripId: string, ids: number[]): number[] {
     }
   });
   run(ids);
+  pruneTrekForgeData(db);
   // Reclaim after the transaction commits so isReferenced() sees the final place set.
   for (const row of reclaimable) reclaimPhotoCache(row.google_place_id, row.image_url);
   return deleted;

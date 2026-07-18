@@ -1,6 +1,14 @@
 import { db } from '../db/database';
 import { loadTagsByPlaceIds, loadParticipantsByAssignmentIds, formatAssignmentWithPlace } from './queryHelpers';
 import { AssignmentRow, Day, DayNote } from '../types';
+import { initializeTrekForgeDb, pruneTrekForgeData, setDayWakeUpTime } from '../db/trekforge';
+
+initializeTrekForgeDb(db);
+
+const DAY_WITH_SETTINGS_SELECT = `
+  SELECT d.*, CASE WHEN ds.day_id IS NULL THEN '08:00' ELSE ds.wake_up_time END AS wake_up_time
+  FROM days d LEFT JOIN trekforge.day_settings ds ON ds.day_id = d.id
+`;
 
 export { verifyTripAccess } from './tripAccess';
 
@@ -12,18 +20,19 @@ export function getAssignmentsForDay(dayId: number | string) {
   const assignments = db.prepare(`
     SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
       da.assignment_time, da.assignment_end_time,
-      COALESCE(da.margin_before_minutes, 0) as margin_before_minutes,
-      COALESCE(da.margin_after_minutes, 0) as margin_after_minutes,
+      COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
+      COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
       NULL as place_time,
       NULL as end_time,
-      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
+      COALESCE(afs.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.osm_id, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
     JOIN places p ON da.place_id = p.id
+    LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
     LEFT JOIN categories c ON p.category_id = c.id
     WHERE da.day_id = ?
     ORDER BY da.order_index ASC, da.created_at ASC
@@ -84,7 +93,7 @@ export function getAssignmentsForDay(dayId: number | string) {
 // ---------------------------------------------------------------------------
 
 export function listDays(tripId: string | number) {
-  const days = db.prepare('SELECT * FROM days WHERE trip_id = ? ORDER BY day_number ASC').all(tripId) as Day[];
+  const days = db.prepare(`${DAY_WITH_SETTINGS_SELECT} WHERE d.trip_id = ? ORDER BY d.day_number ASC`).all(tripId) as Day[];
 
   if (days.length === 0) {
     return { days: [] };
@@ -96,18 +105,19 @@ export function listDays(tripId: string | number) {
   const allAssignments = db.prepare(`
     SELECT da.id, da.day_id, da.place_id, da.order_index, da.notes,
       da.assignment_time, da.assignment_end_time,
-      COALESCE(da.margin_before_minutes, 0) as margin_before_minutes,
-      COALESCE(da.margin_after_minutes, 0) as margin_after_minutes,
+      COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
+      COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
       NULL as place_time,
       NULL as end_time,
-      COALESCE(da.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
+      COALESCE(afs.duration_minutes, p.duration_minutes, 60) as duration_minutes, p.notes as place_notes,
       p.image_url, p.transport_mode, p.google_place_id, p.google_ftid, p.osm_id, p.website, p.phone,
       c.name as category_name, c.color as category_color, c.icon as category_icon
     FROM day_assignments da
     JOIN places p ON da.place_id = p.id
+    LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
     LEFT JOIN categories c ON p.category_id = c.id
     WHERE da.day_id IN (${dayPlaceholders})
     ORDER BY da.order_index ASC, da.created_at ASC
@@ -151,27 +161,28 @@ export function createDay(tripId: string | number, date?: string, notes?: string
     'INSERT INTO days (trip_id, day_number, date, notes) VALUES (?, ?, ?, ?)'
   ).run(tripId, dayNumber, date || null, notes || null);
 
-  const day = db.prepare('SELECT * FROM days WHERE id = ?').get(result.lastInsertRowid) as Day;
+  const day = db.prepare(`${DAY_WITH_SETTINGS_SELECT} WHERE d.id = ?`).get(result.lastInsertRowid) as Day;
   return { ...day, assignments: [] };
 }
 
 export function getDay(id: string | number, tripId: string | number) {
-  return db.prepare('SELECT * FROM days WHERE id = ? AND trip_id = ?').get(id, tripId) as Day | undefined;
+  return db.prepare(`${DAY_WITH_SETTINGS_SELECT} WHERE d.id = ? AND d.trip_id = ?`).get(id, tripId) as Day | undefined;
 }
 
 export function updateDay(id: string | number, current: Day, fields: { notes?: string; title?: string | null; wake_up_time?: string | null }) {
-  db.prepare('UPDATE days SET notes = ?, title = ?, wake_up_time = ? WHERE id = ?').run(
+  db.prepare('UPDATE days SET notes = ?, title = ? WHERE id = ?').run(
     'notes' in fields ? (fields.notes ?? null) : current.notes,
     'title' in fields ? (fields.title ?? null) : current.title,
-    'wake_up_time' in fields ? (fields.wake_up_time ?? null) : current.wake_up_time,
     id
   );
-  const updatedDay = db.prepare('SELECT * FROM days WHERE id = ?').get(id) as Day;
+  if ('wake_up_time' in fields) setDayWakeUpTime(db, id, fields.wake_up_time ?? null);
+  const updatedDay = db.prepare(`${DAY_WITH_SETTINGS_SELECT} WHERE d.id = ?`).get(id) as Day;
   return { ...updatedDay, assignments: getAssignmentsForDay(id) };
 }
 
 export function deleteDay(id: string | number) {
   db.prepare('DELETE FROM days WHERE id = ?').run(id);
+  pruneTrekForgeData(db);
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +415,7 @@ export function insertDay(tripId: string | number, position?: number) {
       const result = db.prepare('INSERT INTO days (trip_id, day_number, date) VALUES (?, ?, NULL)').run(tripId, pos);
       toShift.forEach(r => setDayNumber.run(r.day_number + 1, r.id));
       db.exec('COMMIT');
-      const day = db.prepare('SELECT * FROM days WHERE id = ?').get(result.lastInsertRowid) as Day;
+      const day = db.prepare(`${DAY_WITH_SETTINGS_SELECT} WHERE d.id = ?`).get(result.lastInsertRowid) as Day;
       return { ...day, assignments: [], notes_items: [] };
     } catch (e) {
       db.exec('ROLLBACK');
@@ -437,7 +448,7 @@ export function insertDay(tripId: string | number, position?: number) {
     db.prepare('UPDATE trips SET end_date = ? WHERE id = ?').run(dates[dates.length - 1], tripId);
 
     db.exec('COMMIT');
-    const day = db.prepare('SELECT * FROM days WHERE id = ?').get(newId) as Day;
+    const day = db.prepare(`${DAY_WITH_SETTINGS_SELECT} WHERE d.id = ?`).get(newId) as Day;
     return { ...day, assignments: [], notes_items: [] };
   } catch (e) {
     db.exec('ROLLBACK');
