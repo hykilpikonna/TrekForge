@@ -5,7 +5,7 @@ import { openFile } from '../../utils/fileDownload'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { X, Clock, MapPin, ExternalLink, Phone, Banknote, Edit2, Trash2, Plus, Minus, ChevronDown, ChevronUp, FileText, Upload, File, FileImage, Star, Navigation, Map as MapIcon, Users, Mountain, TrendingUp, Bookmark, BookmarkCheck, Copy, Info, Accessibility, MessageSquare, Image as ImageIcon, BarChart3 } from 'lucide-react'
+import { X, Clock, MapPin, ExternalLink, Phone, Banknote, Edit2, Trash2, Plus, Minus, ChevronDown, ChevronUp, FileText, Upload, File, FileImage, Star, Navigation, Map as MapIcon, Users, Mountain, TrendingUp, Bookmark, BookmarkCheck, Copy, Info, Accessibility, MessageSquare, Image as ImageIcon, BarChart3, Car, Footprints, Bike, TrainFront, Route as RouteIcon } from 'lucide-react'
 import PlaceAvatar from '../shared/PlaceAvatar'
 import GuestBadge from '../shared/GuestBadge'
 import StatusBadge from '../Collections/StatusBadge'
@@ -20,7 +20,7 @@ import { useToast } from '../shared/Toast'
 import { useTranslation, translateApiError } from '../../i18n'
 import { usePluginStore } from '../../store/pluginStore'
 import PluginFrame from '../Plugins/PluginFrame'
-import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap, DistanceUnit } from '../../types'
+import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap, DistanceUnit, AssignmentTransportMode } from '../../types'
 import type { CollectionStatus } from '@trek/shared'
 import { splitReservationDateTime, formatTime, formatMoney } from '../../utils/formatters'
 import { useTripStore } from '../../store/tripStore'
@@ -294,6 +294,7 @@ interface PlaceInspectorProps {
   onSetParticipants?: (assignmentId: number, dayId: number, participantIds: number[]) => void
   onUpdatePlace?: (placeId: number, data: Partial<Place>) => void
   onUpdateAssignmentDuration?: (assignmentId: number, dayId: number, durationMinutes: number) => Promise<void> | void
+  onUpdateAssignmentTransportMode?: (assignmentId: number, dayId: number, transportMode: AssignmentTransportMode | null) => Promise<void> | void
   scheduleMarginMinutes?: number
   leftWidth?: number
   rightWidth?: number
@@ -310,6 +311,7 @@ export default function PlaceInspector({
   onClose, onEdit, onDelete, onAssignToDay, onRemoveAssignment,
   files = [], onFileUpload, tripMembers = [], onSetParticipants, onUpdatePlace,
   onUpdateAssignmentDuration,
+  onUpdateAssignmentTransportMode,
   scheduleMarginMinutes = 0,
   leftWidth = 0, rightWidth = 0,
   collectionStatus, onCopyToTrip, onSetStatus, onRemoveFromList,
@@ -551,6 +553,14 @@ export default function PlaceInspector({
                     dayId={selectedDayId}
                     placeDurationMinutes={place.duration_minutes}
                     onUpdateAssignmentDuration={onUpdateAssignmentDuration}
+                    t={t}
+                  />
+                )}
+                {assignmentInDay && selectedDayId && (
+                  <AssignmentTransportModeControl
+                    assignment={assignmentInDay}
+                    dayId={selectedDayId}
+                    onUpdateAssignmentTransportMode={onUpdateAssignmentTransportMode}
                     t={t}
                   />
                 )}
@@ -1186,8 +1196,95 @@ function AssignmentDurationControl({
   )
 }
 
-interface ActionButtonProps {
-  onClick: () => void
+const TRANSPORT_MODE_OPTIONS: Array<{ value: AssignmentTransportMode | null; icon: React.ReactNode; fallback: string }> = [
+  { value: null, icon: <RouteIcon size={13} strokeWidth={2} />, fallback: 'Trip default' },
+  { value: 'driving', icon: <Car size={13} strokeWidth={2} />, fallback: 'Drive' },
+  { value: 'walking', icon: <Footprints size={13} strokeWidth={2} />, fallback: 'Walk' },
+  { value: 'cycling', icon: <Bike size={13} strokeWidth={2} />, fallback: 'Bike' },
+  { value: 'transit', icon: <TrainFront size={13} strokeWidth={2} />, fallback: 'Transit' },
+]
+
+/**
+ * Per-segment routing override for the leg arriving at this stop. "Trip default"
+ * (null) keeps the trip-wide route profile; a mode forces that profile for this
+ * leg only — e.g. drive between cities but walk inside them.
+ */
+function AssignmentTransportModeControl({
+  assignment,
+  dayId,
+  onUpdateAssignmentTransportMode,
+  t,
+}: {
+  assignment: Assignment
+  dayId: number
+  onUpdateAssignmentTransportMode?: (assignmentId: number, dayId: number, transportMode: AssignmentTransportMode | null) => Promise<void> | void
+  t: TFunction
+}) {
+  const toast = useToast()
+  const currentMode = assignment.transport_mode ?? null
+  const [isSaving, setIsSaving] = useState(false)
+
+  if (!onUpdateAssignmentTransportMode) return null
+
+  const travelModeLabel = t('inspector.travelMode') === 'inspector.travelMode'
+    ? 'Arrival by'
+    : t('inspector.travelMode')
+
+  const select = async (mode: AssignmentTransportMode | null) => {
+    if (mode === currentMode || isSaving) return
+    setIsSaving(true)
+    try {
+      await onUpdateAssignmentTransportMode(assignment.id, dayId, mode)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <InfoBlock>
+      <InfoBlockLabel htmlFor={`travel-mode-${assignment.id}`} icon={<Navigation size={13} className="text-content-faint" />} title={travelModeLabel} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }} role="group">
+        {TRANSPORT_MODE_OPTIONS.map(({ value, icon, fallback }) => {
+          const active = value === currentMode
+          const label = t(`inspector.mode.${value ?? 'default'}`).startsWith('inspector.mode.')
+            ? fallback
+            : t(`inspector.mode.${value ?? 'default'}`)
+          return (
+            <button
+              key={fallback}
+              type="button"
+              aria-pressed={active}
+              disabled={isSaving}
+              onClick={() => { void select(value) }}
+              title={label}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 8px',
+                borderRadius: 8,
+                border: 'none',
+                cursor: isSaving ? 'wait' : 'pointer',
+                fontFamily: 'inherit',
+                fontSize: 11,
+                fontWeight: 500,
+                background: active ? 'var(--accent)' : 'var(--bg-elevated, rgba(127,127,127,0.12))',
+                color: active ? 'var(--accent-text, #fff)' : 'var(--text-secondary)',
+              }}
+            >
+              {icon}
+              <span>{label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </InfoBlock>
+  )
+}
+
+interface ActionButtonProps {  onClick: () => void
   variant: 'primary' | 'ghost' | 'danger'
   icon: React.ReactNode
   label: React.ReactNode

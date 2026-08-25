@@ -4,7 +4,7 @@ declare global { interface Window { __dragData: DragDataPayload | null } }
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { avatarSrc } from '../../utils/avatarSrc'
-import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List, Train } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List, Train, Bike } from 'lucide-react'
 import { mapsApi, reservationsApi } from '../../api/client'
 import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl, setRouteAlternativeChoice, type RouteProfile, type RoutingProvider } from '../Map/RouteCalculator'
 import PlaceAvatar from '../shared/PlaceAvatar'
@@ -32,6 +32,7 @@ import { formatDate, formatTime, dayTotalCost, formatMoneySum, splitReservationD
 import { DEFAULT_WAKE_UP_TIME, buildActivitySchedule, formatDurationMinutes, getMaxSleepMinutes, minutesToClock, normalizeDurationMinutes } from '../../utils/daySchedule'
 import { getOpeningHoursWarning, type OpeningHoursWarning, type PlaceOpeningDetails } from '../../utils/openingHours'
 import { useDayNotes } from '../../hooks/useDayNotes'
+import { chunkRunWithProfiles, legProfileFor } from '../../utils/routeProfiles'
 import { useExchangeRates } from '../../hooks/useExchangeRates'
 import { RES_ICONS, getNoteIcon } from './DayPlanSidebar.constants'
 import { RouteConnector, HotelRouteConnector } from './DayPlanSidebarRouteConnector'
@@ -50,7 +51,7 @@ function routeSecondsToMinutes(seconds?: number | null): number {
   return Number.isFinite(n) && n > 0 ? Math.round(n / 60) : 0
 }
 
-type RoutePoint = { lat: number; lng: number; label?: string | null }
+type RoutePoint = { lat: number; lng: number; label?: string | null; legProfile?: import('../../types').RouteProfile }
 
 function routeErrorSegment(a: RoutePoint, b: RoutePoint, errorText: string): RouteSegment {
   const from: [number, number] = [a.lat, a.lng]
@@ -77,9 +78,10 @@ const CALENDAR_MINUTE_HEIGHT = 1.15
 const CALENDAR_MIN_TILE_HEIGHT = 30
 const ROUTE_PROFILES: readonly PlannerRouteProfile[] = ['driving', 'walking', 'transit']
 
-function routeProfileIcon(profile: PlannerRouteProfile) {
+function routeProfileIcon(profile: PlannerRouteProfile | 'cycling') {
   if (profile === 'driving') return Car
   if (profile === 'transit') return Train
+  if (profile === 'cycling') return Bike
   return Footprints
 }
 
@@ -880,7 +882,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
       let curHasPlace = false
       for (const it of merged) {
         if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
-          cur.push({ id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng, label: it.data.place.name ?? null })
+          cur.push({ id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng, label: it.data.place.name ?? null, legProfile: legProfileFor(it.data.transport_mode) ?? undefined })
           curHasPlace = true
         } else if (it.type === 'transport') {
           const r = it.data
@@ -958,15 +960,18 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
         b: RoutePoint,
         departureLocalDateTime?: string | null,
       ): Promise<RouteSegment | undefined> => {
+        // The leg's profile is the arriving stop's per-segment override, else the trip-wide one.
+        const legProfile = b.legProfile ?? routeProfile
         try {
           const r = await calculateRouteWithLegs([a, b], {
             signal: controller.signal,
-            profile: routeProfile,
+            profile: legProfile,
             provider: routeProvider,
             optimism: routeOptimism,
             google: googleRoutingOptions,
             departureLocalDateTime,
           })
+          if (r.legs[0]) r.legs[0].profile = legProfile
           return r.legs[0]
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') throw err
@@ -1007,7 +1012,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
           let currentRunHasPlace = false
           for (const it of merged) {
             if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
-              const next = { id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng, label: it.data.place.name ?? null }
+              const next = { id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng, label: it.data.place.name ?? null, legProfile: legProfileFor(it.data.transport_mode) ?? undefined }
               if (current) {
                 const seg = await timedLeg(current, next, cursor)
                 if (seg) {
@@ -1046,14 +1051,22 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
         } else {
           for (const run of runs) {
             try {
-              const r = await calculateRouteWithLegs(run.map(p => ({ lat: p.lat, lng: p.lng, label: p.label })), {
-                signal: controller.signal,
-                profile: routeProfile,
-                provider: routeProvider,
-                optimism: routeOptimism,
-                google: googleRoutingOptions,
-              })
-              r.legs.forEach((leg, i) => { dayLegs[run[i].id] = leg })
+              // Per-stop transport modes may split the run into same-mode chunks
+              // (e.g. drive to the city edge, then walk between stops).
+              for (const chunk of chunkRunWithProfiles(run, routeProfile)) {
+                const r = await calculateRouteWithLegs(chunk.points, {
+                  signal: controller.signal,
+                  profile: chunk.profile,
+                  provider: routeProvider,
+                  optimism: routeOptimism,
+                  google: googleRoutingOptions,
+                })
+                const offset = run.indexOf(chunk.points[0])
+                r.legs.forEach((leg, i) => {
+                  leg.profile = chunk.profile
+                  dayLegs[run[offset + i].id] = leg
+                })
+              }
             } catch (err) {
               if (err instanceof Error && err.name === 'AbortError') return
               for (let i = 0; i < run.length - 1; i++) {
@@ -2539,7 +2552,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             />
                           )}
                           {calendarRouteBlocks.map(block => {
-                            const RouteModeIcon = routeProfileIcon(routeProfile)
+                            const RouteModeIcon = routeProfileIcon(block.seg.profile ?? routeProfile)
                             const selected = activeSelectedRouteKey === block.details.key
                             return (
                               <button

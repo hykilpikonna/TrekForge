@@ -26,6 +26,7 @@ import type {
   Tag,
   Category,
   AppearanceConfig,
+  AssignmentTransportMode,
 } from '@trek/shared'
 
 export type {
@@ -49,6 +50,7 @@ export type {
   Tag,
   Category,
   AppearanceConfig,
+  AssignmentTransportMode,
 }
 
 export interface User {
@@ -103,6 +105,10 @@ export interface TripFile {
 }
 
 export type DistanceUnit = 'metric' | 'imperial'
+
+import type { RouteProfile } from './components/Map/RouteCalculator'
+// Single source of truth lives in RouteCalculator; re-exported here for UI consumers.
+export type { RouteProfile }
 
 export interface Settings {
   map_tile_url: string
@@ -173,6 +179,8 @@ export interface RouteSegment {
   drivingText: string
   distanceText: string
   durationText?: string
+  /** Routing profile this leg was actually calculated with (per-segment override or trip-wide). */
+  profile?: RouteProfile
   tollText?: string
   fareText?: string
   errorText?: string

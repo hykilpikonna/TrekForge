@@ -33,6 +33,20 @@ export type AssignmentParticipant = z.infer<typeof assignmentParticipantSchema>;
  * activity timestamps are calculated from wake-up time, route travel, activity
  * duration, and the trip-level schedule margin.
  */
+/**
+ * Routing profile used for the travel leg ARRIVING at this stop. Null/undefined
+ * means "use the trip-wide route profile". Stored in the trekforge sidecar
+ * (assignment_settings.transport_mode); only the planner's routable profiles are
+ * offered — flights/trains belong to transport reservations, not this field.
+ */
+export const assignmentTransportModeSchema = z.enum(['driving', 'walking', 'cycling', 'transit']);
+export type AssignmentTransportMode = z.infer<typeof assignmentTransportModeSchema>;
+
+export const assignmentTransportModeRequestSchema = z.object({
+  transport_mode: assignmentTransportModeSchema.nullable(),
+}).strict();
+export type AssignmentTransportModeRequest = z.infer<typeof assignmentTransportModeRequestSchema>;
+
 export const assignmentSchema = z.object({
   id: z.number(),
   day_id: z.number(),
@@ -46,6 +60,7 @@ export const assignmentSchema = z.object({
   assignment_end_time: z.string().nullable().optional(),
   participants: z.array(assignmentParticipantSchema).optional(),
   created_at: z.string().optional(),
+  transport_mode: assignmentTransportModeSchema.nullable().optional(),
   place: assignmentPlaceSchema,
 });
 export type Assignment = z.infer<typeof assignmentSchema>;

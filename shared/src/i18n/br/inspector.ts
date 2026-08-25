@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Horários de pico',
   'inspector.photosCount': '{count} fotos',
   'inspector.openPhoto': 'Abrir foto {index} de {count}',
+  'inspector.travelMode': 'Chegada de',
+  'inspector.mode.default': 'Padrão da viagem',
+  'inspector.mode.driving': 'Carro',
+  'inspector.mode.walking': 'A pé',
+  'inspector.mode.cycling': 'Bicicleta',
+  'inspector.mode.transit': 'Transporte público',
 };
 export default inspector;

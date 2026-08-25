@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Δημοφιλείς ώρες',
   'inspector.photosCount': '{count} φωτογραφίες',
   'inspector.openPhoto': 'Άνοιγμα φωτογραφίας {index} από {count}',
+  'inspector.travelMode': 'Άφιξη με',
+  'inspector.mode.default': 'Προεπιλογή ταξιδιού',
+  'inspector.mode.driving': 'Αυτοκίνητο',
+  'inspector.mode.walking': 'Πεζός',
+  'inspector.mode.cycling': 'Ποδήλατο',
+  'inspector.mode.transit': 'Μέσα μαζικής μεταφοράς',
 };
 export default inspector;

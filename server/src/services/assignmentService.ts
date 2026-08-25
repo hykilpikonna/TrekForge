@@ -1,9 +1,26 @@
 import { db } from '../db/database';
 import { loadTagsByPlaceIds, loadParticipantsByAssignmentIds, formatAssignmentWithPlace } from './queryHelpers';
 import { AssignmentRow, DayAssignment } from '../types';
-import { initializeTrekForgeDb, pruneTrekForgeData, setAssignmentSettings } from '../db/trekforge';
+import {
+  initializeTrekForgeDb,
+  pruneTrekForgeData,
+  setAssignmentSettings,
+  setAssignmentTransportMode,
+  type AssignmentTransportMode,
+} from '../db/trekforge';
 
 initializeTrekForgeDb(db);
+
+/** The routing profiles a single leg can override the trip-wide profile with. */
+const ASSIGNMENT_TRANSPORT_MODES: readonly AssignmentTransportMode[] = ['driving', 'walking', 'cycling', 'transit'];
+
+function normalizeTransportMode(value: unknown): AssignmentTransportMode | null | undefined {
+  if (value === null) return null;
+  if (typeof value === 'string' && (ASSIGNMENT_TRANSPORT_MODES as readonly string[]).includes(value)) {
+    return value as AssignmentTransportMode;
+  }
+  return undefined;
+}
 
 export function getAssignmentWithPlace(assignmentId: number | bigint) {
   const a = db.prepare(`
@@ -11,6 +28,7 @@ export function getAssignmentWithPlace(assignmentId: number | bigint) {
       da.assignment_time, da.assignment_end_time,
       COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
       COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
+      afs.transport_mode as assignment_transport_mode,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
@@ -54,6 +72,7 @@ export function getAssignmentWithPlace(assignmentId: number | bigint) {
     assignment_end_time: null,
     participants,
     created_at: a.created_at,
+    transport_mode: a.assignment_transport_mode ?? null,
     place: {
       id: a.place_id,
       name: a.place_name,
@@ -92,6 +111,7 @@ export function listDayAssignments(dayId: string | number) {
       da.assignment_time, da.assignment_end_time,
       COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
       COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
+      afs.transport_mode as assignment_transport_mode,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
@@ -231,6 +251,22 @@ export function updateTime(
     });
   }
 
+  return getAssignmentWithPlace(Number(id));
+}
+
+/**
+ * Per-segment routing override: the leg arriving at this stop is routed with
+ * `transport_mode` instead of the trip-wide profile; null falls back to it.
+ */
+export function updateTransportMode(
+  id: string | number,
+  transportMode: unknown,
+) {
+  const mode = normalizeTransportMode(transportMode);
+  if (mode === undefined) {
+    throw new Error('Invalid transport mode');
+  }
+  setAssignmentTransportMode(db, id, mode);
   return getAssignmentWithPlace(Number(id));
 }
 

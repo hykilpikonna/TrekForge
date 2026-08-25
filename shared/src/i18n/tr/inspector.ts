@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Popüler saatler',
   'inspector.photosCount': '{count} fotoğraf',
   'inspector.openPhoto': '{count} fotoğraftan {index}. fotoğrafı aç',
+  'inspector.travelMode': 'Varış aracı',
+  'inspector.mode.default': 'Gezi varsayılanı',
+  'inspector.mode.driving': 'Araba',
+  'inspector.mode.walking': 'Yürüyerek',
+  'inspector.mode.cycling': 'Bisiklet',
+  'inspector.mode.transit': 'Toplu taşıma',
 };
 export default inspector;

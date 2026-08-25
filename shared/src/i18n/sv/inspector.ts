@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Populära tider',
   'inspector.photosCount': '{count} foton',
   'inspector.openPhoto': 'Öppna foto {index} av {count}',
+  'inspector.travelMode': 'Ankomst med',
+  'inspector.mode.default': 'Resans standard',
+  'inspector.mode.driving': 'Bil',
+  'inspector.mode.walking': 'Till fots',
+  'inspector.mode.cycling': 'Cykel',
+  'inspector.mode.transit': 'Kollektivtrafik',
 };
 export default inspector;

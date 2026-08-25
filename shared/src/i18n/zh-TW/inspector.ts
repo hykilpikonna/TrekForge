@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': '熱門時段',
   'inspector.photosCount': '{count} 張相片',
   'inspector.openPhoto': '開啟第 {index} 張相片，共 {count} 張',
+  'inspector.travelMode': '抵達方式',
+  'inspector.mode.default': '行程預設',
+  'inspector.mode.driving': '開車',
+  'inspector.mode.walking': '步行',
+  'inspector.mode.cycling': '騎自行車',
+  'inspector.mode.transit': '公共運輸',
 };
 export default inspector;

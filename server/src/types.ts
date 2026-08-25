@@ -118,6 +118,8 @@ export interface DayAssignment {
   assignment_time?: string | null;
   assignment_end_time?: string | null;
   created_at?: string;
+  /** Per-assignment routing override (trekforge sidecar); null = trip-wide profile. */
+  assignment_transport_mode?: string | null;
 }
 
 export interface PackingItem {
@@ -339,6 +341,7 @@ export interface AssignmentRow extends DayAssignment {
   place_notes: string | null;
   image_url: string | null;
   transport_mode: string;
+  assignment_transport_mode: string | null;
   google_place_id: string | null;
   google_ftid: string | null;
   osm_id: string | null;

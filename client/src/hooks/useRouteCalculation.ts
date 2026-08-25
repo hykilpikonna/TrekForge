@@ -5,6 +5,7 @@ import { ROUTE_ALTERNATIVE_CHOICE_EVENT, calculateRouteWithLegs, withHotelBooken
 import { getTransportRouteEndpoints, parseTimeToMinutes } from '../utils/dayMerge'
 import { getDayBookendHotels, shouldDrawMorningLeg, shouldDrawEveningLeg } from '../utils/dayOrder'
 import { DEFAULT_WAKE_UP_TIME, normalizeDurationMinutes, normalizeScheduleMarginMinutes } from '../utils/daySchedule'
+import { chunkRunWithProfiles, effectiveLegProfile, legProfileFor } from '../utils/routeProfiles'
 import type { TripStoreState } from '../store/tripStore'
 import type { RouteSegment, RouteResult, Accommodation } from '../types'
 import type { GoogleRoutingOptions, RouteProfile, RoutingProvider } from '../components/Map/RouteCalculator'
@@ -12,7 +13,7 @@ import type { GoogleRoutingOptions, RouteProfile, RoutingProvider } from '../com
 const TRANSPORT_TYPES = ['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transit', 'transport_other']
 
 const NO_ACCOMMODATIONS: Accommodation[] = []
-type RoutePoint = { lat: number; lng: number; label?: string | null }
+type RoutePoint = { lat: number; lng: number; label?: string | null; legProfile?: RouteProfile }
 
 function localDateTimeForDayMinute(date: string, minutes: number): string {
   const value = new Date(`${date}T00:00:00Z`)
@@ -136,8 +137,10 @@ export function useRouteCalculation(
     })
 
     // Build a unified list of places + transports sorted by effective position.
+    // `transportMode` is the per-stop override for the leg ARRIVING at this place
+    // (null/undefined = use the trip-wide profile).
     type Entry =
-      | { kind: 'place'; lat: number; lng: number; label?: string | null; pos: number; time: string | null; durationMinutes: number }
+      | { kind: 'place'; lat: number; lng: number; label?: string | null; pos: number; time: string | null; durationMinutes: number; transportMode?: string | null }
       | { kind: 'transport'; from: RoutePoint | null; to: RoutePoint | null; pos: number }
     const entries: Entry[] = [
       ...da.filter(a => a.place?.lat && a.place?.lng).map(a => ({
@@ -148,6 +151,7 @@ export function useRouteCalculation(
         pos: a.order_index,
         time: a.place?.place_time ?? null,
         durationMinutes: normalizeDurationMinutes(a.duration_minutes ?? a.place?.duration_minutes),
+        transportMode: a.transport_mode ?? null,
       })),
       ...dayTransports.map(r => {
         const { from, to } = getTransportRouteEndpoints(r, dayId)
@@ -175,7 +179,7 @@ export function useRouteCalculation(
     let runHasPlace = false
     for (const entry of entries) {
       if (entry.kind === 'place') {
-        currentRun.push({ lat: entry.lat, lng: entry.lng, label: entry.label })
+        currentRun.push({ lat: entry.lat, lng: entry.lng, label: entry.label, legProfile: legProfileFor(entry.transportMode) ?? undefined })
         runHasPlace = true
       } else if (entry.from || entry.to) {
         if (entry.from) currentRun.push(entry.from)
@@ -251,18 +255,21 @@ export function useRouteCalculation(
       departure: string | null,
       polylines: [number, number][][],
       allLegs: RouteSegment[],
+      legProfile?: RouteProfile,
     ): Promise<number> => {
       const leg = [from, to]
+      const usedProfile = legProfile ?? effectiveLegProfile(to, profile)
       try {
         const r = await calculateRouteWithLegs(leg, {
           signal: controller.signal,
-          profile,
+          profile: usedProfile,
           provider,
           optimism,
           google: { avoidTolls, avoidHighways, avoidFerries },
           departureLocalDateTime: departure,
         })
         appendRoutePolyline(polylines, r.coordinates, leg.map(p => [p.lat, p.lng] as [number, number]))
+        for (const s of r.legs) s.profile = usedProfile
         allLegs.push(...r.legs)
         return routeSecondsToMinutes(r.duration)
       } catch (err) {
@@ -278,16 +285,21 @@ export function useRouteCalculation(
       allLegs: RouteSegment[],
     ): Promise<void> => {
       try {
-        const r = await calculateRouteWithLegs(run, {
-          signal: controller.signal,
-          profile,
-          provider,
-          optimism,
-          google: { avoidTolls, avoidHighways, avoidFerries },
-          departureLocalDateTime: departure,
-        })
-        appendRoutePolyline(polylines, r.coordinates, run.map(p => [p.lat, p.lng] as [number, number]))
-        allLegs.push(...r.legs)
+        // Per-stop transport modes may split the run into same-mode chunks
+        // (e.g. drive to the city edge, then walk between stops).
+        for (const chunk of chunkRunWithProfiles(run, profile)) {
+          const r = await calculateRouteWithLegs(chunk.points, {
+            signal: controller.signal,
+            profile: chunk.profile,
+            provider,
+            optimism,
+            google: { avoidTolls, avoidHighways, avoidFerries },
+            departureLocalDateTime: departure,
+          })
+          appendRoutePolyline(polylines, r.coordinates, chunk.points.map(p => [p.lat, p.lng] as [number, number]))
+          for (const s of r.legs) s.profile = chunk.profile
+          allLegs.push(...r.legs)
+        }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') throw err
         for (let i = 0; i < run.length - 1; i++) {
@@ -304,7 +316,7 @@ export function useRouteCalculation(
         let currentPoint: RoutePoint | null = startHotelPoint
         for (const entry of entries) {
           if (entry.kind === 'place') {
-            const entryPoint = { lat: entry.lat, lng: entry.lng, label: entry.label }
+            const entryPoint = { lat: entry.lat, lng: entry.lng, label: entry.label, legProfile: legProfileFor(entry.transportMode) ?? undefined }
             if (currentPoint) {
               const travelMinutes = await routeLeg(
                 currentPoint,
