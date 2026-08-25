@@ -36,7 +36,7 @@ const { asg } = vi.hoisted(() => ({
   asg: {
     getAssignmentWithPlace: vi.fn(), listDayAssignments: vi.fn(), dayExists: vi.fn(), placeExists: vi.fn(),
     createAssignment: vi.fn(), assignmentExistsInDay: vi.fn(), deleteAssignment: vi.fn(), reorderAssignments: vi.fn(),
-    getAssignmentForTrip: vi.fn(), moveAssignment: vi.fn(), getParticipants: vi.fn(), updateTime: vi.fn(), setParticipants: vi.fn(),
+    getAssignmentForTrip: vi.fn(), moveAssignment: vi.fn(), getParticipants: vi.fn(), updateTime: vi.fn(), updateTransportMode: vi.fn(), setParticipants: vi.fn(),
   },
 }));
 vi.mock('../../src/services/assignmentService', () => asg);
@@ -131,6 +131,46 @@ describe('Assignments e2e (real auth guard + temp SQLite)', () => {
       .send({ place_time: '09:00', end_time: null });
     expect(res.status).toBe(200);
     expect(reconcileTripSkeletons).toHaveBeenCalledWith(5, undefined);
+  });
+
+  it('200 transport-mode override sets and clears per-segment mode', async () => {
+    asg.getAssignmentForTrip.mockReturnValue({ id: 9 });
+    asg.updateTransportMode.mockReturnValue({ id: 9, transport_mode: 'walking' });
+
+    const set = await request(server)
+      .put('/api/trips/5/assignments/9/transport-mode')
+      .set('Cookie', sessionCookie(1))
+      .send({ transport_mode: 'walking' });
+    expect(set.status).toBe(200);
+    expect(asg.updateTransportMode).toHaveBeenCalledWith('9', 'walking');
+
+    const clear = await request(server)
+      .put('/api/trips/5/assignments/9/transport-mode')
+      .set('Cookie', sessionCookie(1))
+      .send({ transport_mode: null });
+    expect(clear.status).toBe(200);
+    expect(asg.updateTransportMode).toHaveBeenCalledWith('9', null);
+  });
+
+  it('400 transport-mode override with an unknown mode', async () => {
+    asg.getAssignmentForTrip.mockReturnValue({ id: 9 });
+    asg.updateTransportMode.mockImplementation(() => { throw new Error('Invalid transport mode'); });
+    const res = await request(server)
+      .put('/api/trips/5/assignments/9/transport-mode')
+      .set('Cookie', sessionCookie(1))
+      .send({ transport_mode: 'teleport' });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid transport mode' });
+  });
+
+  it('404 transport-mode override for unknown assignment', async () => {
+    asg.getAssignmentForTrip.mockReturnValue(undefined);
+    const res = await request(server)
+      .put('/api/trips/5/assignments/999/transport-mode')
+      .set('Cookie', sessionCookie(1))
+      .send({ transport_mode: 'walking' });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Assignment not found' });
   });
 
   it('200 participants (access-only)', async () => {

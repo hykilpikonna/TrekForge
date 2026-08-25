@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Oblíbené časy',
   'inspector.photosCount': '{count} fotek',
   'inspector.openPhoto': 'Otevřít fotku {index} z {count}',
+  'inspector.travelMode': 'Příjezd pomocí',
+  'inspector.mode.default': 'Výchozí pro cestu',
+  'inspector.mode.driving': 'Auto',
+  'inspector.mode.walking': 'Pěšky',
+  'inspector.mode.cycling': 'Kolo',
+  'inspector.mode.transit': 'Veřejná doprava',
 };
 export default inspector;

@@ -138,6 +138,7 @@ export function getSharedTripData(token: string): Record<string, any> | null {
         COALESCE(afs.duration_minutes, p.duration_minutes, 60) as duration_minutes,
         COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
         COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
+        afs.transport_mode as assignment_transport_mode,
         p.notes as place_notes, p.image_url, p.transport_mode,
         c.name as category_name, c.color as category_color, c.icon as category_icon
       FROM day_assignments da
@@ -159,6 +160,7 @@ export function getSharedTripData(token: string): Record<string, any> | null {
         duration_minutes: a.duration_minutes,
         margin_before_minutes: a.margin_before_minutes ?? 0,
         margin_after_minutes: a.margin_after_minutes ?? 0,
+        transport_mode: a.assignment_transport_mode ?? null,
         place: {
           id: a.place_id, name: a.place_name, description: a.place_description,
           lat: a.lat, lng: a.lng, address: a.address, category_id: a.category_id,

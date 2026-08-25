@@ -81,6 +81,10 @@ export class AssignmentsService {
     return svc.updateTime(id, durationMinutes as never);
   }
 
+  updateTransportMode(id: string, transportMode: unknown) {
+    return svc.updateTransportMode(id, transportMode);
+  }
+
   setParticipants(id: string, userIds: number[]) {
     return svc.setParticipants(id, userIds);
   }

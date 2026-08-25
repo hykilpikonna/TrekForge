@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': '热门时段',
   'inspector.photosCount': '{count} 张照片',
   'inspector.openPhoto': '打开第 {index} 张照片，共 {count} 张',
+  'inspector.travelMode': '到达方式',
+  'inspector.mode.default': '行程默认',
+  'inspector.mode.driving': '驾车',
+  'inspector.mode.walking': '步行',
+  'inspector.mode.cycling': '骑行',
+  'inspector.mode.transit': '公共交通',
 };
 export default inspector;

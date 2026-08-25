@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': '混雑する時間帯',
   'inspector.photosCount': '{count}枚の写真',
   'inspector.openPhoto': '写真 {index}/{count} を開く',
+  'inspector.travelMode': '到着手段',
+  'inspector.mode.default': '旅行の既定',
+  'inspector.mode.driving': '車',
+  'inspector.mode.walking': '徒歩',
+  'inspector.mode.cycling': '自転車',
+  'inspector.mode.transit': '公共交通機関',
 };
 export default inspector;

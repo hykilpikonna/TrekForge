@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Waktu populer',
   'inspector.photosCount': '{count} foto',
   'inspector.openPhoto': 'Buka foto {index} dari {count}',
+  'inspector.travelMode': 'Tiba dengan',
+  'inspector.mode.default': 'Bawaan perjalanan',
+  'inspector.mode.driving': 'Mobil',
+  'inspector.mode.walking': 'Jalan kaki',
+  'inspector.mode.cycling': 'Sepeda',
+  'inspector.mode.transit': 'Transportasi umum',
 };
 export default inspector;

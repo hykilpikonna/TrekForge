@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Популярні години',
   'inspector.photosCount': '{count} фото',
   'inspector.openPhoto': 'Відкрити фото {index} з {count}',
+  'inspector.travelMode': 'Прибуття',
+  'inspector.mode.default': 'Типово для подорожі',
+  'inspector.mode.driving': 'Авто',
+  'inspector.mode.walking': 'Пішки',
+  'inspector.mode.cycling': 'Велосипед',
+  'inspector.mode.transit': 'Громадський транспорт',
 };
 export default inspector;

@@ -22,6 +22,7 @@ export function getAssignmentsForDay(dayId: number | string) {
       da.assignment_time, da.assignment_end_time,
       COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
       COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
+      afs.transport_mode as assignment_transport_mode,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,
@@ -55,6 +56,7 @@ export function getAssignmentsForDay(dayId: number | string) {
       margin_before_minutes: a.margin_before_minutes ?? 0,
       margin_after_minutes: a.margin_after_minutes ?? 0,
       created_at: a.created_at,
+      transport_mode: a.assignment_transport_mode ?? null,
       place: {
         id: a.place_id,
         name: a.place_name,
@@ -107,6 +109,7 @@ export function listDays(tripId: string | number) {
       da.assignment_time, da.assignment_end_time,
       COALESCE(afs.margin_before_minutes, 0) as margin_before_minutes,
       COALESCE(afs.margin_after_minutes, 0) as margin_after_minutes,
+      afs.transport_mode as assignment_transport_mode,
       da.created_at,
       p.name as place_name, p.description as place_description,
       p.lat, p.lng, p.address, p.category_id, p.price, p.currency as place_currency,

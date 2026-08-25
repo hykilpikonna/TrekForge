@@ -172,6 +172,30 @@ export class AssignmentOpsController {
     return { assignment };
   }
 
+  @Put(':id/transport-mode')
+  transportMode(
+    @CurrentUser() user: User,
+    @Param('tripId') tripId: string,
+    @Param('id') id: string,
+    @Body() body: { transport_mode?: unknown },
+    @Headers('x-socket-id') socketId?: string,
+  ) {
+    const trip = requireTrip(this.assignments, tripId, user);
+    requireEdit(this.assignments, trip, user);
+    if (!this.assignments.getAssignmentForTrip(id, tripId)) {
+      throw new HttpException({ error: 'Assignment not found' }, 404);
+    }
+    let assignment;
+    try {
+      assignment = this.assignments.updateTransportMode(id, body.transport_mode);
+    } catch {
+      throw new HttpException({ error: 'Invalid transport mode' }, 400);
+    }
+    this.assignments.broadcast(tripId, 'assignment:updated', { assignment }, socketId);
+    this.assignments.reconcile(tripId, socketId);
+    return { assignment };
+  }
+
   @Put(':id/participants')
   setParticipants(
     @CurrentUser() user: User,

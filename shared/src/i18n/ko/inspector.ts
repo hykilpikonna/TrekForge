@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': '인기 시간대',
   'inspector.photosCount': '사진 {count}장',
   'inspector.openPhoto': '사진 {count}장 중 {index}번째 열기',
+  'inspector.travelMode': '도착 교통수단',
+  'inspector.mode.default': '여행 기본값',
+  'inspector.mode.driving': '자동차',
+  'inspector.mode.walking': '도보',
+  'inspector.mode.cycling': '자전거',
+  'inspector.mode.transit': '대중교통',
 };
 export default inspector;

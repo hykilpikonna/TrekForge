@@ -1,6 +1,6 @@
 import { runMigrations } from '../../../src/db/migrations';
 import { createTables } from '../../../src/db/schema';
-import { initializeTrekForgeDb, prepareLegacyForkUpgrade } from '../../../src/db/trekforge';
+import { initializeTrekForgeDb, prepareLegacyForkUpgrade, setAssignmentSettings, setAssignmentTransportMode } from '../../../src/db/trekforge';
 
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
@@ -89,6 +89,7 @@ describe('TrekForge sidecar upgrade', () => {
       duration_minutes: 105,
       margin_before_minutes: 10,
       margin_after_minutes: 20,
+      transport_mode: null,
     });
 
     db.close();
@@ -137,6 +138,71 @@ describe('TrekForge sidecar upgrade', () => {
     expect(
       db.prepare("SELECT name FROM trekforge.sqlite_master WHERE type='table' AND name='trip_settings'").get(),
     ).toBeTruthy();
+    db.close();
+  });
+
+  it('adds transport_mode to sidecar assignment_settings created before the column existed', () => {
+    const db = new Database(':memory:');
+    createTables(db);
+    runMigrations(db);
+    // Main rows the settings point at (pruneTrekForgeData removes orphans).
+    db.exec(`
+      INSERT INTO users (id, username, email, password_hash, role) VALUES (1, 'u', 'u@example.com', 'hash', 'admin');
+      INSERT INTO trips (id, user_id, title) VALUES (1, 1, 'T');
+      INSERT INTO days (id, trip_id, day_number) VALUES (1, 1, 1);
+      INSERT INTO places (id, trip_id, name) VALUES (1, 1, 'P');
+      INSERT INTO day_assignments (id, day_id, place_id) VALUES (1, 1, 1);
+    `);
+    // Simulate a v3.3 sidecar: assignment_settings without transport_mode.
+    db.exec(`
+      ATTACH DATABASE ':memory:' AS trekforge;
+      CREATE TABLE trekforge.assignment_settings (
+        assignment_id INTEGER PRIMARY KEY,
+        duration_minutes INTEGER NOT NULL DEFAULT 60,
+        margin_before_minutes INTEGER NOT NULL DEFAULT 0,
+        margin_after_minutes INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO trekforge.assignment_settings (assignment_id, duration_minutes) VALUES (1, 90);
+    `);
+
+    initializeTrekForgeDb(db);
+
+    const row = db.prepare('SELECT * FROM trekforge.assignment_settings WHERE assignment_id = 1').get() as any;
+    expect(row.duration_minutes).toBe(90);
+    expect(row.transport_mode).toBeNull();
+    // The setter works on the migrated table and clears back to null.
+    setAssignmentTransportMode(db, 1, 'walking');
+    expect(db.prepare('SELECT transport_mode FROM trekforge.assignment_settings WHERE assignment_id = 1').get())
+      .toEqual({ transport_mode: 'walking' });
+    setAssignmentTransportMode(db, 1, null);
+    expect(db.prepare('SELECT transport_mode FROM trekforge.assignment_settings WHERE assignment_id = 1').get())
+      .toEqual({ transport_mode: null });
+    db.close();
+  });
+
+  it('setAssignmentTransportMode preserves duration/margins and inserts settings rows on demand', () => {
+    const db = new Database(':memory:');
+    createTables(db);
+    runMigrations(db);
+    initializeTrekForgeDb(db);
+
+    setAssignmentTransportMode(db, 7, 'transit');
+    expect(db.prepare('SELECT * FROM trekforge.assignment_settings WHERE assignment_id = 7').get()).toEqual({
+      assignment_id: 7,
+      duration_minutes: 60,
+      margin_before_minutes: 0,
+      margin_after_minutes: 0,
+      transport_mode: 'transit',
+    });
+
+    // setAssignmentSettings must not clobber an existing override.
+    setAssignmentSettings(db, 7, { duration_minutes: 45, margin_before_minutes: 5, margin_after_minutes: 5 });
+    expect(db.prepare('SELECT * FROM trekforge.assignment_settings WHERE assignment_id = 7').get()).toMatchObject({
+      duration_minutes: 45,
+      margin_before_minutes: 5,
+      margin_after_minutes: 5,
+      transport_mode: 'transit',
+    });
     db.close();
   });
 });

@@ -612,6 +612,16 @@ export function useTripPlanner() {
     updateRouteForDay(dayId)
   }, [tripId, updateRouteForDay])
 
+  const handleUpdateAssignmentTransportMode = useCallback(async (
+    assignmentId: number,
+    dayId: number,
+    transportMode: 'driving' | 'walking' | 'cycling' | 'transit' | null,
+  ) => {
+    await assignmentsApi.updateTransportMode(tripId, assignmentId, { transport_mode: transportMode })
+    await tripActions.refreshDays(tripId)
+    updateRouteForDay(dayId)
+  }, [tripId, updateRouteForDay])
+
   // Open the place editor from any entry point (Places pool, inspector, map).
   // Times live per day-assignment, so when no day is in context resolve the
   // place's lone assignment to hydrate & persist its times; with 0 or 2+
@@ -1042,7 +1052,7 @@ export function useTripPlanner() {
     route, routeSegments, routeInfo, setRoute, setRouteInfo, updateRouteForDay,
     handleSelectDay, handlePlaceClick, handleMarkerClick, handleMapClick, handleMapContextMenu, openAddPlaceFromPoi,
     handleSavePlace, openPlaceEditor, handleDeletePlace, confirmDeletePlace, confirmDeletePlaces, confirmChangeCategory,
-    handleAssignToDay, handleRemoveAssignment, handleUpdateAssignmentDuration, handleReorder, handleReorderDays, handleAddDay, handleUpdateDayTitle,
+    handleAssignToDay, handleRemoveAssignment, handleUpdateAssignmentDuration, handleUpdateAssignmentTransportMode, handleReorder, handleReorderDays, handleAddDay, handleUpdateDayTitle,
     handleSaveReservation, handleSaveTransport, handleDeleteReservation,
     selectedPlace, dayOrderMap, dayPlaces,
     mapTileUrl, fontStyle, splashDone,

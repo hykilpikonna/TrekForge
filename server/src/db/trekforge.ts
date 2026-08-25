@@ -22,6 +22,9 @@ export interface AssignmentSettings {
   margin_after_minutes: number;
 }
 
+/** Per-assignment routing override; null clears it back to the trip-wide profile. */
+export type AssignmentTransportMode = 'driving' | 'walking' | 'cycling' | 'transit';
+
 function tableExists(db: Database.Database, table: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
 }
@@ -112,9 +115,19 @@ export function initializeTrekForgeDb(db: Database.Database, coreDbPath = ':memo
       assignment_id INTEGER PRIMARY KEY,
       duration_minutes INTEGER NOT NULL DEFAULT 60,
       margin_before_minutes INTEGER NOT NULL DEFAULT 0,
-      margin_after_minutes INTEGER NOT NULL DEFAULT 0
+      margin_after_minutes INTEGER NOT NULL DEFAULT 0,
+      transport_mode TEXT
     );
   `);
+
+  // Sidecar DBs created before the per-assignment transport-mode override need
+  // the column added in place (CREATE TABLE IF NOT EXISTS won't touch them).
+  if (
+    db.prepare(`SELECT 1 FROM ${SIDECAR_SCHEMA}.sqlite_master WHERE type = 'table' AND name = 'assignment_settings'`).get() &&
+    !db.prepare(`SELECT 1 FROM ${SIDECAR_SCHEMA}.pragma_table_info('assignment_settings') WHERE name = 'transport_mode'`).get()
+  ) {
+    db.exec(`ALTER TABLE ${SIDECAR_SCHEMA}.assignment_settings ADD COLUMN transport_mode TEXT`);
+  }
 
   if (tableExists(db, 'trips') && tableExists(db, 'days') && tableExists(db, 'day_assignments')) {
     importLegacyCoreColumns(db);
@@ -214,6 +227,22 @@ export function setDayWakeUpTime(
     ON CONFLICT(day_id) DO UPDATE SET wake_up_time=excluded.wake_up_time
   `,
   ).run(dayId, wakeUpTime);
+}
+
+export function setAssignmentTransportMode(
+  db: Database.Database,
+  assignmentId: number | bigint | string,
+  transportMode: AssignmentTransportMode | null,
+): void {
+  // Insert-only upsert so duration/margin defaults are untouched; the dedicated
+  // statement also lets null explicitly CLEAR an override (setAssignmentSettings
+  // must never clobber the mode when callers omit it).
+  db.prepare(
+    `
+    INSERT INTO ${SIDECAR_SCHEMA}.assignment_settings (assignment_id, transport_mode) VALUES (?, ?)
+    ON CONFLICT(assignment_id) DO UPDATE SET transport_mode=excluded.transport_mode
+  `,
+  ).run(assignmentId, transportMode);
 }
 
 export function setAssignmentSettings(

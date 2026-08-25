@@ -32,5 +32,11 @@ const inspector: TranslationStrings = {
   'inspector.popularTimes': 'Népszerű időszakok',
   'inspector.photosCount': '{count} fotó',
   'inspector.openPhoto': '{index}. fotó megnyitása / {count}',
+  'inspector.travelMode': 'Érkezés módja',
+  'inspector.mode.default': 'Utazás alapértelmezése',
+  'inspector.mode.driving': 'Autó',
+  'inspector.mode.walking': 'Gyalog',
+  'inspector.mode.cycling': 'Kerékpár',
+  'inspector.mode.transit': 'Tömegközlekedés',
 };
 export default inspector;

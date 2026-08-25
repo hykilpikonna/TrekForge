@@ -13,7 +13,7 @@ import { listReservations, loadEndpointsByTrip, resyncReservationDays } from './
 import { listNotes as listCollabNotes } from './collabService';
 import { shiftOwnerEntriesForTripWindow } from './vacayService';
 import { resolveTimeZone } from './timezoneService';
-import { initializeTrekForgeDb, pruneTrekForgeData, setAssignmentSettings, setDayWakeUpTime, setTripSettings } from '../db/trekforge';
+import { initializeTrekForgeDb, pruneTrekForgeData, setAssignmentSettings, setAssignmentTransportMode, setDayWakeUpTime, setTripSettings } from '../db/trekforge';
 
 initializeTrekForgeDb(db);
 
@@ -1090,7 +1090,8 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
     const oldAssignments = db.prepare(`
       SELECT da.*, COALESCE(afs.duration_minutes, p.duration_minutes, 60) AS duration_minutes,
         COALESCE(afs.margin_before_minutes, 0) AS margin_before_minutes,
-        COALESCE(afs.margin_after_minutes, 0) AS margin_after_minutes
+        COALESCE(afs.margin_after_minutes, 0) AS margin_after_minutes,
+        afs.transport_mode AS assignment_transport_mode
       FROM day_assignments da
       JOIN days d ON d.id = da.day_id
       JOIN places p ON p.id = da.place_id
@@ -1117,6 +1118,9 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
           margin_before_minutes: a.margin_before_minutes ?? 0,
           margin_after_minutes: a.margin_after_minutes ?? 0,
         });
+        if (a.assignment_transport_mode) {
+          setAssignmentTransportMode(db, r.lastInsertRowid, a.assignment_transport_mode);
+        }
         assignmentMap.set(a.id, r.lastInsertRowid);
       }
     }

@@ -1,17 +1,23 @@
-import { AlertTriangle, Car, Coins, Footprints, Hotel, Ticket, Train } from 'lucide-react'
+import { AlertTriangle, Bike, Car, Coins, Footprints, Hotel, Ticket, Train } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import type { RouteSegment } from '../../types'
+import type { RouteSegment, RouteProfile } from '../../types'
 
-type PlannerRouteProfile = 'driving' | 'walking' | 'transit'
+type PlannerRouteProfile = RouteProfile
 
 function routeProfileIcon(profile: PlannerRouteProfile) {
   if (profile === 'driving') return Car
   if (profile === 'transit') return Train
+  if (profile === 'cycling') return Bike
   return Footprints
 }
 
 function routeDurationText(seg: RouteSegment, profile: PlannerRouteProfile): string {
   return seg.durationText ?? (profile === 'walking' ? seg.walkingText : seg.drivingText)
+}
+
+/** Per-leg mode when this segment carries its own override, else the trip-wide profile. */
+function legProfile(seg: RouteSegment, profile: PlannerRouteProfile): PlannerRouteProfile {
+  return seg.profile ?? profile
 }
 
 /** Slim travel-time connector shown between two consecutive located stops in a day. */
@@ -28,7 +34,7 @@ export function RouteConnector({
   onClick?: () => void
   ariaLabel?: string
 }) {
-  const Icon = routeProfileIcon(profile)
+  const Icon = routeProfileIcon(legProfile(seg, profile))
   const isError = Boolean(seg.errorText)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: isError ? 'rgba(220,38,38,0.35)' : 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
@@ -45,7 +51,7 @@ export function RouteConnector({
         ) : (
           <>
             <Icon size={11} strokeWidth={2} />
-            <span>{routeDurationText(seg, profile)}</span>
+            <span>{routeDurationText(seg, legProfile(seg, profile))}</span>
             <span style={{ opacity: 0.4 }}>·</span>
             <span>{seg.distanceText}</span>
           </>
@@ -123,7 +129,7 @@ export function HotelRouteConnector({
   onClick?: () => void
   ariaLabel?: string
 }) {
-  const Icon = routeProfileIcon(profile)
+  const LegIcon = routeProfileIcon(legProfile(seg, profile))
   const isError = Boolean(seg.errorText)
   const line = { flex: 1, height: 1, minHeight: 1, alignSelf: 'center', background: isError ? 'rgba(220,38,38,0.35)' : 'var(--border-primary)' }
   const tollText = seg.tollText?.trim()
@@ -147,8 +153,8 @@ export function HotelRouteConnector({
           </>
         ) : (
           <>
-            <Icon size={11} strokeWidth={2} />
-            <span>{routeDurationText(seg, profile)}</span>
+            <LegIcon size={11} strokeWidth={2} />
+            <span>{routeDurationText(seg, legProfile(seg, profile))}</span>
             <span style={{ opacity: 0.4 }}>·</span>
             <span>{seg.distanceText}</span>
           </>
