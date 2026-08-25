@@ -1202,6 +1202,38 @@ describe('TripPlannerPage', () => {
         expect(localStorage.getItem('trek:route-profile:42')).toBe('walking');
       });
     });
+    it('stores per-day profile overrides without changing the trip default', async () => {
+      vi.useFakeTimers();
+      const { day } = seedTripStore({ id: 42 });
+
+      renderPlannerPage(42);
+
+      act(() => { vi.runAllTimers(); });
+      vi.useRealTimers();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('day-plan-sidebar')).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        capturedDayPlanSidebarProps.current.onSetRouteProfile?.('walking', day.id);
+      });
+      await waitFor(() => {
+        expect(localStorage.getItem(`trek:route-profiles:42`)).toBe(JSON.stringify({ [day.id]: 'walking' }));
+      });
+      // The day override resolves, the trip default is untouched.
+      expect(capturedDayPlanSidebarProps.current.routeProfileFor?.(day.id)).toBe('walking');
+      expect(capturedDayPlanSidebarProps.current.routeProfile).toBe('driving');
+      // Setting without a day resets the trip default and drops overrides.
+      await act(async () => {
+        capturedDayPlanSidebarProps.current.onSetRouteProfile?.('transit');
+      });
+      await waitFor(() => {
+        expect(localStorage.getItem('trek:route-profile:42')).toBe('transit');
+        expect(localStorage.getItem('trek:route-profiles:42')).toBe('{}');
+      });
+      expect(capturedDayPlanSidebarProps.current.routeProfileFor?.(day.id)).toBe('transit');
+    });
   });
 
   describe('FE-PAGE-PLANNER-035: onAddReservation covers reservation modal open', () => {

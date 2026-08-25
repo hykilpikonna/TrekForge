@@ -2,7 +2,7 @@
 interface DragDataPayload { placeId?: string; assignmentId?: string; noteId?: string; reservationId?: string; fromDayId?: string; phase?: 'single' | 'start' | 'middle' | 'end' }
 declare global { interface Window { __dragData: DragDataPayload | null } }
 
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { avatarSrc } from '../../utils/avatarSrc'
 import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront, CalendarDays, List, Train, Bike } from 'lucide-react'
 import { mapsApi, reservationsApi } from '../../api/client'
@@ -362,8 +362,10 @@ interface DayPlanSidebarProps {
   onNavigateToFiles?: () => void
   routeShown?: boolean
   routeProfile?: PlannerRouteProfile
+  routeProfileFor?: (dayId: number | null | undefined) => PlannerRouteProfile
   onToggleRoute?: () => void
-  onSetRouteProfile?: (profile: PlannerRouteProfile) => void
+  /** `dayId` omitted sets the trip-wide default; with a day it overrides that day only. */
+  onSetRouteProfile?: (profile: PlannerRouteProfile, dayId?: number | null) => void
   onAddPlace?: () => void
   onAddPlaceToDay?: (placeId: number, dayId: number) => void
   onExpandedDaysChange?: (expandedDayIds: Set<number>) => void
@@ -537,6 +539,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   onNavigateToFiles,
   routeShown = false,
   routeProfile = 'driving',
+  routeProfileFor,
   onToggleRoute,
   onSetRouteProfile,
   onExpandedDaysChange,
@@ -561,6 +564,14 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   isTouch = false,
   } = props
   const dragDisabled = isMobile || isTouch
+  // Stable identity: the routing effect depends on this, and an inline arrow would
+  // re-trigger a full route recalculation on every render.
+  const fallbackResolveRouteProfile = useCallback(() => routeProfile, [routeProfile])
+  const resolveRouteProfile = routeProfileFor ?? fallbackResolveRouteProfile
+  const setRouteProfileForDay = useCallback(
+    (profile: PlannerRouteProfile, dayId: number | null | undefined) => onSetRouteProfile?.(profile, dayId),
+    [onSetRouteProfile],
+  )
   const toast = useToast()
   const { t, language, locale } = useTranslation()
   const ctxMenu = useContextMenu()
@@ -958,10 +969,11 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
       const legBetween = async (
         a: RoutePoint,
         b: RoutePoint,
+        dayRouteProfile: PlannerRouteProfile,
         departureLocalDateTime?: string | null,
       ): Promise<RouteSegment | undefined> => {
-        // The leg's profile is the arriving stop's per-segment override, else the trip-wide one.
-        const legProfile = b.legProfile ?? routeProfile
+        // The leg's profile is the arriving stop's per-stop override, else this day's default.
+        const legProfile = b.legProfile ?? dayRouteProfile
         try {
           const r = await calculateRouteWithLegs([a, b], {
             signal: controller.signal,
@@ -982,18 +994,19 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
       for (const dayId of routeDayIds) {
         if (controller.signal.aborted) return
         const { runs, startHotel, endHotel, firstWay, lastWay, wantTop, wantBottom } = planDay(dayId)
+        const dayRouteProfile = resolveRouteProfile(dayId)
         const day = days.find(d => d.id === dayId)
         const merged = mergedItemsMap[dayId] || []
         const dayLegs: Record<number, RouteSegment> = {}
         const hotel: DayHotelRouteLegs = {}
 
-        if ((routeProfile === 'transit' || routeProvider === 'google_maps' || routeProvider === 'google_maps_mobile') && day) {
+        if ((dayRouteProfile === 'transit' || routeProvider === 'google_maps' || routeProvider === 'google_maps_mobile') && day) {
           let cursor = parseTimeToMinutes(day.wake_up_time || DEFAULT_WAKE_UP_TIME) ?? parseTimeToMinutes(DEFAULT_WAKE_UP_TIME)!
           const timedLeg = async (
             a: RoutePoint,
             b: RoutePoint,
             departureMinutes: number,
-          ) => legBetween(a, b, localDateTimeForDayMinute(day, departureMinutes))
+          ) => legBetween(a, b, dayRouteProfile, localDateTimeForDayMinute(day, departureMinutes))
 
           if (wantTop && startHotel && firstWay) {
             const seg = await timedLeg(
@@ -1053,7 +1066,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
             try {
               // Per-stop transport modes may split the run into same-mode chunks
               // (e.g. drive to the city edge, then walk between stops).
-              for (const chunk of chunkRunWithProfiles(run, routeProfile)) {
+              for (const chunk of chunkRunWithProfiles(run, dayRouteProfile)) {
                 const r = await calculateRouteWithLegs(chunk.points, {
                   signal: controller.signal,
                   profile: chunk.profile,
@@ -1079,6 +1092,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
             const seg = await legBetween(
               { lat: startHotel.place_lat as number, lng: startHotel.place_lng as number, label: hotelName(startHotel) },
               { lat: firstWay.lat, lng: firstWay.lng, label: firstWay.label },
+              dayRouteProfile,
             )
             if (seg) hotel.top = { seg, name: hotelName(startHotel) }
           }
@@ -1086,6 +1100,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
             const seg = await legBetween(
               { lat: lastWay.lat, lng: lastWay.lng, label: lastWay.label },
               { lat: endHotel.place_lat as number, lng: endHotel.place_lng as number, label: hotelName(endHotel) },
+              dayRouteProfile,
             )
             if (seg) hotel.bottom = { seg, name: hotelName(endHotel) }
           }
@@ -1110,7 +1125,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     // routeDayIds is memoized from the same inputs as routeDayKey below, so keying the
     // effect on the string is equivalent while staying stable across unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeDayKey, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit, trip?.routing_provider, trip?.routing_optimism, trip?.routing_avoid_tolls, trip?.routing_avoid_highways, trip?.routing_avoid_ferries, trip?.schedule_margin_minutes, routeChoiceVersion, t])
+  }, [routeDayKey, resolveRouteProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit, trip?.routing_provider, trip?.routing_optimism, trip?.routing_avoid_tolls, trip?.routing_avoid_highways, trip?.routing_avoid_ferries, trip?.schedule_margin_minutes, routeChoiceVersion, t])
 
   const openAddNote = (dayId, e) => {
     e?.stopPropagation()
@@ -1531,6 +1546,8 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     onAddPlaceToDay,
     onNavigateToFiles,
     routeShown,
+    resolveRouteProfile,
+    setRouteProfileForDay,
     routeProfile,
     onToggleRoute,
     onSetRouteProfile,
@@ -1714,8 +1731,10 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     onAddPlace,
     onAddPlaceToDay,
     onNavigateToFiles,
-    routeShown,
+    resolveRouteProfile,
+    setRouteProfileForDay,
     routeProfile,
+    routeShown,
     onToggleRoute,
     onSetRouteProfile,
     onExpandedDaysChange,
@@ -1948,13 +1967,14 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
           const renderedRouteLegs = dayRouteLegs[day.id] || {}
           const renderedHotelLegs = dayHotelLegs[day.id] || {}
           const routeEndpointLabels = buildRouteEndpointLabels(merged, day.id)
+          const dayRouteProfile = resolveRouteProfile(day.id)
           const routeDetailsFor = (id: string | number, seg: RouteSegment, fallbackFrom: string, fallbackTo = 'Next stop') => {
             const key = routeSelectionKey(day.id, id)
             const labels = routeEndpointLabels.byId[Number(id)] || { fromLabel: fallbackFrom, toLabel: fallbackTo }
             return makeRouteDetailsSelection({
               key,
               day,
-              profile: routeProfile,
+              profile: dayRouteProfile,
               seg,
               labels,
               onAlternativeSelect: (index) => {
@@ -1980,7 +2000,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
             return makeRouteDetailsSelection({
               key: hotelRouteSelectionKey(day.id, placement),
               day,
-              profile: routeProfile,
+              profile: dayRouteProfile,
               seg,
               labels,
               onAlternativeSelect: (index) => {
@@ -2467,7 +2487,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                     <HotelRouteConnector
                       seg={renderedHotelLegs.top.seg}
                       name={renderedHotelLegs.top.name}
-                      profile={routeProfile}
+                      profile={dayRouteProfile}
                       placement="top"
                       selected={activeSelectedRouteKey === hotelRouteSelectionKey(day.id, 'top')}
                       onClick={() => selectRouteDetails(hotelRouteDetailsFor('top', renderedHotelLegs.top!.seg, renderedHotelLegs.top!.name))}
@@ -2552,7 +2572,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             />
                           )}
                           {calendarRouteBlocks.map(block => {
-                            const RouteModeIcon = routeProfileIcon(block.seg.profile ?? routeProfile)
+                            const RouteModeIcon = routeProfileIcon(block.seg.profile ?? dayRouteProfile)
                             const selected = activeSelectedRouteKey === block.details.key
                             return (
                               <button
@@ -3082,9 +3102,9 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             const seg = renderedRouteLegs[assignment.id]
                             const details = routeDetailsFor(assignment.id, seg, place.name)
                             return (
-                              <RouteConnector
+                                <RouteConnector
                                 seg={seg}
-                                profile={routeProfile}
+                                profile={dayRouteProfile}
                                 selected={activeSelectedRouteKey === details.key}
                                 onClick={() => selectRouteDetails(details)}
                                 ariaLabel="Show route details"
@@ -3322,9 +3342,9 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             const seg = renderedRouteLegs[res.id]
                             const details = routeDetailsFor(res.id, seg, res.title || 'Transport')
                             return (
-                              <RouteConnector
+                                <RouteConnector
                                 seg={seg}
-                                profile={routeProfile}
+                                profile={dayRouteProfile}
                                 selected={activeSelectedRouteKey === details.key}
                                 onClick={() => selectRouteDetails(details)}
                                 ariaLabel="Show route details"
@@ -3574,11 +3594,11 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-faint)', flexShrink: 0 }}>
                           {ROUTE_PROFILES.map(p => {
                             const ModeIcon = routeProfileIcon(p)
-                            const active = routeProfile === p
+                            const active = dayRouteProfile === p
                             return (
                               <button
                                 key={p}
-                                onClick={() => onSetRouteProfile?.(p)}
+                                onClick={() => setRouteProfileForDay(p, day.id)}
                                 aria-label={routeProfileLabel(p)}
                                 className={active ? 'bg-accent text-accent-text' : 'bg-transparent text-content-secondary'}
                                 style={{

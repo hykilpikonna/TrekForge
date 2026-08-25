@@ -202,7 +202,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
     transportModalDayId, setTransportModalDayId,
     transportModalAutomated, setTransportModalAutomated, transitPrefill, setTransitPrefill, transitJourney, setTransitJourney,
     reservationPrefill, transportPrefill, importReviewActive, advanceImportReview,
-    routeShown, setRouteShown, routeProfile, setRouteProfile, fitKey, setFitKey,
+    routeShown, setRouteShown, routeProfile, routeProfileFor, setRouteProfile, fitKey, setFitKey,
     mobileSidebarOpen, setMobileSidebarOpen, mobilePlanScrollTopRef, mobilePlacesScrollTopRef,
     deletePlaceId, setDeletePlaceId, deletePlaceIds, setDeletePlaceIds,
     visibleConnections, toggleConnection, allConnectionsShown, toggleAllConnections, mapTransportDetail, setMapTransportDetail,
@@ -454,6 +454,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   accommodations={tripAccommodations}
                   routeShown={routeShown}
                   routeProfile={routeProfile}
+                  routeProfileFor={routeProfileFor}
                   onToggleRoute={() => setRouteShown(v => !v)}
                   onSetRouteProfile={setRouteProfile}
                   selectedRouteKey={selectedRouteDetails?.key ?? null}
@@ -730,6 +731,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                           accommodations={tripAccommodations}
                           routeShown={routeShown}
                           routeProfile={routeProfile}
+                          routeProfileFor={routeProfileFor}
                           onToggleRoute={() => setRouteShown(v => !v)}
                           onSetRouteProfile={setRouteProfile}
                           selectedRouteKey={selectedRouteDetails?.key ?? null}
