@@ -57,6 +57,25 @@ function readRouteProfilePreference(tripId: number): PlannerRouteProfile {
   }
 }
 
+/** Per-day overrides of the trip-wide route profile, keyed by day id. */
+function readRouteProfileOverrides(tripId: number): Record<number, PlannerRouteProfile> {
+  if (typeof window === 'undefined' || !Number.isFinite(tripId)) return {}
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(`trek:route-profiles:${tripId}`) || '{}')
+    const out: Record<number, PlannerRouteProfile> = {}
+    if (parsed && typeof parsed === 'object') {
+      for (const [dayId, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if ((v === 'walking' || v === 'transit' || v === 'driving') && Number.isFinite(Number(dayId))) {
+          out[Number(dayId)] = v
+        }
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
 function normalizeRoutingProvider(value: unknown): RoutingProvider {
   if (value === 'google_maps' || value === 'google_maps_mobile') return value
   return 'osrm'
@@ -267,12 +286,28 @@ export function useTripPlanner() {
   // The files this import was parsed from, so each reviewed booking can attach its source doc.
   const importSourceFilesRef = useRef<File[]>([])
   // Manual route planning: off by default, toggled from the day-plan footer. Mode
-  // is trip-scoped and selects which travel time the connectors show.
+  // is trip-scoped with per-day overrides (a day without one inherits the trip
+  // default) and selects which travel time the connectors show.
   const [routeShown, setRouteShown] = useState(() => readRouteShownPreference(tripId))
-  const [routeProfile, setRouteProfile] = useState<PlannerRouteProfile>(() => readRouteProfilePreference(tripId))
-  const [fitKey, setFitKey] = useState<number>(0)
+  const [routeProfile, setRouteProfileBase] = useState<PlannerRouteProfile>(() => readRouteProfilePreference(tripId))
+  const [routeProfileByDay, setRouteProfileByDay] = useState<Record<number, PlannerRouteProfile>>(() => readRouteProfileOverrides(tripId))
+  const setRouteProfile = useCallback((profile: PlannerRouteProfile, dayId?: number | null) => {
+    if (dayId == null) {
+      // Trip-wide default: drop every per-day override so the whole trip follows.
+      setRouteProfileBase(profile)
+      setRouteProfileByDay({})
+    } else {
+      setRouteProfileByDay(prev => ({ ...prev, [dayId]: profile }))
+    }
+  }, [])
+  const routeProfileFor = useCallback(
+    (dayId: number | null | undefined) =>
+      (dayId != null && routeProfileByDay[dayId]) || routeProfile,
+    [routeProfile, routeProfileByDay],
+  )
   const initialFitTripId = useRef<number | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<'left' | 'right' | null>(null)
+  const [fitKey, setFitKey] = useState<number>(0)
   const mobilePlanScrollTopRef = useRef<number>(0)
   const mobilePlacesScrollTopRef = useRef<number>(0)
   const [deletePlaceId, setDeletePlaceId] = useState<number | null>(null)
@@ -332,8 +367,9 @@ export function useTripPlanner() {
     try {
       window.localStorage.setItem(`trek:route-shown:${tripId}`, String(routeShown))
       window.localStorage.setItem(`trek:route-profile:${tripId}`, routeProfile)
+      window.localStorage.setItem(`trek:route-profiles:${tripId}`, JSON.stringify(routeProfileByDay))
     } catch {}
-  }, [tripId, routeShown, routeProfile])
+  }, [tripId, routeShown, routeProfile, routeProfileByDay])
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
   useEffect(() => {
@@ -446,7 +482,7 @@ export function useTripPlanner() {
     { assignments } as any,
     selectedDayId,
     routeShown,
-    routeProfile,
+    routeProfileFor(selectedDayId),
     tripAccommodations,
     routeProvider,
     routeOptimism,
@@ -1043,7 +1079,7 @@ export function useTripPlanner() {
     transportModalDayId, setTransportModalDayId,
     transportModalAutomated, setTransportModalAutomated, transitPrefill, setTransitPrefill, transitJourney, setTransitJourney,
     reservationPrefill, transportPrefill, importReviewActive, startImportReview, advanceImportReview,
-    routeShown, setRouteShown, routeProfile, setRouteProfile, fitKey, setFitKey,
+    routeShown, setRouteShown, routeProfile, routeProfileFor, setRouteProfile, fitKey, setFitKey,
     mobileSidebarOpen, setMobileSidebarOpen, mobilePlanScrollTopRef, mobilePlacesScrollTopRef,
     deletePlaceId, setDeletePlaceId, deletePlaceIds, setDeletePlaceIds,
     visibleConnections, toggleConnection, allConnectionsShown, toggleAllConnections, mapTransportDetail, setMapTransportDetail,
