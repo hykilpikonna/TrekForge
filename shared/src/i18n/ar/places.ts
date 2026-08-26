@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'الصق رابط قائمة Naver Maps مشتركة لاستيراد جميع الأماكن.',
   'places.naverListImported': 'تم استيراد {count} مكان من "{list}"',
   'places.naverListError': 'فشل استيراد قائمة Naver Maps',
+  'places.importedLists': 'قوائم مستوردة سابقاً',
+  'places.refreshList': 'تحديث',
   'places.viewDetails': 'عرض التفاصيل',
   'places.assignToDay': 'إلى أي يوم تريد الإضافة؟',
   'places.all': 'الكل',

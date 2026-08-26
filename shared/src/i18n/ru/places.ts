@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Вставьте ссылку на общий список Naver Maps для импорта всех мест.',
   'places.naverListImported': '{count} мест импортировано из "{list}"',
   'places.naverListError': 'Не удалось импортировать список Naver Maps',
+  'places.importedLists': 'Ранее импортированные списки',
+  'places.refreshList': 'Обновить',
   'places.viewDetails': 'Подробности',
   'places.assignToDay': 'Добавить в какой день?',
   'places.all': 'Все',

@@ -36,6 +36,8 @@ const places: TranslationStrings = {
   'places.naverListHint': "Enganxa un enllaç compartit d'una llista de Naver Maps per importar tots els llocs.",
   'places.naverListImported': '{count} llocs importats de "{list}"',
   'places.naverListError': 'Error en importar la llista de Naver Maps',
+  'places.importedLists': 'Llistes importades prèviament',
+  'places.refreshList': 'Actualitza',
   'places.viewDetails': 'Mostra els detalls',
   'places.assignToDay': "A quin dia l'afegeixo?",
   'places.all': 'Tot',
@@ -89,5 +91,12 @@ const places: TranslationStrings = {
   'places.enrichOnImport': 'Enriquir llocs mitjançant Google',
   'places.enrichOnImportHint':
     "Obté automàticament adreces, puntuacions i horaris d'obertura des de Google en importar.",
+  'places.durationMinutes': 'Duration',
+  'places.durationPlaceholder': '2h, 150m, 150 min',
+  'places.durationInvalid': 'Enter a duration like 2h, 150m, or 150 min',
+  'places.marginBefore': 'Margin before',
+  'places.marginAfter': 'Margin after',
+  'places.marginInvalid': 'Enter a margin like 0m, 15m, or 1h',
+
 };
 export default places;

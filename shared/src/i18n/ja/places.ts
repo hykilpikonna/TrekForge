@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': '共有されたNaverマップのリストリンクを貼り付けてください。',
   'places.naverListImported': '「{list}」から {count} 件の場所をインポートしました',
   'places.naverListError': 'Naverマップのリストをインポートできませんでした',
+  'places.importedLists': '以前インポートしたリスト',
+  'places.refreshList': '更新',
   'places.viewDetails': '詳細を見る',
   'places.assignToDay': 'どの日に追加しますか？',
   'places.all': 'すべて',

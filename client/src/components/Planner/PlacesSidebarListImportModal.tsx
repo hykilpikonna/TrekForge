@@ -1,5 +1,8 @@
+import { useState, useEffect } from 'react'
 import ReactDOM from 'react-dom'
+import { RefreshCw } from 'lucide-react'
 import ToggleSwitch from '../Settings/ToggleSwitch'
+import { placesApi } from '../../api/client'
 import type { SidebarState } from './usePlacesSidebar'
 
 export function ListImportModal(S: SidebarState) {
@@ -105,6 +108,7 @@ export function ListImportModal(S: SidebarState) {
             <ToggleSwitch on={listImportEnrich} onToggle={() => setListImportEnrich(!listImportEnrich)} />
           </div>
         )}
+        <ImportedListsSection S={S} />
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button
             onClick={() => { setListImportOpen(false); setListImportUrl('') }}
@@ -133,5 +137,74 @@ export function ListImportModal(S: SidebarState) {
       </div>
     </div>,
     document.body
+  )
+}
+
+interface ImportedListRow {
+  id: number
+  provider: 'google' | 'naver'
+  list_url: string
+  list_name: string | null
+  last_imported_at: string
+}
+
+/** Previously imported shared lists for this trip. Refresh re-fetches the list;
+ *  existing-place dedup on the server skips everything already imported, so only
+ *  new entries land. */
+function ImportedListsSection({ S }: { S: SidebarState }) {
+  const { tripId, t, refreshingListIds, handleRefreshImportedList } = S
+  const [lists, setLists] = useState<ImportedListRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    placesApi.listImportedLists(tripId)
+      .then((r: { lists: ImportedListRow[] }) => { if (!cancelled) setLists(r.lists) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [tripId])
+
+  if (loading || lists.length === 0) return null
+
+  return (
+    <div style={{ marginTop: 14, borderTop: '1px solid var(--border-primary)', paddingTop: 10 }}>
+      <div className="text-content-faint" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600, marginBottom: 6 }}>
+        {t('places.importedLists')}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {lists.map(list => {
+          const refreshing = refreshingListIds.has(list.id)
+          return (
+            <div key={list.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="text-content" style={{ fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {list.list_name || list.list_url}
+                </div>
+                <div className="text-content-faint" style={{ fontSize: 'calc(11px * var(--fs-scale-body, 1))' }}>
+                  {list.provider === 'google' ? 'Google Maps' : 'Naver Maps'}
+                </div>
+              </div>
+              <button
+                onClick={() => handleRefreshImportedList(list.id, list.provider, list.list_name)}
+                disabled={refreshing}
+                className={refreshing ? 'text-content-faint' : 'bg-accent text-accent-text'}
+                title={t('places.refreshList')}
+                aria-label={t('places.refreshList')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '5px 10px', borderRadius: 8, border: 'none',
+                  fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 500,
+                  cursor: refreshing ? 'default' : 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <RefreshCw size={12} strokeWidth={2} className={refreshing ? 'animate-spin' : undefined} />
+                {refreshing ? t('common.loading') : t('places.refreshList')}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

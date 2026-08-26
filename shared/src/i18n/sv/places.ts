@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Klistra in en länk till en delad lista på Naver Maps för att importera alla platser.',
   'places.naverListImported': '{count} platser som importerats från "{list}"',
   'places.naverListError': 'Det gick inte att importera listan från Naver Maps',
+  'places.importedLists': 'Tidigare importerade listor',
+  'places.refreshList': 'Uppdatera',
   'places.viewDetails': 'Visa detaljer',
   'places.assignToDay': 'Lägg till vilken dag?',
   'places.all': 'Alla',
@@ -88,5 +90,12 @@ const places: TranslationStrings = {
   'places.enrichOnImport': 'Berika platser via Google',
   'places.enrichOnImportHint':
     'Sök upp varje importerad plats för att fylla i bilder, adress och kontaktuppgifter. Använder din Google Maps-nyckel.',
+  'places.durationMinutes': 'Duration',
+  'places.durationPlaceholder': '2h, 150m, 150 min',
+  'places.durationInvalid': 'Enter a duration like 2h, 150m, or 150 min',
+  'places.marginBefore': 'Margin before',
+  'places.marginAfter': 'Margin after',
+  'places.marginInvalid': 'Enter a margin like 0m, 15m, or 1h',
+
 };
 export default places;

@@ -90,6 +90,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Wklej link do udostępnionej listy Naver Maps, aby zaimportować wszystkie miejsca.',
   'places.naverListImported': 'Zaimportowano {count} miejsc z "{list}"',
   'places.naverListError': 'Nie udało się zaimportować listy Naver Maps',
+  'places.importedLists': 'Wcześniej importowane listy',
+  'places.refreshList': 'Odśwież',
   'places.viewDetails': 'Zobacz szczegóły',
   'places.enrichOnImport': 'Wzbogać miejsca przez Google',
   'places.enrichOnImportHint':

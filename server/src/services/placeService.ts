@@ -44,6 +44,44 @@ export interface ListImportOptions {
   categoryIcon?: string | null;
 }
 
+export interface ImportedListRow {
+  id: number;
+  trip_id: string;
+  provider: 'google' | 'naver';
+  list_url: string;
+  list_name: string | null;
+  last_imported_at: string;
+}
+
+/** Upsert the (trip, provider, url) row after a successful list import so a
+ *  later manual refresh can re-fetch the same URL without re-typing it. */
+function recordImportedList(tripId: string, provider: 'google' | 'naver', url: string, listName: string): void {
+  db.prepare(`
+    INSERT INTO imported_lists (trip_id, provider, list_url, list_name, last_imported_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(trip_id, provider, list_url) DO UPDATE SET
+      list_name = excluded.list_name,
+      last_imported_at = datetime('now')
+  `).run(tripId, provider, url, listName);
+}
+
+export function listImportedLists(tripId: string): ImportedListRow[] {
+  return db.prepare(
+    'SELECT id, trip_id, provider, list_url, list_name, last_imported_at FROM imported_lists WHERE trip_id = ? ORDER BY last_imported_at DESC, id DESC',
+  ).all(tripId) as ImportedListRow[];
+}
+
+export function getImportedList(tripId: string, id: number): ImportedListRow | null {
+  return (db.prepare(
+    'SELECT id, trip_id, provider, list_url, list_name, last_imported_at FROM imported_lists WHERE trip_id = ? AND id = ?',
+  ).get(tripId, id) as ImportedListRow | undefined) ?? null;
+}
+
+export function deleteImportedList(tripId: string, id: number): boolean {
+  const result = db.prepare('DELETE FROM imported_lists WHERE trip_id = ? AND id = ?').run(tripId, id);
+  return result.changes > 0;
+}
+
 type ImportCategoryResult =
   | { categoryId: number | null }
   | { error: string; status: number };
@@ -897,6 +935,8 @@ export async function importGoogleList(tripId: string, url: string, opts?: ListI
     void enrichImportedPlaces(tripId, opts.userId, created as EnrichablePlace[], opts.lang);
   }
 
+  recordImportedList(tripId, 'google', resolvedUrl, listName);
+
   return { places: created, listName, skipped };
 }
 
@@ -1034,6 +1074,8 @@ export async function importNaverList(
   if (opts?.enrich && opts.userId && created.length) {
     void enrichImportedPlaces(tripId, opts.userId, created as EnrichablePlace[], opts.lang);
   }
+
+  recordImportedList(tripId, 'naver', resolvedUrl, listName);
 
   return { places: created, listName, skipped };
 }

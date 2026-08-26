@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Illessz be egy megosztott Naver Maps lista linket az összes hely importálásához.',
   'places.naverListImported': '{count} hely importálva a(z) "{list}" listából',
   'places.naverListError': 'Naver Maps lista importálása sikertelen',
+  'places.importedLists': 'Korábban importált listák',
+  'places.refreshList': 'Frissítés',
   'places.viewDetails': 'Részletek megtekintése',
   'places.assignToDay': 'Melyik naphoz adod?',
   'places.all': 'Összes',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import ReactDOM from 'react-dom'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTripStore } from '../store/tripStore'
@@ -8,7 +8,7 @@ import { MapViewAuto as MapView } from '../components/Map/MapViewAuto'
 import { MapCompassPill, type CompassMap } from '../components/Map/MapCompassPill'
 import { getCached, fetchPhoto } from '../services/photoService'
 import DayPlanSidebar from '../components/Planner/DayPlanSidebar'
-import RouteDetailsPanel, { type PlannerRouteDetailsSelection } from '../components/Planner/RouteDetailsPanel'
+import RouteDetailsPanel from '../components/Planner/RouteDetailsPanel'
 import PlacesSidebar from '../components/Planner/PlacesSidebar'
 import PlaceInspector from '../components/Planner/PlaceInspector'
 import DayDetailPanel from '../components/Planner/DayDetailPanel'
@@ -203,6 +203,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
     transportModalAutomated, setTransportModalAutomated, transitPrefill, setTransitPrefill, transitJourney, setTransitJourney,
     reservationPrefill, transportPrefill, importReviewActive, advanceImportReview,
     routeShown, setRouteShown, routeProfile, setRouteProfile, fitKey, setFitKey,
+    selectedRouteDetails, setSelectedRouteDetails, routeFocusVersion, handleRouteDetailsSelect,
     mobileSidebarOpen, setMobileSidebarOpen, mobilePlanScrollTopRef, mobilePlacesScrollTopRef,
     deletePlaceId, setDeletePlaceId, deletePlaceIds, setDeletePlaceIds,
     visibleConnections, toggleConnection, allConnectionsShown, toggleAllConnections, mapTransportDetail, setMapTransportDetail,
@@ -219,22 +220,8 @@ export default function TripPlannerPage(): React.ReactElement | null {
 
   const poi = usePoiExplore()
   const [glMap, setGlMap] = useState<CompassMap | null>(null)
-  const [selectedRouteDetails, setSelectedRouteDetails] = useState<PlannerRouteDetailsSelection | null>(null)
-  const [routeFocusVersion, setRouteFocusVersion] = useState(0)
   const poiPillEnabled = useSettingsStore(s => s.settings.map_poi_pill_enabled) !== false
-  const handleRouteDetailsSelect = useCallback((selection: PlannerRouteDetailsSelection | null) => {
-    setSelectedRouteDetails(selection)
-    if (selection) setRouteFocusVersion(v => v + 1)
-  }, [])
   const routeDetailsMapOffset = selectedRouteDetails && routeShown && !leftCollapsed && !isMobile ? 352 : 0
-
-  useEffect(() => {
-    if (!routeShown || activeTab !== 'plan') setSelectedRouteDetails(null)
-  }, [routeShown, activeTab])
-
-  useEffect(() => {
-    setSelectedRouteDetails(null)
-  }, [routeProfile])
 
   // Costs expense editor opened from a booking modal (save-then-open). Lives at the
   // page level so it has tripMembers / base currency / current user available.

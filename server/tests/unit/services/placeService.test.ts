@@ -55,7 +55,7 @@ import { resetTestDb } from '../../helpers/test-db';
 import { createUser, createTrip, createPlace, createCategory, createTag } from '../../helpers/factories';
 import path from 'path';
 import fs from 'fs';
-import { listPlaces, createPlace as svcCreatePlace, getPlace, updatePlace, updatePlacesMany, deletePlace, importGpx, importKmlPlaces, importGoogleList, searchPlaceImage } from '../../../src/services/placeService';
+import { listPlaces, createPlace as svcCreatePlace, getPlace, updatePlace, updatePlacesMany, deletePlace, importGpx, importKmlPlaces, importGoogleList, searchPlaceImage, listImportedLists, getImportedList, deleteImportedList } from '../../../src/services/placeService';
 
 const GPX_FIXTURE = path.join(__dirname, '../../fixtures/test.gpx');
 const KML_FIXTURE = path.join(__dirname, '../../fixtures/test.kml');
@@ -566,6 +566,47 @@ describe('importGoogleList', () => {
     const result = await importGoogleList(String(trip.id), url) as any;
     expect(result.error).toBeDefined();
     expect(result.status).toBe(400);
+  });
+
+  it('PLACE-SVC-028d — records the imported list and refresh helpers round-trip it', async () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+
+    const listPayload = [
+      [null, null, null, null, 'My Test List', null, null, null, [
+        [null, [null, null, null, null, null, [null, null, 48.8566, 2.3522]], 'Paris', null],
+      ]],
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => 'prefix\n' + JSON.stringify(listPayload),
+    }));
+
+    const url = 'https://www.google.com/maps/placelists/list/ABC123DEF456';
+    await importGoogleList(String(trip.id), url) as any;
+
+    const lists = listImportedLists(String(trip.id));
+    expect(lists).toHaveLength(1);
+    expect(lists[0]).toMatchObject({ provider: 'google', list_url: url, list_name: 'My Test List' });
+    expect(lists[0].last_imported_at).toBeTruthy();
+
+    // Re-importing the same URL upserts — no duplicate row.
+    await importGoogleList(String(trip.id), url) as any;
+    expect(listImportedLists(String(trip.id))).toHaveLength(1);
+
+    expect(getImportedList(String(trip.id), lists[0].id)?.list_name).toBe('My Test List');
+    expect(getImportedList(String(trip.id), 99999)).toBeNull();
+    expect(deleteImportedList(String(trip.id), lists[0].id)).toBe(true);
+    expect(deleteImportedList(String(trip.id), lists[0].id)).toBe(false);
+    expect(listImportedLists(String(trip.id))).toHaveLength(0);
+  });
+
+  it('PLACE-SVC-029b — a failed import records nothing', async () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    const result = await importGoogleList(String(trip.id), 'https://example.com/no-id-here') as any;
+    expect(result.error).toBeDefined();
+    expect(listImportedLists(String(trip.id))).toHaveLength(0);
   });
 });
 

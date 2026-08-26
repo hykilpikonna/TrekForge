@@ -51,5 +51,8 @@ const dayplan: TranslationStrings = {
   'dayplan.reorderUndo': 'Reordena els dies',
   'dayplan.reorderError': "No s'han pogut reordenar els dies",
   'dayplan.addDayError': "No s'ha pogut afegir el dia",
+  'dayplan.wake': 'Wake',
+  'dayplan.maxSleep': 'Rest',
+
 };
 export default dayplan;

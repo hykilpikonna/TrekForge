@@ -40,6 +40,8 @@ const places: TranslationStrings = {
     'Tüm yerleri içe aktarmak için paylaşılan bir Naver Haritalar listesi bağlantısını yapıştırın.',
   'places.naverListImported': '"{list}"ten {count} yer içe aktarıldı',
   'places.naverListError': 'Naver Haritalar listesi içe aktarılamadı',
+  'places.importedLists': 'Daha önce içe aktarılan listeler',
+  'places.refreshList': 'Yenile',
   'places.viewDetails': 'Ayrıntıları Görüntüle',
   'places.assignToDay': 'Hangi güne eklensin?',
   'places.all': 'Tüm',

@@ -191,6 +191,53 @@ export class PlacesController {
     return this.importList('naver', user, tripId, url, enrich, categoryId, createCategoryFromList, categoryIcon, socketId);
   }
 
+  @Get('import/lists')
+  listImported(@CurrentUser() user: User, @Param('tripId') tripId: string) {
+    this.requireTrip(tripId, user);
+    return { lists: this.places.listImportedLists(tripId) };
+  }
+
+  @Delete('import/lists/:id')
+  deleteImported(
+    @CurrentUser() user: User,
+    @Param('tripId') tripId: string,
+    @Param('id') id: string,
+  ) {
+    const trip = this.requireTrip(tripId, user);
+    this.requireEdit(trip, user);
+    if (!/^\d+$/.test(id)) {
+      throw new HttpException({ error: 'Invalid list id' }, 400);
+    }
+    if (!this.places.deleteImportedList(tripId, Number(id))) {
+      throw new HttpException({ error: 'Imported list not found' }, 404);
+    }
+    return { success: true };
+  }
+
+  /** Re-fetch a previously imported shared map list. Reuses the normal import
+   *  flow — the place dedup skips everything already in the trip, so only new
+   *  or changed entries land. */
+  @Post('import/lists/:id/refresh')
+  async refreshImported(
+    @CurrentUser() user: User,
+    @Param('tripId') tripId: string,
+    @Param('id') id: string,
+    @Headers('x-socket-id') socketId?: string,
+  ) {
+    const trip = this.requireTrip(tripId, user);
+    this.requireEdit(trip, user);
+    if (!/^\d+$/.test(id)) {
+      throw new HttpException({ error: 'Invalid list id' }, 400);
+    }
+    const row = this.places.getImportedList(tripId, Number(id));
+    if (!row) {
+      throw new HttpException({ error: 'Imported list not found' }, 404);
+    }
+    // Reuses the normal import flow — the place dedup skips everything already
+    // in the trip, so only new or changed entries land.
+    return this.importList(row.provider, user, tripId, row.list_url, false, undefined, false, undefined, socketId);
+  }
+
   /** Shared google/naver list import — identical flow, different provider + error string. */
   private async importList(
     provider: 'google' | 'naver',

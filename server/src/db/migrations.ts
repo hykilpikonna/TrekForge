@@ -3701,6 +3701,26 @@ function runMigrations(db: Database.Database): void {
       `);
       db.exec('CREATE INDEX IF NOT EXISTS idx_hidden_regions_user ON hidden_regions (user_id);');
     },
+
+    // Manually-imported shared map lists (Google Maps / Naver). One row per
+    // (trip, list) import so the UI can offer a manual "refresh" that re-fetches
+    // the same list and lets the existing place dedup skip already-imported
+    // places. UNIQUE(trip_id, provider, list_url) makes re-importing the same
+    // URL an upsert that bumps last_imported_at instead of duplicating rows.
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS imported_lists (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+          provider TEXT NOT NULL CHECK (provider IN ('google', 'naver')),
+          list_url TEXT NOT NULL,
+          list_name TEXT,
+          last_imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE (trip_id, provider, list_url)
+        );
+      `);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_imported_lists_trip ON imported_lists (trip_id);');
+    },
   ];
 
   if (currentVersion < migrations.length) {
