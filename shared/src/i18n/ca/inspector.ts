@@ -22,5 +22,23 @@ const inspector: TranslationStrings = {
   'inspector.openStreetMap': 'OpenStreetMap',
   'inspector.saveToCollection': 'Desar a la col·lecció',
   'inspector.savedToCollection': 'Desat',
+  'inspector.accessibility': 'Accessibility',
+  'inspector.accessible': 'Accessible',
+  'inspector.accessibilityLimited': 'Limited accessibility',
+  'inspector.phone': 'Phone',
+  'inspector.reviews': 'Reviews',
+  'inspector.reviewsCount': '{count} reviews',
+  'inspector.viewAllReviews': 'View all {count} reviews',
+  'inspector.openReview': 'Open review',
+  'inspector.popularTimes': 'Popular times',
+  'inspector.photosCount': '{count} photos',
+  'inspector.openPhoto': 'Open photo {index} of {count}',
+  'inspector.travelMode': 'Arrival by',
+  'inspector.mode.default': 'Trip default',
+  'inspector.mode.driving': 'Drive',
+  'inspector.mode.walking': 'Walk',
+  'inspector.mode.cycling': 'Bike',
+  'inspector.mode.transit': 'Transit',
+
 };
 export default inspector;

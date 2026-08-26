@@ -52,5 +52,8 @@ const dayplan: TranslationStrings = {
   'dayplan.reorderUndo': 'Sortera om dagar',
   'dayplan.reorderError': 'Kunde inte sortera om dagar',
   'dayplan.addDayError': 'Kunde inte lägga till dag',
+  'dayplan.wake': 'Wake',
+  'dayplan.maxSleep': 'Rest',
+
 };
 export default dayplan;

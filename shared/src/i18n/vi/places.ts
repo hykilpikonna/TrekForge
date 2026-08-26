@@ -90,5 +90,12 @@ const places: TranslationStrings = {
   'places.enrichOnImport': 'Làm phong phú các địa điểm thông qua Google',
   'places.enrichOnImportHint':
     'Tra cứu từng địa điểm đã nhập để điền ảnh, địa chỉ và thông tin liên hệ. Sử dụng khóa Google Maps của bạn.',
+  'places.durationMinutes': 'Duration',
+  'places.durationPlaceholder': '2h, 150m, 150 min',
+  'places.durationInvalid': 'Enter a duration like 2h, 150m, or 150 min',
+  'places.marginBefore': 'Margin before',
+  'places.marginAfter': 'Margin after',
+  'places.marginInvalid': 'Enter a margin like 0m, 15m, or 1h',
+
 };
 export default places;
