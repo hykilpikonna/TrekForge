@@ -59,7 +59,7 @@ describe('TrekForge sidecar upgrade', () => {
     runMigrations(db);
     initializeTrekForgeDb(db);
 
-    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 175 });
+    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 176 });
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_entity_metadata'").get(),
     ).toBeTruthy();
@@ -118,7 +118,7 @@ describe('TrekForge sidecar upgrade', () => {
 
     prepareLegacyForkUpgrade(db);
 
-    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 175 });
+    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 176 });
     db.close();
   });
 
