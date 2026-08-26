@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Collez un lien de liste Naver Maps partagée pour importer tous les lieux.',
   'places.naverListImported': '{count} lieux importés depuis "{list}"',
   'places.naverListError': "Impossible d'importer la liste Naver Maps",
+  'places.importedLists': 'Listes précédemment importées',
+  'places.refreshList': 'Actualiser',
   'places.viewDetails': 'Voir les détails',
   'places.assignToDay': 'Ajouter à quel jour ?',
   'places.all': 'Tous',

@@ -37,6 +37,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Tempel tautan daftar Naver Maps yang dibagikan untuk mengimpor semua tempat.',
   'places.naverListImported': '{count} tempat diimpor dari "{list}"',
   'places.naverListError': 'Gagal mengimpor daftar Naver Maps',
+  'places.importedLists': 'Daftar yang sebelumnya diimpor',
+  'places.refreshList': 'Segarkan',
   'places.viewDetails': 'Lihat Detail',
   'places.assignToDay': 'Tambah ke hari mana?',
   'places.all': 'Semua',

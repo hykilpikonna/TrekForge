@@ -37,6 +37,8 @@ const places: TranslationStrings = {
   'places.naverListHint': '貼上共享的 Naver Maps 列表連結以匯入所有地點。',
   'places.naverListImported': '已從"{list}"匯入 {count} 個地點',
   'places.naverListError': 'Naver Maps 列表匯入失敗',
+  'places.importedLists': '之前匯入的清單',
+  'places.refreshList': '重新整理',
   'places.viewDetails': '檢視詳情',
   'places.assignToDay': '新增到哪一天？',
   'places.all': '全部',

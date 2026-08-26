@@ -37,6 +37,8 @@ const places: TranslationStrings = {
   'places.naverListHint': '공유된 네이버 지도 목록 링크를 붙여넣어 모든 장소를 가져옵니다.',
   'places.naverListImported': '"{list}"에서 {count}개 장소를 가져왔습니다',
   'places.naverListError': '네이버 지도 목록 가져오기 실패',
+  'places.importedLists': '이전에 가져온 목록',
+  'places.refreshList': '새로고침',
   'places.viewDetails': '상세 보기',
   'places.assignToDay': '어느 날에 추가할까요?',
   'places.all': '전체',

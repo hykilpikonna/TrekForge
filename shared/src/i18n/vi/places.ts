@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Dán liên kết danh sách Naver Maps được chia sẻ để nhập tất cả các địa điểm.',
   'places.naverListImported': '{count} địa điểm được nhập từ "{list}"',
   'places.naverListError': 'Không thể nhập danh sách Naver Maps',
+  'places.importedLists': 'Danh sách đã nhập trước đây',
+  'places.refreshList': 'Làm mới',
   'places.viewDetails': 'Xem chi tiết',
   'places.assignToDay': 'Thêm vào ngày nào?',
   'places.all': 'Tất cả',

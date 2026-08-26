@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Vložte sdílený odkaz na seznam Naver Maps pro import všech míst.',
   'places.naverListImported': '{count} míst importováno ze seznamu "{list}"',
   'places.naverListError': 'Import seznamu Naver Maps se nezdařil',
+  'places.importedLists': 'Dříve importované seznamy',
+  'places.refreshList': 'Obnovit',
   'places.viewDetails': 'Zobrazit detaily',
   'places.assignToDay': 'Přidat do kterého dne?',
   'places.all': 'Vše',

@@ -38,6 +38,8 @@ const places: TranslationStrings = {
   'places.naverListHint': 'Επικολλήστε έναν κοινοποιημένο σύνδεσμο λίστας Naver Maps για να εισάγετε όλα τα μέρη.',
   'places.naverListImported': '{count} μέρη εισήχθησαν από "{list}"',
   'places.naverListError': 'Αποτυχία εισαγωγής λίστας Naver Maps',
+  'places.importedLists': 'Προηγουμένως εισαγόμενες λίστες',
+  'places.refreshList': 'Ανανέωση',
   'places.viewDetails': 'Προβολή Λεπτομερειών',
   'places.assignToDay': 'Σε ποια ημέρα να προστεθεί;',
   'places.all': 'Όλα',
