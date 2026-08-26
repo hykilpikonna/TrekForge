@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import type { PlannerRouteDetailsSelection } from '../../components/Planner/RouteDetailsPanel'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
@@ -277,6 +278,23 @@ export function useTripPlanner() {
   const mobilePlacesScrollTopRef = useRef<number>(0)
   const [deletePlaceId, setDeletePlaceId] = useState<number | null>(null)
   const [deletePlaceIds, setDeletePlaceIds] = useState<number[] | null>(null)
+
+  // Route-details panel: which connector/segment the user expanded, plus a
+  // version bumped on each selection so the map re-focuses even when the same
+  // segment is re-picked. Cleared when routes hide, the tab leaves Plan, or the
+  // travel-time mode changes.
+  const [selectedRouteDetails, setSelectedRouteDetails] = useState<PlannerRouteDetailsSelection | null>(null)
+  const [routeFocusVersion, setRouteFocusVersion] = useState(0)
+  const handleRouteDetailsSelect = useCallback((selection: PlannerRouteDetailsSelection | null) => {
+    setSelectedRouteDetails(selection)
+    if (selection) setRouteFocusVersion(v => v + 1)
+  }, [])
+  useEffect(() => {
+    if (!routeShown || activeTab !== 'plan') setSelectedRouteDetails(null)
+  }, [routeShown, activeTab])
+  useEffect(() => {
+    setSelectedRouteDetails(null)
+  }, [routeProfile])
 
   useEffect(() => {
     if (!trip) return
@@ -1040,10 +1058,11 @@ export function useTripPlanner() {
     airTrailAvailable, showAirTrailImport, setShowAirTrailImport,
     bookingForAssignmentId, setBookingForAssignmentId,
     showTransportModal, setShowTransportModal, editingTransport, setEditingTransport,
+    routeShown, setRouteShown, routeProfile, setRouteProfile, fitKey, setFitKey,
+    selectedRouteDetails, setSelectedRouteDetails, routeFocusVersion, handleRouteDetailsSelect,
     transportModalDayId, setTransportModalDayId,
     transportModalAutomated, setTransportModalAutomated, transitPrefill, setTransitPrefill, transitJourney, setTransitJourney,
     reservationPrefill, transportPrefill, importReviewActive, startImportReview, advanceImportReview,
-    routeShown, setRouteShown, routeProfile, setRouteProfile, fitKey, setFitKey,
     mobileSidebarOpen, setMobileSidebarOpen, mobilePlanScrollTopRef, mobilePlacesScrollTopRef,
     deletePlaceId, setDeletePlaceId, deletePlaceIds, setDeletePlaceIds,
     visibleConnections, toggleConnection, allConnectionsShown, toggleAllConnections, mapTransportDetail, setMapTransportDetail,
