@@ -11,6 +11,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useAddonStore } from '../../store/addonStore'
 import { useSaveToCollectionStore } from '../../store/saveToCollectionStore'
 import { placeToSaveTarget } from '../Collections/saveTarget'
+import { getApiErrorMessage } from '../../utils/apiError'
 import type { Place, Category, Day, AssignmentsMap } from '../../types'
 import { getGoogleMapsUrlForPlace } from './placeGoogleMaps'
 
@@ -154,6 +155,24 @@ export function usePlacesSidebar(props: PlacesSidebarProps) {
     }
   }
 
+  const [refreshingListIds, setRefreshingListIds] = useState<Set<number>>(new Set())
+  const handleRefreshImportedList = async (listId: number, provider: 'google' | 'naver', listName: string | null) => {
+    setRefreshingListIds(prev => new Set(prev).add(listId))
+    try {
+      const result = await placesApi.refreshImportedList(tripId, listId)
+      await loadTrip(tripId)
+      if (result.count === 0 && result.skipped > 0) {
+        toast.warning(t('places.importAllSkipped'))
+      } else {
+        toast.success(t(provider === 'google' ? 'places.googleListImported' : 'places.naverListImported', { count: result.count, list: listName || result.listName }))
+      }
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, t(provider === 'google' ? 'places.googleListError' : 'places.naverListError')))
+    } finally {
+      setRefreshingListIds(prev => { const next = new Set(prev); next.delete(listId); return next })
+    }
+  }
+
   const [search, setSearch] = useState('')
   // Filter state lives in the trip store so it survives the Plan tab
   // unmounting (tab switch, mobile sheet close) and stays in lockstep with the
@@ -276,6 +295,7 @@ export function usePlacesSidebar(props: PlacesSidebarProps) {
     listImportCategoryMode, setListImportCategoryMode,
     listImportCategoryId, setListImportCategoryId,
     availableListImportProviders, hasMultipleListImportProviders, handleListImport,
+    refreshingListIds, handleRefreshImportedList,
     search, setSearch, filter, setFilter, categoryFilters, setCategoryFilters,
     selectMode, setSelectMode, selectedIds, setSelectedIds, pendingDeleteIds, setPendingDeleteIds,
     categoryPickerOpen, setCategoryPickerOpen,

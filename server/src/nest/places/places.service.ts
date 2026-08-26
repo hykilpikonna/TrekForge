@@ -76,6 +76,18 @@ export class PlacesService {
     return svc.importNaverList(tripId, url, opts);
   }
 
+  listImportedLists(tripId: string) {
+    return svc.listImportedLists(tripId);
+  }
+
+  getImportedList(tripId: string, id: number) {
+    return svc.getImportedList(tripId, id);
+  }
+
+  deleteImportedList(tripId: string, id: number): boolean {
+    return svc.deleteImportedList(tripId, id);
+  }
+
   searchImage(tripId: string, id: string, userId: number) {
     return svc.searchPlaceImage(tripId, id, userId);
   }
