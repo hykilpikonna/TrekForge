@@ -223,7 +223,7 @@ async function calculateOsrmLeg(
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
-      const fallbackUrl = `https://router.project-osrm.org/route/v1/${osrmProfile === 'transit' ? 'driving' : osrmProfile}/${coords}?overview=false&geometries=geojson&annotations=distance,duration`;
+      const fallbackUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coords}?overview=false&geometries=geojson&annotations=distance,duration`;
       const fallbackRes = await fetch(fallbackUrl, { signal: controller.signal });
       if (!fallbackRes.ok) return { durationSeconds: 0, distanceMeters: 0 };
       const fallbackData = (await fallbackRes.json()) as any;
