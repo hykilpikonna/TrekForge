@@ -14,6 +14,14 @@ import { listNotes as listCollabNotes } from './collabService';
 import { shiftOwnerEntriesForTripWindow } from './vacayService';
 import { resolveTimeZone } from './timezoneService';
 import { initializeTrekForgeDb, pruneTrekForgeData, setAssignmentSettings, setAssignmentTransportMode, setDayWakeUpTime, setTripSettings } from '../db/trekforge';
+import {
+  calculateRouteLeg,
+  getDayBookendHotels,
+  shouldDrawMorningLeg,
+  shouldDrawEveningLeg,
+  type RouteLegResult,
+  type RouteLegOptions,
+} from './tripRoutingService';
 
 initializeTrekForgeDb(db);
 
@@ -761,7 +769,7 @@ function buildVTimezone(zone: string, yyyymmdd: string): string {
   );
 }
 
-export function exportICS(tripId: string | number): { ics: string; filename: string } {
+export async function exportICS(tripId: string | number): Promise<{ ics: string; filename: string }> {
   const trip = db.prepare(`${TRIP_WITH_SETTINGS_SELECT} WHERE t.id = ?`).get(tripId) as any;
   if (!trip) throw new NotFoundError('Trip not found');
 
@@ -774,6 +782,8 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     )
     .all(tripId) as any[];
 
+  const accommodations = listAccommodations(tripId);
+
   const esc = (s: string) => s
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
@@ -782,7 +792,7 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     .replace(/\r/g, '');
   const fmtDate = (d: string) => d.replace(/-/g, '');
   const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const uid = (id: number, type: string) => `trek-${type}-${id}@trek`;
+  const uid = (id: number | string, type: string) => `trek-${type}-${id}@trek`;
 
   // Format datetime: handles full ISO "2026-03-30T09:00" and time-only "10:00"
   // iCal requires exactly YYYYMMDDTHHMMSS format
@@ -808,11 +818,34 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.round(n) : 60;
   };
+  const normalizeMargin = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  };
   const scheduleMargin = normalizeScheduleMarginMinutes(trip.schedule_margin_minutes, 0);
   const fmtDayMinutes = (date: string, minutes: number) => {
     const dt = new Date(date + 'T00:00:00Z');
     dt.setUTCMinutes(dt.getUTCMinutes() + Math.round(minutes));
     return dt.toISOString().slice(0, 16).replace(/[-:]/g, '') + '00';
+  };
+
+  const formatLegDescription = (leg: { distanceMeters: number; durationSeconds: number }, profile: string) => {
+    const parts: string[] = [];
+    const modeName = profile.charAt(0).toUpperCase() + profile.slice(1);
+    parts.push(`Mode: ${modeName}`);
+    const durationMin = Math.max(0, Math.round(leg.durationSeconds / 60));
+    const h = Math.floor(durationMin / 60);
+    const m = durationMin % 60;
+    const durStr = h && m ? `${h}h ${m}m` : h ? `${h}h` : `${m}m`;
+    parts.push(`Duration: ${durStr}`);
+    if (leg.distanceMeters > 0) {
+      if (leg.distanceMeters < 1000) {
+        parts.push(`Distance: ${leg.distanceMeters} m`);
+      } else {
+        parts.push(`Distance: ${(leg.distanceMeters / 1000).toFixed(1)} km`);
+      }
+    }
+    return parts.join('\n');
   };
 
   // Zones referenced by timed events → representative YYYYMMDD (for the fallback
@@ -855,6 +888,15 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
     FROM days d LEFT JOIN trekforge.day_settings ds ON ds.day_id = d.id
     WHERE d.trip_id = ? ORDER BY d.day_number ASC
   `).all(tripId) as any[];
+
+  const tripRoutingOptions: RouteLegOptions = {
+    provider: trip.routing_provider || 'osrm',
+    optimism: Number(trip.routing_optimism) || 0.33,
+    avoidTolls: Boolean(trip.routing_avoid_tolls),
+    avoidHighways: Boolean(trip.routing_avoid_highways),
+    avoidFerries: Boolean(trip.routing_avoid_ferries),
+  };
+
   for (const day of days) {
     if (!day.date) continue;
 
@@ -862,9 +904,11 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       SELECT da.*, COALESCE(afs.duration_minutes, p.duration_minutes, 60) AS duration_minutes,
         COALESCE(afs.margin_before_minutes, 0) AS margin_before_minutes,
         COALESCE(afs.margin_after_minutes, 0) AS margin_after_minutes,
+        afs.transport_mode AS assignment_transport_mode,
         p.name as place_name, p.address as place_address,
         p.lat as place_lat, p.lng as place_lng,
-        p.duration_minutes as place_duration_minutes
+        p.duration_minutes as place_duration_minutes,
+        p.transport_mode as place_transport_mode
       FROM day_assignments da
       JOIN places p ON da.place_id = p.id
       LEFT JOIN trekforge.assignment_settings afs ON afs.assignment_id = da.id
@@ -876,14 +920,73 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       'SELECT * FROM day_notes WHERE day_id = ? ORDER BY sort_order ASC, created_at ASC'
     ).all(day.id) as any[];
 
-    // Activity assignment times are calculated, never read from legacy place start/end fields.
+    const bookends = getDayBookendHotels(day, days, accommodations);
+    const firstStopInfo = assignments.length > 0 ? { isPlace: true, time: null } : undefined;
+    const lastStopInfo = assignments.length > 0 ? { isPlace: true, time: null } : undefined;
+    const drawMorning = shouldDrawMorningLeg(bookends, day, firstStopInfo);
+    const drawEvening = shouldDrawEveningLeg(bookends, day, lastStopInfo);
+
     let activityCursor = parseClockMinutes(day.wake_up_time);
-    for (const a of assignments) {
+
+    // Morning hotel leg
+    if (
+      drawMorning &&
+      bookends.morning &&
+      bookends.morning.place_lat != null &&
+      bookends.morning.place_lng != null &&
+      assignments.length > 0 &&
+      assignments[0].place_lat != null &&
+      assignments[0].place_lng != null
+    ) {
+      const fromPt = {
+        lat: bookends.morning.place_lat,
+        lng: bookends.morning.place_lng,
+        name: bookends.morning.place_name,
+        address: bookends.morning.place_address,
+      };
+      const toPt = {
+        lat: assignments[0].place_lat,
+        lng: assignments[0].place_lng,
+        name: assignments[0].place_name,
+        address: assignments[0].place_address,
+      };
+      const mode = assignments[0].assignment_transport_mode || 'driving';
+      const depTime = fmtDayMinutes(day.date, activityCursor);
+      const leg = await calculateRouteLeg(fromPt, toPt, {
+        ...tripRoutingOptions,
+        profile: mode,
+        departureLocalDateTime: depTime,
+      });
+      const travelMins = Math.max(0, Math.round(leg.durationSeconds / 60));
+      if (travelMins > 0) {
+        const zone = resolveTimeZone(fromPt.lat, fromPt.lng) || resolveTimeZone(toPt.lat, toPt.lng);
+        ics += `BEGIN:VEVENT\r\nUID:${uid(day.id, 'travel-start')}\r\nDTSTAMP:${now}\r\n`;
+        ics += dtLine('DTSTART', fmtDayMinutes(day.date, activityCursor), zone);
+        ics += dtLine('DTEND', fmtDayMinutes(day.date, activityCursor + travelMins), zone);
+        ics += `SUMMARY:${esc(`Travel: ${fromPt.name || 'Hotel'} → ${toPt.name || 'Place'}`)}\r\n`;
+        const desc = formatLegDescription(leg, mode);
+        if (desc) ics += `DESCRIPTION:${esc(desc)}\r\n`;
+        if (toPt.address || toPt.name) ics += `LOCATION:${esc(toPt.address || toPt.name || '')}\r\n`;
+        ics += `END:VEVENT\r\n`;
+        activityCursor += travelMins + (travelMins > 0 ? scheduleMargin : 0);
+      }
+    }
+
+    // Activity assignment times are calculated with routing between places
+    for (let i = 0; i < assignments.length; i++) {
+      const a = assignments[i];
       const duration = normalizeDuration(a.duration_minutes ?? a.place_duration_minutes);
+      const marginBefore = normalizeMargin(a.margin_before_minutes);
+      const marginAfter = normalizeMargin(a.margin_after_minutes);
       const zone = resolveTimeZone(a.place_lat, a.place_lng);
+
+      activityCursor += marginBefore;
+      const aStart = activityCursor;
+      const aEnd = activityCursor + duration;
+
       ics += `BEGIN:VEVENT\r\nUID:${uid(a.id, 'assign')}\r\nDTSTAMP:${now}\r\n`;
-      ics += dtLine('DTSTART', fmtDayMinutes(day.date, activityCursor), zone);
-      ics += dtLine('DTEND', fmtDayMinutes(day.date, activityCursor + duration), zone);
+      ics += dtLine('DTSTART', fmtDayMinutes(day.date, aStart), zone);
+      ics += dtLine('DTEND', fmtDayMinutes(day.date, aEnd), zone);
       ics += `SUMMARY:${esc(a.place_name)}\r\n`;
       let desc = '';
       if (a.notes) desc += a.notes;
@@ -891,7 +994,115 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
       if (desc) ics += `DESCRIPTION:${esc(desc)}\r\n`;
       if (a.place_address) ics += `LOCATION:${esc(a.place_address)}\r\n`;
       ics += `END:VEVENT\r\n`;
-      activityCursor += duration + scheduleMargin;
+
+      activityCursor = aEnd + marginAfter;
+
+      // Route leg to next assignment
+      if (i < assignments.length - 1) {
+        const nextA = assignments[i + 1];
+        let legTravelMins = 0;
+        let legResult: RouteLegResult | null = null;
+        const mode = nextA.assignment_transport_mode || 'driving';
+
+        if (a.place_lat != null && a.place_lng != null && nextA.place_lat != null && nextA.place_lng != null) {
+          const fromPt = { lat: a.place_lat, lng: a.place_lng, name: a.place_name, address: a.place_address };
+          const toPt = { lat: nextA.place_lat, lng: nextA.place_lng, name: nextA.place_name, address: nextA.place_address };
+          const travelStartMinutes = activityCursor + scheduleMargin;
+          const depTime = fmtDayMinutes(day.date, travelStartMinutes);
+          legResult = await calculateRouteLeg(fromPt, toPt, {
+            ...tripRoutingOptions,
+            profile: mode,
+            departureLocalDateTime: depTime,
+          });
+          legTravelMins = Math.max(0, Math.round(legResult.durationSeconds / 60));
+
+          if (legTravelMins > 0) {
+            const travelZone = resolveTimeZone(fromPt.lat, fromPt.lng) || resolveTimeZone(toPt.lat, toPt.lng);
+            ics += `BEGIN:VEVENT\r\nUID:${uid(a.id, 'travel')}\r\nDTSTAMP:${now}\r\n`;
+            ics += dtLine('DTSTART', fmtDayMinutes(day.date, travelStartMinutes), travelZone);
+            ics += dtLine('DTEND', fmtDayMinutes(day.date, travelStartMinutes + legTravelMins), travelZone);
+            ics += `SUMMARY:${esc(`Travel: ${fromPt.name} → ${toPt.name}`)}\r\n`;
+            const legDesc = formatLegDescription(legResult, mode);
+            if (legDesc) ics += `DESCRIPTION:${esc(legDesc)}\r\n`;
+            if (toPt.address || toPt.name) ics += `LOCATION:${esc(toPt.address || toPt.name || '')}\r\n`;
+            ics += `END:VEVENT\r\n`;
+            activityCursor = travelStartMinutes + legTravelMins + (legTravelMins > 0 ? scheduleMargin : 0);
+          } else {
+            activityCursor += scheduleMargin;
+          }
+        } else {
+          activityCursor += scheduleMargin;
+        }
+      }
+    }
+
+    // Evening hotel leg
+    if (
+      drawEvening &&
+      bookends.evening &&
+      bookends.evening.place_lat != null &&
+      bookends.evening.place_lng != null &&
+      assignments.length > 0
+    ) {
+      const lastA = assignments[assignments.length - 1];
+      if (lastA.place_lat != null && lastA.place_lng != null) {
+        const fromPt = { lat: lastA.place_lat, lng: lastA.place_lng, name: lastA.place_name, address: lastA.place_address };
+        const toPt = { lat: bookends.evening.place_lat, lng: bookends.evening.place_lng, name: bookends.evening.place_name, address: bookends.evening.place_address };
+        const travelStartMinutes = activityCursor + scheduleMargin;
+        const depTime = fmtDayMinutes(day.date, travelStartMinutes);
+        const leg = await calculateRouteLeg(fromPt, toPt, {
+          ...tripRoutingOptions,
+          profile: 'driving',
+          departureLocalDateTime: depTime,
+        });
+        const travelMins = Math.max(0, Math.round(leg.durationSeconds / 60));
+        if (travelMins > 0) {
+          const zone = resolveTimeZone(fromPt.lat, fromPt.lng) || resolveTimeZone(toPt.lat, toPt.lng);
+          ics += `BEGIN:VEVENT\r\nUID:${uid(day.id, 'travel-end')}\r\nDTSTAMP:${now}\r\n`;
+          ics += dtLine('DTSTART', fmtDayMinutes(day.date, travelStartMinutes), zone);
+          ics += dtLine('DTEND', fmtDayMinutes(day.date, travelStartMinutes + travelMins), zone);
+          ics += `SUMMARY:${esc(`Travel: ${fromPt.name} → ${toPt.name || 'Hotel'}`)}\r\n`;
+          const desc = formatLegDescription(leg, 'driving');
+          if (desc) ics += `DESCRIPTION:${esc(desc)}\r\n`;
+          if (toPt.address || toPt.name) ics += `LOCATION:${esc(toPt.address || toPt.name || '')}\r\n`;
+          ics += `END:VEVENT\r\n`;
+        }
+      }
+    }
+
+    // Hotel-to-hotel transfer day with no activities
+    if (
+      assignments.length === 0 &&
+      drawMorning &&
+      drawEvening &&
+      bookends.morning &&
+      bookends.evening &&
+      bookends.morning.place_lat != null &&
+      bookends.morning.place_lng != null &&
+      bookends.evening.place_lat != null &&
+      bookends.evening.place_lng != null &&
+      (bookends.morning.place_lat !== bookends.evening.place_lat || bookends.morning.place_lng !== bookends.evening.place_lng)
+    ) {
+      const fromPt = { lat: bookends.morning.place_lat, lng: bookends.morning.place_lng, name: bookends.morning.place_name, address: bookends.morning.place_address };
+      const toPt = { lat: bookends.evening.place_lat, lng: bookends.evening.place_lng, name: bookends.evening.place_name, address: bookends.evening.place_address };
+      const depTime = fmtDayMinutes(day.date, activityCursor);
+      const leg = await calculateRouteLeg(fromPt, toPt, {
+        ...tripRoutingOptions,
+        profile: 'driving',
+        departureLocalDateTime: depTime,
+      });
+      const travelMins = Math.max(0, Math.round(leg.durationSeconds / 60));
+      if (travelMins > 0) {
+        const zone = resolveTimeZone(fromPt.lat, fromPt.lng) || resolveTimeZone(toPt.lat, toPt.lng);
+        ics += `BEGIN:VEVENT\r\nUID:${uid(day.id, 'travel-transfer')}\r\nDTSTAMP:${now}\r\n`;
+        ics += dtLine('DTSTART', fmtDayMinutes(day.date, activityCursor), zone);
+        ics += dtLine('DTEND', fmtDayMinutes(day.date, activityCursor + travelMins), zone);
+        ics += `SUMMARY:${esc(`Travel: ${fromPt.name} → ${toPt.name}`)}\r\n`;
+        const desc = formatLegDescription(leg, 'driving');
+        if (desc) ics += `DESCRIPTION:${esc(desc)}\r\n`;
+        if (toPt.address || toPt.name) ics += `LOCATION:${esc(toPt.address || toPt.name || '')}\r\n`;
+        ics += `END:VEVENT\r\n`;
+      }
     }
 
     // Build all-day summary event for notes.

@@ -24,6 +24,8 @@ const dayplan: TranslationStrings = {
   'dayplan.totalCost': 'Totala kostnaden',
   'dayplan.days': 'Dagar',
   'dayplan.dayN': 'Dag {n}',
+  'dayplan.wake': 'Vakna',
+  'dayplan.maxSleep': 'Vila',
   'dayplan.calculating': 'Beräknar...',
   'dayplan.route': 'Rutt',
   'dayplan.optimize': 'Optimera',
