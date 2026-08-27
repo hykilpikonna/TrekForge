@@ -335,7 +335,7 @@ export function registerTripTools(server: McpServer, userId: number, scopes: str
     async ({ tripId }) => {
       if (!canAccessTrip(tripId, userId)) return noAccess();
       try {
-        const { ics, filename } = exportICS(tripId);
+        const { ics, filename } = await exportICS(tripId);
         return ok({ ics, filename });
       } catch {
         return { content: [{ type: 'text' as const, text: 'Trip not found.' }], isError: true };

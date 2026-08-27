@@ -215,26 +215,12 @@ export default function TripPlannerPage(): React.ReactElement | null {
     handleSaveReservation, handleSaveTransport, handleDeleteReservation,
     selectedPlace, dayOrderMap, dayPlaces,
     mapTileUrl, fontStyle, splashDone,
+    selectedRouteDetails, setSelectedRouteDetails, routeFocusVersion, setRouteFocusVersion, handleRouteDetailsSelect, routeDetailsMapOffset,
   } = useTripPlanner()
 
   const poi = usePoiExplore()
   const [glMap, setGlMap] = useState<CompassMap | null>(null)
-  const [selectedRouteDetails, setSelectedRouteDetails] = useState<PlannerRouteDetailsSelection | null>(null)
-  const [routeFocusVersion, setRouteFocusVersion] = useState(0)
   const poiPillEnabled = useSettingsStore(s => s.settings.map_poi_pill_enabled) !== false
-  const handleRouteDetailsSelect = useCallback((selection: PlannerRouteDetailsSelection | null) => {
-    setSelectedRouteDetails(selection)
-    if (selection) setRouteFocusVersion(v => v + 1)
-  }, [])
-  const routeDetailsMapOffset = selectedRouteDetails && routeShown && !leftCollapsed && !isMobile ? 352 : 0
-
-  useEffect(() => {
-    if (!routeShown || activeTab !== 'plan') setSelectedRouteDetails(null)
-  }, [routeShown, activeTab])
-
-  useEffect(() => {
-    setSelectedRouteDetails(null)
-  }, [routeProfile])
 
   // Costs expense editor opened from a booking modal (save-then-open). Lives at the
   // page level so it has tripMembers / base currency / current user available.

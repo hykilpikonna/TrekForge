@@ -35,6 +35,7 @@ import {
   type StoredConnections,
 } from '../../utils/connectionsVisibility'
 import type { RouteProfile, RoutingProvider } from '../../components/Map/RouteCalculator'
+import type { PlannerRouteDetailsSelection } from '../../components/Planner/RouteDetailsPanel'
 
 type PlannerRouteProfile = Extract<RouteProfile, 'driving' | 'walking' | 'transit'>
 
@@ -345,6 +346,22 @@ export function useTripPlanner() {
   // Layout is width-driven (isMobile); drag affordances are pointer-driven (isTouch).
   // Conflating them is what left a tablet's places list undraggable-but-unscrollable (#1432).
   const isTouch = useIsTouch()
+
+  const [selectedRouteDetails, setSelectedRouteDetails] = useState<PlannerRouteDetailsSelection | null>(null)
+  const [routeFocusVersion, setRouteFocusVersion] = useState(0)
+  const handleRouteDetailsSelect = useCallback((selection: PlannerRouteDetailsSelection | null) => {
+    setSelectedRouteDetails(selection)
+    if (selection) setRouteFocusVersion(v => v + 1)
+  }, [])
+  const routeDetailsMapOffset = selectedRouteDetails && routeShown && !leftCollapsed && !isMobile ? 352 : 0
+
+  useEffect(() => {
+    if (!routeShown || activeTab !== 'plan') setSelectedRouteDetails(null)
+  }, [routeShown, activeTab])
+
+  useEffect(() => {
+    setSelectedRouteDetails(null)
+  }, [routeProfile])
 
   // Start photo fetches during splash screen so images are ready when map mounts
   useEffect(() => {
@@ -1056,5 +1073,6 @@ export function useTripPlanner() {
     handleSaveReservation, handleSaveTransport, handleDeleteReservation,
     selectedPlace, dayOrderMap, dayPlaces,
     mapTileUrl, fontStyle, splashDone,
+    selectedRouteDetails, setSelectedRouteDetails, routeFocusVersion, setRouteFocusVersion, handleRouteDetailsSelect, routeDetailsMapOffset,
   }
 }

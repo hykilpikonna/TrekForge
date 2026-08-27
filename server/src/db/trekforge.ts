@@ -118,6 +118,21 @@ export function initializeTrekForgeDb(db: Database.Database, coreDbPath = ':memo
       margin_after_minutes INTEGER NOT NULL DEFAULT 0,
       transport_mode TEXT
     );
+    CREATE TABLE IF NOT EXISTS ${SIDECAR_SCHEMA}.route_cache (
+      cache_key TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      profile TEXT NOT NULL,
+      from_lat REAL NOT NULL,
+      from_lng REAL NOT NULL,
+      to_lat REAL NOT NULL,
+      to_lng REAL NOT NULL,
+      duration_seconds INTEGER NOT NULL,
+      distance_meters INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS ${SIDECAR_SCHEMA}.idx_route_cache_coords
+      ON route_cache(from_lat, from_lng, to_lat, to_lng, provider, profile);
   `);
 
   // Sidecar DBs created before the per-assignment transport-mode override need
@@ -262,3 +277,78 @@ export function setAssignmentSettings(
   `,
   ).run(assignmentId, settings.duration_minutes, settings.margin_before_minutes, settings.margin_after_minutes);
 }
+
+export interface CachedRouteLeg {
+  durationSeconds: number;
+  distanceMeters: number;
+}
+
+export function getCachedRouteLeg(
+  db: Database.Database,
+  cacheKey: string,
+): CachedRouteLeg | null {
+  try {
+    const row = db
+      .prepare(
+        `SELECT duration_seconds, distance_meters FROM ${SIDECAR_SCHEMA}.route_cache WHERE cache_key = ?`,
+      )
+      .get(cacheKey) as { duration_seconds: number; distance_meters: number } | undefined;
+    if (!row) return null;
+    return {
+      durationSeconds: row.duration_seconds,
+      distanceMeters: row.distance_meters,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedRouteLeg(
+  db: Database.Database,
+  entry: {
+    cacheKey: string;
+    provider: string;
+    profile: string;
+    fromLat: number;
+    fromLng: number;
+    toLat: number;
+    toLng: number;
+    durationSeconds: number;
+    distanceMeters: number;
+  },
+): void {
+  try {
+    db.prepare(
+      `
+      INSERT INTO ${SIDECAR_SCHEMA}.route_cache
+        (cache_key, provider, profile, from_lat, from_lng, to_lat, to_lng, duration_seconds, distance_meters, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(cache_key) DO UPDATE SET
+        duration_seconds = excluded.duration_seconds,
+        distance_meters = excluded.distance_meters,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    ).run(
+      entry.cacheKey,
+      entry.provider,
+      entry.profile,
+      entry.fromLat,
+      entry.fromLng,
+      entry.toLat,
+      entry.toLng,
+      entry.durationSeconds,
+      entry.distanceMeters,
+    );
+  } catch {
+    // Non-fatal if cache insertion fails
+  }
+}
+
+export function clearRouteCache(db: Database.Database): void {
+  try {
+    db.exec(`DELETE FROM ${SIDECAR_SCHEMA}.route_cache`);
+  } catch {
+    // Ignore if not present
+  }
+}
+

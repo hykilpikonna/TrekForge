@@ -23,6 +23,8 @@ const dayplan: TranslationStrings = {
   'dayplan.totalCost': 'Tổng chi phí',
   'dayplan.days': 'Ngày',
   'dayplan.dayN': 'Ngày {n}',
+  'dayplan.wake': 'Thức dậy',
+  'dayplan.maxSleep': 'Nghỉ ngơi',
   'dayplan.calculating': 'Đang tính...',
   'dayplan.route': 'Chỉ đường',
   'dayplan.optimize': 'Tối ưu hóa',

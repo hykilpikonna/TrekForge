@@ -38,8 +38,8 @@ export class FeedsPublicController {
   constructor(private readonly feeds: FeedsService) {}
 
   @Get('trip/:token.ics')
-  tripFeed(@Param('token') token: string, @Res() res: Response): void {
-    const result = this.feeds.buildTripIcs(token);
+  async tripFeed(@Param('token') token: string, @Res() res: Response): Promise<void> {
+    const result = await this.feeds.buildTripIcs(token);
     if (!result) {
       res.status(404).json({ error: 'Feed not found' });
       return;
@@ -52,8 +52,8 @@ export class FeedsPublicController {
   }
 
   @Get('user/:token.ics')
-  userFeed(@Param('token') token: string, @Res() res: Response): void {
-    const result = this.feeds.buildUserIcs(token);
+  async userFeed(@Param('token') token: string, @Res() res: Response): Promise<void> {
+    const result = await this.feeds.buildUserIcs(token);
     if (!result) {
       res.status(404).json({ error: 'Feed not found' });
       return;

@@ -363,21 +363,21 @@ describe('TripsController (parity with the legacy /api/trips route)', () => {
 
   describe('GET /:id/export.ics', () => {
     function makeRes() { return { setHeader: vi.fn(), send: vi.fn() } as never; }
-    it('404 without access, else sends the calendar with headers', () => {
-      expect(thrown(() => new TripsController(svc({ canAccessTrip: vi.fn().mockReturnValue(undefined) })).exportIcs(user, '9', makeRes()))).toEqual({ status: 404, body: { error: 'Trip not found' } });
+    it('404 without access, else sends the calendar with headers', async () => {
+      expect(await thrownAsync(() => new TripsController(svc({ canAccessTrip: vi.fn().mockReturnValue(undefined) })).exportIcs(user, '9', makeRes()))).toEqual({ status: 404, body: { error: 'Trip not found' } });
       const res = { setHeader: vi.fn(), send: vi.fn() };
-      const s = svc({ exportICS: vi.fn().mockReturnValue({ ics: 'BEGIN:VCALENDAR', filename: 'trip.ics' }) } as Partial<TripsService>);
-      new TripsController(s).exportIcs(user, '9', res as never);
+      const s = svc({ exportICS: vi.fn().mockResolvedValue({ ics: 'BEGIN:VCALENDAR', filename: 'trip.ics' }) } as Partial<TripsService>);
+      await new TripsController(s).exportIcs(user, '9', res as never);
       expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/calendar; charset=utf-8');
       expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'attachment; filename="trip.ics"');
       expect(res.send).toHaveBeenCalledWith('BEGIN:VCALENDAR');
     });
 
-    it('maps a NotFoundError from the export to 404 and re-throws others', () => {
-      const nf = svc({ exportICS: vi.fn().mockImplementation(() => { throw new NotFoundError('gone'); }) } as Partial<TripsService>);
-      expect(thrown(() => new TripsController(nf).exportIcs(user, '9', makeRes()))).toEqual({ status: 404, body: { error: 'gone' } });
-      const other = svc({ exportICS: vi.fn().mockImplementation(() => { throw new Error('boom'); }) } as Partial<TripsService>);
-      expect(() => new TripsController(other).exportIcs(user, '9', makeRes())).toThrow('boom');
+    it('maps a NotFoundError from the export to 404 and re-throws others', async () => {
+      const nf = svc({ exportICS: vi.fn().mockRejectedValue(new NotFoundError('gone')) } as Partial<TripsService>);
+      expect(await thrownAsync(() => new TripsController(nf).exportIcs(user, '9', makeRes()))).toEqual({ status: 404, body: { error: 'gone' } });
+      const other = svc({ exportICS: vi.fn().mockRejectedValue(new Error('boom')) } as Partial<TripsService>);
+      await expect(() => new TripsController(other).exportIcs(user, '9', makeRes())).rejects.toThrow('boom');
     });
   });
 

@@ -80,13 +80,13 @@ export class FeedsService {
 
   // ── ICS generation ───────────────────────────────────────────────────────
 
-  buildTripIcs(token: string): { ics: string; filename: string } | null {
+  async buildTripIcs(token: string): Promise<{ ics: string; filename: string } | null> {
     const row = db.prepare('SELECT id FROM trips WHERE feed_token = ?').get(token) as
       | { id: number }
       | undefined;
     if (!row) return null;
     try {
-      const { ics, filename } = exportICS(row.id);
+      const { ics, filename } = await exportICS(row.id);
       // Inject calendar-subscription refresh hints into the VCALENDAR header so
       // clients re-fetch hourly. The one-time download path (exportICS) is left
       // untouched; this is feed-only.
@@ -100,7 +100,7 @@ export class FeedsService {
     }
   }
 
-  buildUserIcs(token: string): { ics: string; calName: string } | null {
+  async buildUserIcs(token: string): Promise<{ ics: string; calName: string } | null> {
     const user = db.prepare('SELECT id, username FROM users WHERE feed_token = ?').get(token) as
       | { id: number; username: string }
       | undefined;
@@ -136,7 +136,7 @@ export class FeedsService {
     let events = '';
     for (const { id } of trips) {
       try {
-        const { ics } = exportICS(id);
+        const { ics } = await exportICS(id);
         for (const vtz of extractVTimezones(ics)) {
           const tzid = vtz.match(/\r\nTZID:(.+)\r\n/)?.[1];
           if (tzid && !zones.has(tzid)) zones.set(tzid, vtz);

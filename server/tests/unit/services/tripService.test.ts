@@ -33,6 +33,7 @@ vi.mock('../../../src/config', () => ({
 import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
 import { setDayWakeUpTime } from '../../../src/db/trekforge';
+import { clearRouteCacheForTests } from '../../../src/services/tripRoutingService';
 import { resetTestDb } from '../../helpers/test-db';
 import { createUser, createTrip, createReservation, createPlace, createDay, createDayAssignment, createDayNote, addTripMember } from '../../helpers/factories';
 import { exportICS, generateDays, deleteOldCover, updateTrip, transferOwnership, createGuest, renameGuest, deleteGuest, listMembers, addMember } from '../../../src/services/tripService';
@@ -275,7 +276,7 @@ describe('generateDays', () => {
 });
 
 describe('exportICS', () => {
-  it('TRIP-SVC-001: returns VCALENDAR wrapper', () => {
+  it('TRIP-SVC-001: returns VCALENDAR wrapper', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, {
       title: 'My Vacation',
@@ -283,13 +284,13 @@ describe('exportICS', () => {
       end_date: '2025-06-07',
     });
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('BEGIN:VCALENDAR');
     expect(ics).toContain('END:VCALENDAR');
   });
 
-  it('TRIP-SVC-002: trip with start_date + end_date includes all-day VEVENT', () => {
+  it('TRIP-SVC-002: trip with start_date + end_date includes all-day VEVENT', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, {
       title: 'Summer Holiday',
@@ -297,7 +298,7 @@ describe('exportICS', () => {
       end_date: '2025-06-07',
     });
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('DTSTART;VALUE=DATE:20250601');
     // DTEND is exclusive — the day *after* the last day, or the trip loses a day.
@@ -317,7 +318,7 @@ describe('exportICS', () => {
     // lands a day early, and since DTEND is exclusive the trip's last day was dropped.
     // Only invisible in CI because containers default to TZ=UTC.
     for (const tz of ['Europe/Berlin', 'Asia/Tokyo', 'Pacific/Kiritimati', 'America/New_York', 'UTC']) {
-      it(`TRIP-SVC-002b: DTEND is the day after the last day under TZ=${tz}`, () => {
+      it(`TRIP-SVC-002b: DTEND is the day after the last day under TZ=${tz}`, async () => {
         process.env.TZ = tz;
         const { user } = createUser(testDb);
         const trip = createTrip(testDb, user.id, {
@@ -326,28 +327,28 @@ describe('exportICS', () => {
           end_date: '2026-03-30',
         });
 
-        const { ics } = exportICS(trip.id);
+        const { ics } = await exportICS(trip.id);
 
         expect(ics).toContain('DTSTART;VALUE=DATE:20260328');
         expect(ics).toContain('DTEND;VALUE=DATE:20260331');
       });
     }
 
-    it('TRIP-SVC-002c: a per-day all-day summary event has the same exclusive DTEND', () => {
+    it('TRIP-SVC-002c: a per-day all-day summary event has the same exclusive DTEND', async () => {
       process.env.TZ = 'Asia/Tokyo';
       const { user } = createUser(testDb);
       const trip = createTrip(testDb, user.id, { title: 'Day Note Trip' });
       const day = createDay(testDb, trip.id, { date: '2026-03-30', day_number: 1 });
       createDayNote(testDb, day.id, trip.id, { text: 'Pack the bags' });
 
-      const { ics } = exportICS(trip.id);
+      const { ics } = await exportICS(trip.id);
 
       expect(ics).toContain('DTSTART;VALUE=DATE:20260330');
       expect(ics).toContain('DTEND;VALUE=DATE:20260331');
     });
   });
 
-  it('TRIP-SVC-003: reservation with full datetime (includes T) → DTSTART without VALUE=DATE', () => {
+  it('TRIP-SVC-003: reservation with full datetime (includes T) → DTSTART without VALUE=DATE', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Paris Trip' });
     const reservation = createReservation(testDb, trip.id, {
@@ -358,13 +359,13 @@ describe('exportICS', () => {
       .prepare('UPDATE reservations SET reservation_time=? WHERE id=?')
       .run('2025-06-02T09:00', reservation.id);
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('DTSTART:20250602T090000');
     expect(ics).not.toContain('DTSTART;VALUE=DATE');
   });
 
-  it('TRIP-SVC-004: reservation with date-only → DTSTART;VALUE=DATE', () => {
+  it('TRIP-SVC-004: reservation with date-only → DTSTART;VALUE=DATE', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Paris Trip' });
     const reservation = createReservation(testDb, trip.id, {
@@ -375,12 +376,12 @@ describe('exportICS', () => {
       .prepare('UPDATE reservations SET reservation_time=? WHERE id=?')
       .run('2025-06-02', reservation.id);
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('DTSTART;VALUE=DATE:20250602');
   });
 
-  it('TRIP-SVC-005: reservation metadata with flight info appears in DESCRIPTION', () => {
+  it('TRIP-SVC-005: reservation metadata with flight info appears in DESCRIPTION', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Paris Trip' });
     const reservation = createReservation(testDb, trip.id, {
@@ -400,35 +401,35 @@ describe('exportICS', () => {
         reservation.id
       );
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('Airline: Air Test');
     expect(ics).toContain('Flight: AT100');
   });
 
-  it('TRIP-SVC-006: special characters in title are escaped', () => {
+  it('TRIP-SVC-006: special characters in title are escaped', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Trip; First, Best' });
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('Trip\\; First\\, Best');
   });
 
-  it('TRIP-SVC-007: throws NotFoundError for non-existent trip', () => {
-    expect(() => exportICS(99999)).toThrow();
+  it('TRIP-SVC-007: throws NotFoundError for non-existent trip', async () => {
+    await expect(exportICS(99999)).rejects.toThrow();
   });
 
-  it('TRIP-SVC-008: returns a filename derived from trip title', () => {
+  it('TRIP-SVC-008: returns a filename derived from trip title', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'My Trip 2025' });
 
-    const { filename } = exportICS(trip.id);
+    const { filename } = await exportICS(trip.id);
 
     expect(filename).toMatch(/My.Trip.2025\.ics/);
   });
 
-  it('TRIP-SVC-009: reservation with end time includes DTEND', () => {
+  it('TRIP-SVC-009: reservation with end time includes DTEND', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Paris Trip' });
     const reservation = createReservation(testDb, trip.id, {
@@ -439,12 +440,12 @@ describe('exportICS', () => {
       .prepare('UPDATE reservations SET reservation_time=?, reservation_end_time=? WHERE id=?')
       .run('2025-06-02T14:00', '2025-06-02T16:00', reservation.id);
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('DTEND:20250602T160000');
   });
 
-  it('TRIP-SVC-010: flight with endpoint times but no reservation_time is included', () => {
+  it('TRIP-SVC-010: flight with endpoint times but no reservation_time is included', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Paris Trip' });
     const reservation = createReservation(testDb, trip.id, {
@@ -459,7 +460,7 @@ describe('exportICS', () => {
     insertEp.run(reservation.id, 'from', 0, 'Paris CDG', 'CDG', 49.0, 2.5, 'Europe/Paris', '09:00', '2025-06-02');
     insertEp.run(reservation.id, 'to', 1, 'New York JFK', 'JFK', 40.6, -73.8, 'America/New_York', '12:00', '2025-06-02');
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('SUMMARY:CDG → JFK');
     // Departure endpoint zone drives DTSTART, arrival zone drives DTEND, so the
@@ -473,7 +474,7 @@ describe('exportICS', () => {
     expect(ics).toContain('Route: CDG → JFK');
   });
 
-  it('TRIP-SVC-010b: an invalid endpoint timezone degrades to floating time instead of crashing the export', () => {
+  it('TRIP-SVC-010b: an invalid endpoint timezone degrades to floating time instead of crashing the export', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Bad TZ Trip' });
     const reservation = createReservation(testDb, trip.id, { title: 'CDG → JFK', type: 'flight' });
@@ -487,14 +488,14 @@ describe('exportICS', () => {
     insertEp.run(reservation.id, 'to', 1, 'New York JFK', 'JFK', 40.6, -73.8, 'garbage', '12:00', '2025-06-02');
 
     let ics = '';
-    expect(() => { ics = exportICS(trip.id).ics; }).not.toThrow();
+    await expect(async () => { ics = (await exportICS(trip.id)).ics; }).not.toThrow();
     // Falls back to a floating local time (no TZID) and never emits a bogus VTIMEZONE.
     expect(ics).toContain('DTSTART:20250602T090000');
     expect(ics).not.toContain('TZID=Not/AZone');
     expect(ics).not.toContain('garbage');
   });
 
-  it('TRIP-SVC-011: flight endpoint with no local_date is skipped (relative Day-N trips)', () => {
+  it('TRIP-SVC-011: flight endpoint with no local_date is skipped (relative Day-N trips)', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Relative Trip' });
     const reservation = createReservation(testDb, trip.id, {
@@ -506,12 +507,12 @@ describe('exportICS', () => {
       'INSERT INTO reservation_endpoints (reservation_id, role, sequence, name, code, lat, lng, timezone, local_time, local_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(reservation.id, 'from', 0, 'Origin', 'AAA', 1.0, 1.0, null, '09:00', null);
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).not.toContain('SUMMARY:Timeless Flight');
   });
 
-  it('TRIP-SVC-012: scheduled assignment gets a TZID derived from the place coordinates', () => {
+  it('TRIP-SVC-012: scheduled assignment gets a TZID derived from the place coordinates', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Tokyo Trip' });
     const day = createDay(testDb, trip.id, { date: '2025-06-02' });
@@ -520,11 +521,111 @@ describe('exportICS', () => {
     createDayAssignment(testDb, day.id, place.id);
     setDayWakeUpTime(testDb, day.id, '09:00');
 
-    const { ics } = exportICS(trip.id);
+    const { ics } = await exportICS(trip.id);
 
     expect(ics).toContain('DTSTART;TZID=Asia/Tokyo:20250602T090000');
     expect(ics).toContain('BEGIN:VTIMEZONE\r\nTZID:Asia/Tokyo');
     expect(ics).not.toContain('DTSTART:20250602T090000');
+  });
+
+  it('TRIP-SVC-013: on-route travel time shifts next place and emits Travel VEVENT', async () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id, { title: 'Route Trip' });
+    const day = createDay(testDb, trip.id, { date: '2025-06-02' });
+    setDayWakeUpTime(testDb, day.id, '08:00');
+
+    const placeA = createPlace(testDb, trip.id, { name: 'Place A', lat: 48.8566, lng: 2.3522, duration_minutes: 60 });
+    const placeB = createPlace(testDb, trip.id, { name: 'Place B', lat: 48.8606, lng: 2.3376, duration_minutes: 60 });
+    createDayAssignment(testDb, day.id, placeA.id);
+    createDayAssignment(testDb, day.id, placeB.id);
+
+    // Mock fetch for OSRM to return a 2-hour (7200s) route between A and B
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('openstreetmap.de')) {
+        return {
+          ok: true,
+          json: async () => ({
+            code: 'Ok',
+            routes: [{ distance: 50000, duration: 7200 }],
+          }),
+        } as any;
+      }
+      return originalFetch(url);
+    });
+
+    try {
+      const { ics } = await exportICS(trip.id);
+
+      // Place A: 8:00 - 9:00 AM (Europe/Paris)
+      expect(ics).toContain('DTSTART;TZID=Europe/Paris:20250602T080000');
+      expect(ics).toContain('DTEND;TZID=Europe/Paris:20250602T090000');
+      expect(ics).toContain('SUMMARY:Place A');
+
+      // Travel event: 9:00 - 11:00 AM
+      expect(ics).toContain('SUMMARY:Travel: Place A → Place B');
+      expect(ics).toContain('DTSTART;TZID=Europe/Paris:20250602T090000');
+      expect(ics).toContain('DTEND;TZID=Europe/Paris:20250602T110000');
+      expect(ics).toContain('Mode: Driving');
+      expect(ics).toContain('Duration: 2h');
+
+      // Place B: 11:00 AM - 12:00 PM
+      expect(ics).toContain('DTSTART;TZID=Europe/Paris:20250602T110000');
+      expect(ics).toContain('DTEND;TZID=Europe/Paris:20250602T120000');
+      expect(ics).toContain('SUMMARY:Place B');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('TRIP-SVC-014: route calculation persists in trekforge.route_cache table and reuses cached leg', async () => {
+    clearRouteCacheForTests();
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id, { title: 'Persisted Route Trip' });
+    const day = createDay(testDb, trip.id, { date: '2025-06-02' });
+    setDayWakeUpTime(testDb, day.id, '08:00');
+
+    const placeA = createPlace(testDb, trip.id, { name: 'Place A', lat: 48.8566, lng: 2.3522, duration_minutes: 60 });
+    const placeB = createPlace(testDb, trip.id, { name: 'Place B', lat: 48.8606, lng: 2.3376, duration_minutes: 60 });
+    createDayAssignment(testDb, day.id, placeA.id);
+    createDayAssignment(testDb, day.id, placeB.id);
+
+    let fetchCount = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      fetchCount++;
+      return {
+        ok: true,
+        json: async () => ({
+          code: 'Ok',
+          routes: [{ distance: 3000, duration: 1800 }],
+        }),
+      } as any;
+    });
+
+    try {
+      // First export calls fetch and persists to SQLite route_cache
+      const { ics: ics1 } = await exportICS(trip.id);
+      expect(fetchCount).toBe(1);
+      expect(ics1).toContain('Duration: 30m');
+
+      // Verify row exists in trekforge.route_cache
+      const cached = testDb.prepare('SELECT * FROM trekforge.route_cache').all() as any[];
+      expect(cached.length).toBeGreaterThan(0);
+      expect(cached[0].duration_seconds).toBe(1800);
+      expect(cached[0].distance_meters).toBe(3000);
+
+      // Subsequent export with a mock that throws should still succeed using SQLite cached route
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        throw new Error('Network offline');
+      });
+
+      const { ics: ics2 } = await exportICS(trip.id);
+      expect(ics2).toContain('Duration: 30m');
+      expect(ics2).toContain('SUMMARY:Travel: Place A → Place B');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
