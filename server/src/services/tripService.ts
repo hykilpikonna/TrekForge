@@ -1000,8 +1000,6 @@ export async function exportICS(tripId: string | number): Promise<{ ics: string;
       // Route leg to next assignment
       if (i < assignments.length - 1) {
         const nextA = assignments[i + 1];
-        let legTravelMins = 0;
-        let legResult: RouteLegResult | null = null;
         const mode = nextA.assignment_transport_mode || 'driving';
 
         if (a.place_lat != null && a.place_lng != null && nextA.place_lat != null && nextA.place_lng != null) {
@@ -1009,12 +1007,12 @@ export async function exportICS(tripId: string | number): Promise<{ ics: string;
           const toPt = { lat: nextA.place_lat, lng: nextA.place_lng, name: nextA.place_name, address: nextA.place_address };
           const travelStartMinutes = activityCursor + scheduleMargin;
           const depTime = fmtDayMinutes(day.date, travelStartMinutes);
-          legResult = await calculateRouteLeg(fromPt, toPt, {
+          const legResult = await calculateRouteLeg(fromPt, toPt, {
             ...tripRoutingOptions,
             profile: mode,
             departureLocalDateTime: depTime,
           });
-          legTravelMins = Math.max(0, Math.round(legResult.durationSeconds / 60));
+          const legTravelMins = Math.max(0, Math.round(legResult.durationSeconds / 60));
 
           if (legTravelMins > 0) {
             const travelZone = resolveTimeZone(fromPt.lat, fromPt.lng) || resolveTimeZone(toPt.lat, toPt.lng);

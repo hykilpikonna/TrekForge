@@ -100,7 +100,7 @@ export async function calculateRouteLeg(
     // Non-fatal if DB read fails
   }
 
-  let result: RouteLegResult = { durationSeconds: 0, distanceMeters: 0 };
+  let result: RouteLegResult;
 
   try {
     if (provider === 'google_maps') {
